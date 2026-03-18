@@ -1,0 +1,138 @@
+  • electron-builder  version=26.8.1 os=10.0.26200
+  • loaded configuration  file=package.json ("build" field)
+  • description is missed in the package.json  appPackageFile=C:\Users\Frunk\experim,ents\stock-dip-analyzer\package.json
+  • author is missed in the package.json  appPackageFile=C:\Users\Frunk\experim,ents\stock-dip-analyzer\package.json
+  • executing @electron/rebuild  electronVersion=40.6.1 arch=x64 buildFromSource=false workspaceRoot=C:\Users\Frunk\experim,ents\stock-dip-analyzer projectDir=./ appDir=./
+  • installing native dependencies  arch=x64
+  • completed installing native dependencies
+  • packaging       platform=win32 arch=x64 electron=40.6.1 appOutDir=dist\win-unpacked
+  • searching for node modules  pm=npm searchDir=C:\Users\Frunk\experim,ents\stock-dip-analyzer
+(node:291436) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+  • duplicate dependency references  dependencies=["domhandler@5.0.3","domutils@3.2.2","domhandler@5.0.3","domutils@3.2.2","domhandler@5.0.3","dom-serializer@2.0.0","domhandler@5.0.3","iconv-lite@0.6.3","domhandler@5.0.3","domutils@3.2.2","domhandler@5.0.3","parse5@7.3.0","parse5@7.3.0","react-dom@19.2.4","react-dom@19.2.4","react-redux@9.2.0","react-dom@19.2.4","d3-array@3.2.4","d3-interpolate@3.0.1","d3-time@3.1.0","d3-time@3.1.0","d3-array@3.2.4"]
+  • updating asar integrity executable resource  executablePath=dist\win-unpacked\Stock Dip Analyzer.exe
+  • default Electron icon is used  reason=application icon is not set
+  • downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z size=5.6 MB parts=1
+  • downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=382ms
+  ⨯ cannot execute  cause=exit status 2
+                    out=
+    7-Zip (a) 21.07 (x64) : Copyright (c) 1999-2021 Igor Pavlov : 2021-12-26
+    
+    Scanning the drive for archives:
+    1 file, 5635384 bytes (5504 KiB)
+    
+    Extracting archive: C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\111295863.7z
+    --
+    Path = C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\111295863.7z
+    Type = 7z
+    Physical Size = 5635384
+    Headers Size = 1492
+    Method = LZMA2:24m LZMA:20 BCJ2
+    Solid = +
+    Blocks = 2
+    
+    
+    Sub items Errors: 2
+    
+    Archives with Errors: 1
+    
+    Sub items Errors: 2
+    
+                    errorOut=ERROR: Cannot create symbolic link : A required privilege is not held by the client. : C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\111295863\darwin\10.12\lib\libcrypto.dylib
+    ERROR: Cannot create symbolic link : A required privilege is not held by the client. : C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\111295863\darwin\10.12\lib\libssl.dylib
+    
+                    command='C:\Users\Frunk\experim,ents\stock-dip-analyzer\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\111295863.7z' '-oC:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\111295863'
+                    workingDir=C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign
+  • downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z size=5.6 MB parts=1
+  • downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=505ms
+  ⨯ cannot execute  cause=exit status 2
+                    out=
+    7-Zip (a) 21.07 (x64) : Copyright (c) 1999-2021 Igor Pavlov : 2021-12-26
+    
+    Scanning the drive for archives:
+    1 file, 5635384 bytes (5504 KiB)
+    
+    Extracting archive: C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\293016827.7z
+    --
+    Path = C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\293016827.7z
+    Type = 7z
+    Physical Size = 5635384
+    Headers Size = 1492
+    Method = LZMA2:24m LZMA:20 BCJ2
+    Solid = +
+    Blocks = 2
+    
+    
+    Sub items Errors: 2
+    
+    Archives with Errors: 1
+    
+    Sub items Errors: 2
+    
+                    errorOut=ERROR: Cannot create symbolic link : A required privilege is not held by the client. : C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\293016827\darwin\10.12\lib\libcrypto.dylib
+    ERROR: Cannot create symbolic link : A required privilege is not held by the client. : C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\293016827\darwin\10.12\lib\libssl.dylib
+    
+                    command='C:\Users\Frunk\experim,ents\stock-dip-analyzer\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\293016827.7z' '-oC:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\293016827'
+                    workingDir=C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign
+  • downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z size=5.6 MB parts=1
+  • downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=375ms
+  ⨯ cannot execute  cause=exit status 2
+                    out=
+    7-Zip (a) 21.07 (x64) : Copyright (c) 1999-2021 Igor Pavlov : 2021-12-26
+    
+    Scanning the drive for archives:
+    1 file, 5635384 bytes (5504 KiB)
+    
+    Extracting archive: C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\004491623.7z
+    --
+    Path = C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\004491623.7z
+    Type = 7z
+    Physical Size = 5635384
+    Headers Size = 1492
+    Method = LZMA2:24m LZMA:20 BCJ2
+    Solid = +
+    Blocks = 2
+    
+    
+    Sub items Errors: 2
+    
+    Archives with Errors: 1
+    
+    Sub items Errors: 2
+    
+                    errorOut=ERROR: Cannot create symbolic link : A required privilege is not held by the client. : C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\004491623\darwin\10.12\lib\libcrypto.dylib
+    ERROR: Cannot create symbolic link : A required privilege is not held by the client. : C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\004491623\darwin\10.12\lib\libssl.dylib
+    
+                    command='C:\Users\Frunk\experim,ents\stock-dip-analyzer\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\004491623.7z' '-oC:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\004491623'
+                    workingDir=C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign
+  • downloading     url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z size=5.6 MB parts=1
+  • downloaded      url=https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=354ms
+  ⨯ cannot execute  cause=exit status 2
+                    out=
+    7-Zip (a) 21.07 (x64) : Copyright (c) 1999-2021 Igor Pavlov : 2021-12-26
+    
+    Scanning the drive for archives:
+    1 file, 5635384 bytes (5504 KiB)
+    
+    Extracting archive: C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\096870355.7z
+    --
+    Path = C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\096870355.7z
+    Type = 7z
+    Physical Size = 5635384
+    Headers Size = 1492
+    Method = LZMA2:24m LZMA:20 BCJ2
+    Solid = +
+    Blocks = 2
+    
+    
+    Sub items Errors: 2
+    
+    Archives with Errors: 1
+    
+    Sub items Errors: 2
+    
+                    errorOut=ERROR: Cannot create symbolic link : A required privilege is not held by the client. : C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\096870355\darwin\10.12\lib\libcrypto.dylib
+    ERROR: Cannot create symbolic link : A required privilege is not held by the client. : C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\096870355\darwin\10.12\lib\libssl.dylib
+    
+                    command='C:\Users\Frunk\experim,ents\stock-dip-analyzer\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\096870355.7z' '-oC:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign\096870355'
+                    workingDir=C:\Users\Frunk\AppData\Local\electron-builder\Cache\winCodeSign
