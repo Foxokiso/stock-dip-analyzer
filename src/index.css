@@ -160,76 +160,152 @@ body.theme-anime .btn:hover {
 }
 
 .theme-seizure {
-  /* Absolute Doomsday Pressure Aesthetic */
+  /* ========================================
+   * OVER-OVER GRIM DOOMSDAY AESTHETIC
+   * ======================================== */
   --bg-dark: #000000;
-  --bg-card: rgba(10, 0, 0, 0.95);
-  --bg-card-hover: rgba(20, 0, 0, 0.98);
+  --bg-card: rgba(5, 0, 0, 0.97);
+  --bg-card-hover: rgba(12, 0, 0, 0.99);
 
-  --primary: #990000;
-  --primary-gradient: linear-gradient(135deg, #8b0000 0%, #3d0000 100%);
-  --secondary: #4d0000;
-  --secondary-gradient: linear-gradient(135deg, #4d0000 0%, #1a0000 100%);
+  /* Blood-red primary, barely visible secondary */
+  --primary: #cc0000;
+  --primary-gradient: linear-gradient(135deg, #990000 0%, #2a0000 100%);
+  --secondary: #3a0000;
+  --secondary-gradient: linear-gradient(135deg, #3a0000 0%, #0d0000 100%);
 
-  --text-main: #ff1a1a;
-  --text-muted: #660000;
+  /* READABLE: bone-white main text, dark red for muted */
+  --text-main: #e8e0d5;
+  --text-muted: #6b2222;
 
-  --success: #660000;
-  --danger: #990000;
-  --warning: #4d0000;
+  /* Everything is death */
+  --success: #3a0000;
+  --danger: #cc0000;
+  --warning: #5a1a00;
 
-  --glass-border: 1px solid #4d0000;
-  --glass-shadow: inset 0 0 100px 10px rgba(50, 0, 0, 0.9), 0 0 50px 0 rgba(100, 0, 0, 0.8);
+  /* Panels: solid dark borders with blood glow */
+  --glass-border: 1px solid rgba(120, 0, 0, 0.5);
+  --glass-shadow: 0 0 0 1px rgba(80, 0, 0, 0.4),
+                  0 0 30px rgba(100, 0, 0, 0.3),
+                  inset 0 0 40px rgba(20, 0, 0, 0.8);
   --glass-blur: blur(0px);
-  /* Remove blur for harsh reality */
 
-  /* Heavy, oppressive vignette effect */
-  --bg-image: radial-gradient(circle at center, transparent 20%, rgba(0, 0, 0, 0.9) 80%),
-    repeating-linear-gradient(0deg,
-      rgba(255, 0, 0, 0.05) 0px,
-      rgba(255, 0, 0, 0.05) 1px,
+  /* Brutally oppressive bg: vignette + noise scanlines */
+  --bg-image:
+    radial-gradient(ellipse at center, rgba(8, 0, 0, 0.0) 0%, rgba(0, 0, 0, 0.97) 75%),
+    repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.45) 0px,
+      rgba(0, 0, 0, 0.45) 1px,
       transparent 1px,
-      transparent 4px);
+      transparent 3px
+    );
+
+  /* Lock the grim serif font - feels like a gravestone */
+  --font-heading: 'Georgia', 'Times New Roman', serif;
+  --font-body: 'Georgia', 'Times New Roman', serif;
 }
 
 body.theme-seizure {
+  background-color: #000;
   color: var(--text-main);
-  background-color: var(--bg-dark);
+  /* Subtle full-page slow pulse using only opacity on the ::before — no layout shift */
+  animation: grim-body-breathe 4s ease-in-out infinite;
 }
 
-/* Consolidated Creepy Overlay - 60-120fps smooth without layout thrashing */
+/* ── Slow oppressive breathing effect on bg — GPU only ── */
+@keyframes grim-body-breathe {
+  0%   { filter: brightness(1.0); }
+  50%  { filter: brightness(0.85); }
+  100% { filter: brightness(1.0); }
+}
+
+/* ── Scanline + vignette overlay, absolutely no layout touching ── */
+body.theme-seizure::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9997;
+  /* Heavy dark vignette corners */
+  background:
+    radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.92) 100%);
+  animation: grim-vignette-pulse 2s ease-in-out infinite alternate;
+}
+
+@keyframes grim-vignette-pulse {
+  0%   { opacity: 0.85; }
+  100% { opacity: 1.0; }
+}
+
+/* ── Blood-red scanline glow layer ── */
 body.theme-seizure::after {
   content: '';
   position: fixed;
-  top: 0; 
-  left: 0; 
-  right: 0; 
-  bottom: 0;
+  inset: 0;
   pointer-events: none;
   z-index: 9998;
-  background: radial-gradient(circle at center, transparent 10%, rgba(150, 0, 0, 0.6) 90%),
-              repeating-linear-gradient(0deg, rgba(255, 0, 0, 0.08) 0px, rgba(255, 0, 0, 0.08) 3px, transparent 3px, transparent 6px);
-  mix-blend-mode: overlay;
-  animation: doomsday-overlay-pulse 0.15s infinite alternate ease-in-out;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent 0px,
+      transparent 2px,
+      rgba(180, 0, 0, 0.04) 2px,
+      rgba(180, 0, 0, 0.04) 3px
+    );
+  animation: grim-scanline-crawl 8s linear infinite;
 }
 
+@keyframes grim-scanline-crawl {
+  0%   { background-position: 0 0; }
+  100% { background-position: 0 -120px; }
+}
+
+/* ── Panels: stark, no hover bouncing, hard shadow glow ── */
 body.theme-seizure .glass-panel {
-  background-color: rgba(10, 0, 0, 0.8) !important;
-  border-color: #4d0000 !important;
-  /* subtle red glow without shifting position */
-  box-shadow: 0 0 15px rgba(255, 0, 0, 0.2) !important;
+  background: rgba(4, 0, 0, 0.96) !important;
+  border: 1px solid rgba(100, 0, 0, 0.5) !important;
+  box-shadow:
+    0 0 0 1px rgba(60, 0, 0, 0.3),
+    0 0 25px rgba(120, 0, 0, 0.25),
+    inset 0 1px 0 rgba(180, 0, 0, 0.08) !important;
+  border-radius: 4px !important;
 }
 
-@keyframes doomsday-overlay-pulse {
-  0% { 
-    opacity: 0.7; 
-    transform: scale(1); 
-    filter: contrast(120%) hue-rotate(0deg); 
-  }
-  100% { 
-    opacity: 1; 
-    transform: scale(1.02); 
-    filter: contrast(180%) hue-rotate(5deg); 
-  }
+/* ── All text in seizure mode: bone white readable, grim ── */
+body.theme-seizure,
+body.theme-seizure p,
+body.theme-seizure td,
+body.theme-seizure th,
+body.theme-seizure span,
+body.theme-seizure h1,
+body.theme-seizure h2,
+body.theme-seizure h3,
+body.theme-seizure h4,
+body.theme-seizure h5,
+body.theme-seizure h6,
+body.theme-seizure a {
+  color: #e8e0d5 !important;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body.theme-seizure .text-muted {
+  color: #5a2828 !important;
+}
+
+body.theme-seizure a:hover {
+  color: #cc0000 !important;
+}
+
+/* ── Headings: deeply grim, blood-letter spaced ── */
+body.theme-seizure h1,
+body.theme-seizure h2,
+body.theme-seizure h3 {
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(100, 0, 0, 0.3);
+  padding-bottom: 0.3em;
+  margin-bottom: 0.5em;
 }
 
 /* Specific styles for the cryptic news overlay */
@@ -249,63 +325,47 @@ body.theme-seizure .glass-panel {
   mix-blend-mode: hard-light;
 }
 
+/* ── Telemetry headline text: bone white, very readable, grim slow fade ── */
 .telemetry-text {
-  font-family: 'Courier New', Courier, monospace;
+  font-family: 'Georgia', 'Times New Roman', serif;
   font-weight: 900;
-  font-size: clamp(3rem, 10vw, 15rem);
+  font-size: clamp(2.5rem, 8vw, 11rem);
   text-align: center;
-  color: #ff0000;
+  color: #d9d0c4;
   text-transform: uppercase;
   margin: 0;
-  padding: 0 40px;
-  line-height: 0.8;
-  letter-spacing: -5px;
+  padding: 0 60px;
+  line-height: 0.9;
+  letter-spacing: 0.15em;
   white-space: pre-wrap;
   word-wrap: break-word;
-  opacity: 0;
-  animation: telemetry-flash 0.1s infinite alternate;
+  /* Readable drop shadow to punch through overlay */
+  text-shadow:
+    0 0 40px rgba(180, 0, 0, 0.8),
+    0 0 80px rgba(100, 0, 0, 0.5),
+    2px 2px 0px rgba(0, 0, 0, 0.9);
+  animation: telemetry-grim-appear 2.5s ease-in-out;
 }
 
-@keyframes telemetry-flash {
+@keyframes telemetry-grim-appear {
   0% {
     opacity: 0;
-    transform: scale(1.2) translateY(5%);
-    filter: blur(10px);
+    transform: scale(0.95) translateY(2%);
+    filter: blur(6px);
   }
-
-  10% {
+  15% {
     opacity: 1;
     transform: scale(1.0) translateY(0);
     filter: blur(0px);
   }
-
-  20% {
-    opacity: 0;
-    transform: scale(0.9) translateY(-5%);
-    filter: blur(5px);
+  75% {
+    opacity: 0.95;
+    filter: blur(0px);
   }
-
-  30% {
-    opacity: 0.8;
-    transform: scale(1.1) skewX(-20deg);
-    filter: blur(2px);
-    text-shadow: -10px 0 #fff;
-  }
-
-  60% {
-    opacity: 0;
-  }
-
-  90% {
-    opacity: 0.9;
-    transform: scale(1.05) skewX(10deg);
-    color: #fff;
-  }
-
   100% {
     opacity: 0;
-    transform: scale(0.8) translateY(10%);
-    filter: blur(20px);
+    transform: scale(1.02);
+    filter: blur(3px);
   }
 }
 
