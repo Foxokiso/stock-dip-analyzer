@@ -98,6 +98,13 @@ const SettingsPage = ({ excludedSectors, setExcludedSectors, autoRefreshInterval
   )
 }
 
+const getSeverityLevel = (text) => {
+  if (!text) return 'normal';
+  const lower = text.toLowerCase();
+  const severeWords = ['crash', 'plunge', 'crisis', 'dead', 'kill', 'blood', 'doom', 'disaster', 'warning', 'collapse', 'fail', 'emergency', 'panic', 'terror', 'threat', 'tragedy', 'fatal', 'down', 'loss'];
+  return severeWords.some(w => lower.includes(w)) ? 'severe' : 'normal';
+};
+
 function App() {
   const [theme, setTheme] = useState(() => {
     const saved = localStorage.getItem('dipAnalyzerTheme');
@@ -115,6 +122,8 @@ function App() {
     const saved = localStorage.getItem('autoRefreshInterval');
     return saved ? JSON.parse(saved) : 0;
   });
+  
+  const [globalFilter, setGlobalFilter] = useState('All');
 
   // Ensure Majestic is the absolute default, ignore saved non-majestic themes.
   useEffect(() => {
@@ -182,7 +191,7 @@ function App() {
       if (timer) clearTimeout(timer);
       if (audioCtx) {
         oscillators.forEach(osc => {
-          try { osc.stop(); } catch (e) { /* ignore */ }
+          try { osc.stop(); } catch { /* ignore */ }
         });
         audioCtx.close();
       }
@@ -202,7 +211,7 @@ function App() {
   const [currentLine, setCurrentLine] = useState(0);
 
   useEffect(() => {
-    let intervalId;
+    let timeoutId;
     let isActive = true;
 
     if (theme === 'theme-seizure') {
@@ -210,10 +219,13 @@ function App() {
         if (!isActive) return;
         setTelemetryData(lines);
         setCurrentLine(0);
-        // Swap out the chaotic text aggressively
-        intervalId = setInterval(() => {
+        // Swap out text slowly to allow reading (hallucinatory crawl)
+        const swapLine = () => {
+          if (!isActive) return;
           setCurrentLine(prev => (prev + 1) % lines.length);
-        }, Math.random() * 2000 + 1000); // 1-3 seconds per headline
+          timeoutId = setTimeout(swapLine, 7500); // 7.5 seconds per headline
+        };
+        timeoutId = setTimeout(swapLine, 7500);
       });
     } else {
       setTimeout(() => {
@@ -225,7 +237,7 @@ function App() {
 
     return () => {
       isActive = false;
-      if (intervalId) clearInterval(intervalId);
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, [theme]);
 
@@ -236,7 +248,10 @@ function App() {
         {/* DOOMSDAY OVERLAY */}
         {theme === 'theme-seizure' && telemetryData.length > 0 && (
           <div className="telemetry-overlay">
-            <h1 className="telemetry-text">
+            <h1 
+              key={currentLine} 
+              className={`telemetry-text severity-${getSeverityLevel(telemetryData[currentLine])}`}
+            >
               {telemetryData[currentLine]}
             </h1>
           </div>
@@ -250,6 +265,31 @@ function App() {
             </span>
           </div>
           <nav style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
+            <div className="flex-center" style={{ gap: '0.5rem', marginRight: '1rem' }}>
+              <select
+                value={globalFilter}
+                onChange={(e) => setGlobalFilter(e.target.value)}
+                style={{
+                  background: 'black',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  color: 'white',
+                  padding: '0.4rem 0.6rem',
+                  borderRadius: '4px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  fontSize: '0.85rem'
+                }}
+              >
+                <option value="All">All Ratings</option>
+                <option value="Strong Buy">Strong Buy</option>
+                <option value="Buy">Buy</option>
+                <option value="Hold">Hold</option>
+                <option value="Sell">Sell/Strong Sell</option>
+                <option value="Bullish">Bullish</option>
+                <option value="Bearish">Bearish</option>
+              </select>
+            </div>
             <div className="flex-center" style={{ gap: '0.5rem', color: 'var(--text-muted)', marginRight: '1rem' }}>
               <Palette size={16} />
               <select
@@ -266,20 +306,20 @@ function App() {
                 }}
               >
                 <option value="theme-majestic">Majestic</option>
-                <option value="theme-anime">Crappy Anime</option>
+                <option value="theme-anime">Alien Fractal</option>
                 <option value="theme-seizure">Seizure Mode</option>
               </select>
             </div>
-            <Link to="/" className="flex-center" style={{ gap: '0.5rem', color: 'var(--text-main)' }}>
+            <Link to="/" className="nav-link flex-center">
               <LayoutDashboard size={18} /> Dashboard
             </Link>
-            <Link to="/etfs" className="flex-center" style={{ gap: '0.5rem', color: 'var(--text-main)' }}>
+            <Link to="/etfs" className="nav-link flex-center">
               <Trophy size={18} /> Daily ETFs
             </Link>
-            <Link to="/discovery" className="flex-center" style={{ gap: '0.5rem', color: 'var(--text-main)' }}>
+            <Link to="/discovery" className="nav-link flex-center">
               <Compass size={18} /> Discovery
             </Link>
-            <Link to="/settings" className="flex-center" style={{ gap: '0.5rem', color: 'var(--text-muted)' }}>
+            <Link to="/settings" className="nav-link flex-center text-muted">
               <Settings size={18} /> Settings
             </Link>
           </nav>
@@ -287,10 +327,10 @@ function App() {
 
         <main>
           <Routes>
-            <Route path="/" element={<Dashboard excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} />} />
+            <Route path="/" element={<Dashboard excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
             <Route path="/stock/:symbol" element={<StockDetails />} />
-            <Route path="/etfs" element={<ETFAwards excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} />} />
-            <Route path="/discovery" element={<Discovery excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} />} />
+            <Route path="/etfs" element={<ETFAwards excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
+            <Route path="/discovery" element={<Discovery excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
             <Route path="/settings" element={<SettingsPage excludedSectors={excludedSectors} setExcludedSectors={setExcludedSectors} autoRefreshInterval={autoRefreshInterval} setAutoRefreshInterval={setAutoRefreshInterval} />} />
           </Routes>
         </main>

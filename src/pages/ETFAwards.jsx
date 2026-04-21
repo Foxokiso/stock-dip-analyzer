@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Trophy, TrendingUp, DollarSign, Percent, ExternalLink } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-const ETFAwards = ({ excludedSectors, autoRefreshInterval = 0 }) => {
+const ETFAwards = ({ excludedSectors, autoRefreshInterval = 0, globalFilter = 'All' }) => {
     const [loading, setLoading] = useState(true);
     const [etfs, setEtfs] = useState({
         performance: [],
@@ -97,13 +97,21 @@ const ETFAwards = ({ excludedSectors, autoRefreshInterval = 0 }) => {
         }
     }, [excludedSectors, autoRefreshInterval]);
 
-    const renderEtfList = (title, icon, data, highlightColor) => (
+    const renderEtfList = (title, icon, data, highlightColor) => {
+        const filteredData = data.filter(etf => {
+            if (globalFilter === 'All') return true;
+            if (globalFilter === 'Bullish' || globalFilter === 'Strong Buy' || globalFilter === 'Buy') return etf.change > 0;
+            if (globalFilter === 'Bearish' || globalFilter === 'Sell/Strong Sell' || globalFilter === 'Hold' || globalFilter === 'Sell') return etf.change < 0;
+            return true;
+        });
+        
+        return (
         <div className="glass-panel" style={{ padding: '1.5rem', flex: 1 }}>
             <h3 className="flex-center" style={{ gap: '0.5rem', marginBottom: '1.5rem', color: highlightColor }}>
                 {icon}
                 {title}
             </h3>
-            {data.map((etf, i) => (
+            {filteredData.map((etf, i) => (
                 <div key={etf.symbol} style={{
                     display: 'flex',
                     justifyContent: 'space-between',
@@ -128,7 +136,8 @@ const ETFAwards = ({ excludedSectors, autoRefreshInterval = 0 }) => {
                 </div>
             ))}
         </div>
-    );
+        );
+    };
 
     return (
         <div className="etf-awards-page">

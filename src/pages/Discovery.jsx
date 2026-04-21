@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Compass, BarChart2, Activity, Zap } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-const Discovery = ({ excludedSectors }) => {
+const Discovery = ({ excludedSectors, globalFilter = 'All' }) => {
     const [loading, setLoading] = useState(true);
     const [discoveredStocks, setDiscoveredStocks] = useState([]);
     const [activeWidgetSymbol, setActiveWidgetSymbol] = useState('SPY');
@@ -144,7 +144,14 @@ const Discovery = ({ excludedSectors }) => {
                         <div className="text-center text-muted">No active tickers found matching criteria.</div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                            {discoveredStocks.map((stock, idx) => (
+                            {discoveredStocks
+                                .filter(stock => {
+                                    if (globalFilter === 'All') return true;
+                                    if (globalFilter === 'Bullish' || globalFilter === 'Strong Buy' || globalFilter === 'Buy') return stock.change > 0;
+                                    if (globalFilter === 'Bearish' || globalFilter === 'Sell/Strong Sell' || globalFilter === 'Hold' || globalFilter === 'Sell') return stock.change < 0;
+                                    return true;
+                                })
+                                .map((stock, idx) => (
                                 <div
                                     key={`${stock.symbol}-${idx}`}
                                     onClick={() => setActiveWidgetSymbol(stock.symbol)}

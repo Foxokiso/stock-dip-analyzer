@@ -60,7 +60,11 @@ function createWindow() {
     });
 }
 
-app.disableHardwareAcceleration();
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+// Allow uncapped frame rates if supported, helping reach 120fps on high-refresh monitors
+app.commandLine.appendSwitch('disable-frame-rate-limit');
 
 app.whenReady().then(() => {
     createWindow();

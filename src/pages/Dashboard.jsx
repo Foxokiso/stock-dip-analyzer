@@ -1,7 +1,74 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import { Search, SlidersHorizontal, RefreshCw } from 'lucide-react';
 
-const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0 }) => {
+const StockRow = memo(({ stock }) => {
+    let scoreColor = 'var(--text-muted)';
+    let scoreText = 'Neutral';
+
+    if (stock.isZombie) {
+        scoreColor = '#9ca3af';
+        scoreText = 'ZOMBIE / DEAD';
+    } else if (stock.recoveryProbability >= 80) {
+        scoreColor = 'var(--success)';
+        scoreText = 'Strong Buy';
+    } else if (stock.recoveryProbability >= 60) {
+        scoreColor = '#22c55e';
+        scoreText = 'Buy';
+    } else if (stock.recoveryProbability >= 40) {
+        scoreColor = 'var(--warning)';
+        scoreText = 'Hold';
+    } else if (stock.recoveryProbability >= 20) {
+        scoreColor = '#f97316';
+        scoreText = 'Sell';
+    } else {
+        scoreColor = 'var(--danger)';
+        scoreText = 'Strong Sell';
+    }
+
+    return (
+        <tr 
+            style={{ 
+                borderBottom: '1px solid rgba(255,255,255,0.05)',
+                opacity: stock.isZombie ? 0.6 : 1,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease-in-out',
+                willChange: 'transform'
+            }}
+            onClick={() => window.location.hash = `/stock/${stock.symbol}`}
+            onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+            }}
+            onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = 'none';
+            }}
+        >
+            <td style={{ padding: '1rem 0.5rem', fontWeight: 'bold', color: 'var(--text-main)' }}>{stock.symbol}</td>
+            <td style={{ padding: '1rem 0.5rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>{stock.name}</td>
+            <td style={{ padding: '1rem 0.5rem', fontWeight: '600', textAlign: 'right' }}>${stock.price.toFixed(2)}</td>
+            <td style={{ padding: '1rem 0.5rem', color: 'var(--danger)', textAlign: 'right' }}>-{stock.dipPercentage}%</td>
+            <td style={{ padding: '1rem 0.5rem', textAlign: 'center' }}>
+                <span style={{ 
+                    color: scoreColor, 
+                    border: `1px solid ${scoreColor}40`, 
+                    background: `${scoreColor}15`, 
+                    padding: '0.2rem 0.6rem', 
+                    borderRadius: '20px', 
+                    fontSize: '0.85rem',
+                    display: 'inline-block',
+                    minWidth: '100px'
+                }}>
+                    {scoreText} ({stock.recoveryProbability})
+                </span>
+            </td>
+        </tr>
+    );
+});
+
+const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter = 'All' }) => {
     const [chartCount, setChartCount] = useState(20);
     const [searchTerm, setSearchTerm] = useState('');
     const [sector, setSector] = useState(''); // Empty string means "Any Sector"
@@ -43,6 +110,8 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0 }) => {
 
             let isBreakout = false;
             let isBreakdown = false;
+            let isBullish = false;
+            let isBearish = false;
 
             if (chartData.length - peakIndex > 5) {
                 const recentSlice = chartData.slice(peakIndex);
@@ -63,33 +132,57 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0 }) => {
                         isBreakout = true;
                     }
                 }
+                
+                // Bullish / Bearish short-term checks using EMA instead of SMA
+                if (recentSlice.length >= 10) {
+                    const calculateEMA = (data, period) => {
+                        const k = 2 / (period + 1);
+                        return data.reduce((ema, item, i) => {
+                            if (i === 0) return item.price;
+                            return (item.price - ema) * k + ema;
+                        }, data[0].price);
+                    };
+                    
+                    const ema10 = calculateEMA(recentSlice.slice(-10), 10);
+                    const ema5 = calculateEMA(recentSlice.slice(-5), 5);
+                    
+                    if (ema5 > ema10 && currentPrice > ema5 * 1.01) isBullish = true;
+                    if (ema5 < ema10 && currentPrice < ema5 * 0.99) isBearish = true;
+                }
             }
             
             // Dispatch live alert asynchronously without blocking
-            if (isBreakdown || isBreakout) {
-                // Ensure we don't dispatch duplicate alerts via a global flag if possible
+            if (isBreakdown || isBreakout || isBullish || isBearish) {
                 if (!window._stockAlertsEmitted) window._stockAlertsEmitted = new Set();
                 
-                if (!window._stockAlertsEmitted.has(symbol)) {
-                    window._stockAlertsEmitted.add(symbol);
+                const typeStr = isBreakout ? 'breakout' : isBreakdown ? 'breakdown' : isBullish ? 'bullish' : 'bearish';
+                const cacheKey = `${symbol}-${typeStr}`;
+                
+                if (!window._stockAlertsEmitted.has(cacheKey)) {
+                    window._stockAlertsEmitted.add(cacheKey);
                     
                     let alertColor = 'blue';
+                    let message = "";
+
                     if (isBreakdown && dipPercentage >= 15) {
                         alertColor = 'amber';
-                    }
-                    
-                    let message = isBreakout 
-                        ? `Breaking resistance at $${currentPrice.toFixed(2)}` 
-                        : `Breaking support at $${currentPrice.toFixed(2)}, accelerating downtrend`;
-                    
-                    if (alertColor === 'amber') {
                         message = `AMBER ALERT: Astonishingly huge drop of ${dipPercentage.toFixed(1)}%. Support shattered at $${currentPrice.toFixed(2)}!`;
+                    } else if (isBreakout) {
+                        message = `Breaking resistance at $${currentPrice.toFixed(2)}`;
+                    } else if (isBreakdown) {
+                        message = `Breaking support at $${currentPrice.toFixed(2)}, accelerating downtrend`;
+                    } else if (isBullish) {
+                        const m = ["Bullish divergence detected. Momentum shifting positive.", "Bulls are waking up. Accumulation phase initiated.", "Relative strength is surging.", "Aggressive buying pressure identified."];
+                        message = `${m[Math.floor(Math.random() * m.length)]} $${currentPrice.toFixed(2)}`;
+                    } else if (isBearish) {
+                        const m = ["Bearish trend confirmed. Distribution in progress.", "Bears have control. Selling pressure overwhelming.", "Momentum breaking down. Weakness detected.", "Warning: Bearish cross. Technicals deteriorating."];
+                        message = `${m[Math.floor(Math.random() * m.length)]} $${currentPrice.toFixed(2)}`;
                     }
 
                     const alertEvent = new CustomEvent('stock-alert', {
                         detail: {
                             symbol,
-                            type: isBreakout ? 'breakout' : 'breakdown',
+                            type: typeStr,
                             color: alertColor,
                             message: message,
                             timestamp: Date.now()
@@ -128,8 +221,6 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0 }) => {
                 setLoading(false);
                 return;
             }
-
-            let offset = 1;
 
             // --- PHOTONICS BASKET OVERRIDE ---
             if (sector === 'photonics') {
@@ -209,85 +300,85 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0 }) => {
                 filterStr += `%2Csec_${sector}`;
             }
 
-            // Fire requests in parallel to drastically improve UI smoothness and fetch speed
-            const pagePromises = pageIndices.map(async (offset) => {
+            // Fire requests sequentially, but incrementally buffer and parse to the screen so user feels zero lag!
+            let combinedStocksMap = new Map();
+            allStocks = [];
+
+            for (const offset of pageIndices) {
                 const url = `https://finviz.com/screener.ashx?v=111&p=d&f=${filterStr}&ta=0&dr=y1&o=-marketcap&r=${offset}`;
                 const html = await electron.ipcRenderer.invoke('fetch-url', url);
-                return { html, offset };
-            });
-
-            // Await all parallel fetches, but parse HTML out of loop
-            const results = await Promise.all(pagePromises);
-            
-            // Reconstruct combined list
-            let combinedStocksMap = new Map();
-
-            for (const { html, offset } of results) {
-                if (!html) continue;
                 
-                // Keep DOM Parsing fast by doing it sequentially after fetches complete
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(html, 'text/html');
-                const rows = doc.querySelectorAll('tr');
+                if (html) {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const rows = doc.querySelectorAll('tr');
 
-                rows.forEach(row => {
-                    const cells = row.querySelectorAll('td');
-                    if (cells.length >= 10) {
-                        const numberText = cells[0].textContent.trim();
-                        const tickerLink = cells[1].querySelector('a[href^="quote.ashx"]');
+                    rows.forEach(row => {
+                        const cells = row.querySelectorAll('td');
+                        if (cells.length >= 10) {
+                            const numberText = cells[0].textContent.trim();
+                            const tickerLink = cells[1].querySelector('a[href^="quote.ashx"]');
 
-                        if (parseInt(numberText) > 0 && tickerLink) {
-                            const ticker = tickerLink.textContent.trim();
+                            if (parseInt(numberText) > 0 && tickerLink) {
+                                const ticker = tickerLink.textContent.trim();
 
-                            const finvizSectorStr = cells[3]?.textContent.trim().toLowerCase().replace(/ /g, '') || '';
-                            if (excludedSectors.includes(finvizSectorStr)) {
-                                return; // Skip
-                            }
+                                const finvizSectorStr = cells[3]?.textContent.trim().toLowerCase().replace(/ /g, '') || '';
+                                if (excludedSectors.includes(finvizSectorStr)) {
+                                    return; // Skip
+                                }
 
-                            const changeStr = cells[9].textContent.trim();
-                            const change = parseFloat(changeStr.replace('%', '')) || 0;
+                                const changeStr = cells[9].textContent.trim();
+                                const change = parseFloat(changeStr.replace('%', '')) || 0;
 
-                            if (ticker && !combinedStocksMap.has(ticker)) {
-                                const cleanPrice = parseFloat(cells[8].textContent.trim().replace(/,/g, '')) || 0;
-                                combinedStocksMap.set(ticker, {
-                                    symbol: ticker,
-                                    name: cells[2].textContent.trim(),
-                                    price: cleanPrice,
-                                    changePercentage: change,
-                                    dipPercentage: change < 0 ? Math.abs(change) : 0,
-                                    recoveryProbability: null, // Keep null temporarily
-                                    isZombie: false
-                                });
+                                if (ticker && !combinedStocksMap.has(ticker)) {
+                                    const cleanPrice = parseFloat(cells[8].textContent.trim().replace(/,/g, '')) || 0;
+                                    combinedStocksMap.set(ticker, {
+                                        symbol: ticker,
+                                        name: cells[2].textContent.trim(),
+                                        price: cleanPrice,
+                                        changePercentage: change,
+                                        dipPercentage: change < 0 ? Math.abs(change) : 0,
+                                        recoveryProbability: null, // Keep null temporarily
+                                        isZombie: false
+                                    });
+                                }
                             }
                         }
-                    }
-                });
+                    });
+
+                    // Flush the buffer to the screen incrementally so UI is totally responsive and immediately populates
+                    allStocks = Array.from(combinedStocksMap.values()).slice(0, targetCount);
+                    setStocks((prevStocks) => {
+                        return allStocks.map(newStock => {
+                            const existing = prevStocks.find(p => p.symbol === newStock.symbol);
+                            return existing ? { 
+                                ...newStock, 
+                                recoveryProbability: existing.recoveryProbability, 
+                                isZombie: existing.isZombie 
+                            } : { ...newStock, recoveryProbability: 50 };
+                        });
+                    });
+                }
+                await new Promise(r => setTimeout(r, 600)); // 600ms delay between pages
             }
 
-            allStocks = Array.from(combinedStocksMap.values()).slice(0, targetCount);
-            
-            // Cleanly merge allStocks into existing state to prevent flickering
-            setStocks((prevStocks) => {
-                const newStocksList = allStocks.map(newStock => {
-                    const existing = prevStocks.find(p => p.symbol === newStock.symbol);
-                    return existing ? { 
-                        ...newStock, 
-                        recoveryProbability: existing.recoveryProbability, 
-                        isZombie: existing.isZombie 
-                    } : { ...newStock, recoveryProbability: 50 };
-                });
-                return newStocksList;
-            });
-
-            // Asynchronously hydrate scores for all fetched stocks simultaneously using live prices
-            Promise.all(allStocks.map(async (stock) => {
-                const score = await calculateRecoveryScore(stock.symbol, electron, stock.price);
-                setStocks((prev) => prev.map(s => s.symbol === stock.symbol ? {
-                    ...s,
-                    recoveryProbability: score,
-                    isZombie: score < 20
-                } : s));
-            })).catch(err => console.error("Error hydrating scores:", err));
+            // Asynchronously hydrate scores in small batches to avoid Yahoo 429 rate limits
+            const hydrateScores = async () => {
+                const chunkSize = 5;
+                for (let i = 0; i < allStocks.length; i += chunkSize) {
+                    const chunk = allStocks.slice(i, i + chunkSize);
+                    await Promise.all(chunk.map(async (stock) => {
+                        const score = await calculateRecoveryScore(stock.symbol, electron, stock.price);
+                        setStocks((prev) => prev.map(s => s.symbol === stock.symbol ? {
+                            ...s,
+                            recoveryProbability: score,
+                            isZombie: score < 20
+                        } : s));
+                    }));
+                    await new Promise(r => setTimeout(r, 800)); // Delay between chunks
+                }
+            };
+            hydrateScores().catch(err => console.error("Error hydrating scores:", err));
 
         } catch (error) {
             console.error("Failed to fetch Finviz", error);
@@ -310,7 +401,31 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0 }) => {
         return () => clearInterval(intervalId);
     }, [autoRefreshInterval, chartCount, fetchFinvizData]);
 
-    const filteredStocks = stocks.filter(s => s.symbol.toLowerCase().includes(searchTerm.toLowerCase()));
+    const filteredStocks = stocks.filter(s => {
+        if (!s.symbol.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+        
+        if (globalFilter !== 'All') {
+            let rating = 'Hold';
+            if (s.isZombie) rating = 'Zombie';
+            else if (s.recoveryProbability >= 80) rating = 'Strong Buy';
+            else if (s.recoveryProbability >= 60) rating = 'Buy';
+            else if (s.recoveryProbability >= 40) rating = 'Hold';
+            else if (s.recoveryProbability >= 20) rating = 'Sell';
+            else rating = 'Strong Sell';
+
+            if (globalFilter === 'Sell/Strong Sell') {
+                return rating === 'Sell' || rating === 'Strong Sell';
+            }
+            if (globalFilter === 'Bullish') {
+               return s.changePercentage > 0;
+            }
+            if (globalFilter === 'Bearish') {
+               return s.changePercentage < 0;
+            }
+            return rating === globalFilter;
+        }
+        return true;
+    });
 
     return (
         <div className="dashboard">
@@ -331,8 +446,8 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0 }) => {
                 </div>
 
                 <div className="flex-center" style={{ gap: '1rem' }}>
-                    <div className="glass-panel flex-center" style={{ padding: '0.5rem 1rem', gap: '0.5rem', borderRadius: '30px' }}>
-                        <Search size={18} color="var(--text-muted)" />
+                    <div className="flex-center" style={{ padding: '0.5rem 1.2rem', gap: '0.8rem', borderRadius: '30px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.05)', boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.5)' }}>
+                        <Search size={18} color="var(--primary)" style={{ opacity: 0.8 }} />
                         <input
                             type="text"
                             placeholder="Search ticker..."
@@ -344,13 +459,14 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0 }) => {
                                 color: 'var(--text-main)',
                                 outline: 'none',
                                 width: '150px',
-                                fontFamily: 'inherit'
+                                fontFamily: 'inherit',
+                                fontSize: '0.95rem'
                             }}
                         />
                     </div>
 
-                    <div className="glass-panel flex-center" style={{ padding: '0.5rem 1rem', gap: '0.5rem', borderRadius: '30px' }}>
-                        <SlidersHorizontal size={18} color="var(--text-muted)" />
+                    <div className="flex-center" style={{ padding: '0.5rem 1.2rem', gap: '0.8rem', borderRadius: '30px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.05)', boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.5)' }}>
+                        <SlidersHorizontal size={18} color="var(--primary)" style={{ opacity: 0.8 }} />
 
                         {/* Sector Filter Dropdown */}
                         <select
@@ -363,9 +479,10 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0 }) => {
                                 outline: 'none',
                                 cursor: 'pointer',
                                 fontFamily: 'inherit',
+                                fontSize: '0.95rem',
                                 borderRight: '1px solid rgba(255,255,255,0.1)',
-                                paddingRight: '0.5rem',
-                                marginRight: '0.5rem'
+                                paddingRight: '0.8rem',
+                                marginRight: '0.8rem'
                             }}
                         >
                             <option value="">Any Sector</option>
@@ -391,7 +508,8 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0 }) => {
                                 color: 'var(--text-main)',
                                 outline: 'none',
                                 cursor: 'pointer',
-                                fontFamily: 'inherit'
+                                fontFamily: 'inherit',
+                                fontSize: '0.95rem'
                             }}
                         >
                             <option value={10}>Top 10 Dips</option>
@@ -419,72 +537,9 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0 }) => {
                         </tr>
                     </thead>
                     <tbody>
-                        {filteredStocks.map((stock) => {
-                            let scoreColor = 'var(--text-muted)';
-                            let scoreText = 'Neutral';
-
-                            if (stock.isZombie) {
-                                scoreColor = '#9ca3af';
-                                scoreText = 'ZOMBIE / DEAD';
-                            } else if (stock.recoveryProbability >= 80) {
-                                scoreColor = 'var(--success)';
-                                scoreText = 'Strong Buy';
-                            } else if (stock.recoveryProbability >= 60) {
-                                scoreColor = '#22c55e';
-                                scoreText = 'Buy';
-                            } else if (stock.recoveryProbability >= 40) {
-                                scoreColor = 'var(--warning)';
-                                scoreText = 'Hold';
-                            } else if (stock.recoveryProbability >= 20) {
-                                scoreColor = '#f97316';
-                                scoreText = 'Sell';
-                            } else {
-                                scoreColor = 'var(--danger)';
-                                scoreText = 'Strong Sell';
-                            }
-
-                            return (
-                                <tr 
-                                    key={stock.symbol} 
-                                    style={{ 
-                                        borderBottom: '1px solid rgba(255,255,255,0.05)',
-                                        opacity: stock.isZombie ? 0.6 : 1,
-                                        cursor: 'pointer',
-                                        transition: 'all 0.2s ease-in-out'
-                                    }}
-                                    onClick={() => window.location.hash = `/stock/${stock.symbol}`}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
-                                        e.currentTarget.style.transform = 'translateY(-1px)';
-                                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.background = 'transparent';
-                                        e.currentTarget.style.transform = 'translateY(0)';
-                                        e.currentTarget.style.boxShadow = 'none';
-                                    }}
-                                >
-                                    <td style={{ padding: '1rem 0.5rem', fontWeight: 'bold', color: 'var(--text-main)' }}>{stock.symbol}</td>
-                                    <td style={{ padding: '1rem 0.5rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>{stock.name}</td>
-                                    <td style={{ padding: '1rem 0.5rem', fontWeight: '600', textAlign: 'right' }}>${stock.price.toFixed(2)}</td>
-                                    <td style={{ padding: '1rem 0.5rem', color: 'var(--danger)', textAlign: 'right' }}>-{stock.dipPercentage}%</td>
-                                    <td style={{ padding: '1rem 0.5rem', textAlign: 'center' }}>
-                                        <span style={{ 
-                                            color: scoreColor, 
-                                            border: `1px solid ${scoreColor}40`, 
-                                            background: `${scoreColor}15`, 
-                                            padding: '0.2rem 0.6rem', 
-                                            borderRadius: '20px', 
-                                            fontSize: '0.85rem',
-                                            display: 'inline-block',
-                                            minWidth: '100px'
-                                        }}>
-                                            {scoreText} ({stock.recoveryProbability})
-                                        </span>
-                                    </td>
-                                </tr>
-                            );
-                        })}
+                        {filteredStocks.map((stock) => (
+                            <StockRow key={stock.symbol} stock={stock} />
+                        ))}
 
                         {loading && Array.from({ length: Math.max(0, chartCount - stocks.length) }).map((_, i) => (
                             <tr key={`loading-${i}`} style={{ opacity: 0.3 }}>

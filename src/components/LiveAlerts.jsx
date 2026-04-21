@@ -4,7 +4,26 @@ import alienAudio from '../assets/alien_ominous.wav';
 
 const LiveAlerts = () => {
     const [alerts, setAlerts] = useState([]); // active live toasts
-    const [history, setHistory] = useState([]); // all history
+    const [history, setHistory] = useState(() => {
+        const saved = localStorage.getItem('dipAnalyzerAlertHistory');
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                const now = new Date();
+                const todayStr = now.toDateString();
+                
+                return parsed.filter(item => {
+                    const itemDate = new Date(item.timestamp).toDateString();
+                    if (itemDate === todayStr) return true;
+                    if (item.color === 'amber') return true;
+                    return false;
+                });
+            } catch (e) {
+                console.error("Failed to parse alert history", e);
+            }
+        }
+        return [];
+    }); // all history
     const [showHistory, setShowHistory] = useState(false);
     
     const audioRef = useRef(null);
@@ -70,26 +89,6 @@ const LiveAlerts = () => {
             audioRef.current.volume = 0.25;
         }
 
-        // Load History
-        const saved = localStorage.getItem('dipAnalyzerAlertHistory');
-        if (saved) {
-            try {
-                const parsed = JSON.parse(saved);
-                const now = new Date();
-                const todayStr = now.toDateString();
-                
-                // Keep all of today's, plus older AMBER alerts. Discard older BLUE alerts.
-                const filtered = parsed.filter(item => {
-                    const itemDate = new Date(item.timestamp).toDateString();
-                    if (itemDate === todayStr) return true;
-                    if (item.color === 'amber') return true;
-                    return false;
-                });
-                setHistory(filtered);
-            } catch (e) {
-                console.error("Failed to parse alert history", e);
-            }
-        }
     }, []);
 
     useEffect(() => {
@@ -154,31 +153,32 @@ const LiveAlerts = () => {
                 {alerts.map((alert) => (
                     <div key={alert.id} style={{
                         background: alert.color === 'amber' 
-                            ? 'linear-gradient(135deg, rgba(217, 119, 6, 0.95) 0%, rgba(180, 83, 9, 0.9) 100%)' 
-                            : 'linear-gradient(135deg, rgba(88, 28, 135, 0.9) 0%, rgba(30, 58, 138, 0.9) 100%)',
-                        backdropFilter: 'blur(8px)',
-                        border: alert.color === 'amber' ? '1px solid rgba(252, 211, 77, 0.7)' : '1px solid rgba(167, 139, 250, 0.4)',
-                        borderRadius: '12px',
+                            ? 'linear-gradient(135deg, rgba(217, 119, 6, 0.8) 0%, rgba(180, 83, 9, 0.9) 100%)' 
+                            : 'linear-gradient(135deg, rgba(30, 20, 60, 0.85) 0%, rgba(10, 20, 40, 0.9) 100%)',
+                        backdropFilter: 'blur(16px)',
+                        WebkitBackdropFilter: 'blur(16px)',
+                        border: alert.color === 'amber' ? '1px solid rgba(252, 211, 77, 0.7)' : '1px solid rgba(167, 139, 250, 0.3)',
+                        borderRadius: '16px',
                         padding: '1.25rem 1.5rem',
-                        boxShadow: alert.color === 'amber' ? '0 10px 25px rgba(217, 119, 6, 0.4)' : '0 10px 25px rgba(0,0,0,0.5)',
-                        color: '#fff',
+                        boxShadow: alert.color === 'amber' ? '0 10px 30px rgba(217, 119, 6, 0.5), inset 0 1px 1px rgba(255,255,255,0.2)' : '0 10px 30px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,255,255,0.1)',
+                        color: '#f8f9fc',
                         transformOrigin: 'bottom right',
                         animation: 'slide-in-alert 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-                        minWidth: '280px'
+                        minWidth: '300px'
                     }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
                             <span style={{ fontWeight: 'bold', fontSize: '1.1rem', letterSpacing: '0.05em', color: alert.color === 'amber' ? '#fffbeb' : '#fff' }}>
-                                ${alert.symbol} {alert.type === 'breakout' ? '🚀' : '⚠️'}
+                                ${alert.symbol} {alert.type === 'breakout' || alert.type === 'bullish' ? '🚀' : '⚠️'}
                             </span>
                             <span style={{ 
                                 fontSize: '0.75rem', 
                                 padding: '0.15rem 0.5rem', 
                                 borderRadius: '12px', 
-                                background: alert.color === 'amber' ? 'rgba(255,255,255,0.25)' : (alert.type === 'breakout' ? 'rgba(52, 211, 153, 0.2)' : 'rgba(248, 113, 113, 0.2)'),
-                                color: alert.color === 'amber' ? '#fde68a' : (alert.type === 'breakout' ? '#6ee7b7' : '#fca5a5'),
+                                background: alert.color === 'amber' ? 'rgba(255,255,255,0.25)' : (alert.type === 'breakout' || alert.type === 'bullish' ? 'rgba(52, 211, 153, 0.2)' : 'rgba(248, 113, 113, 0.2)'),
+                                color: alert.color === 'amber' ? '#fde68a' : (alert.type === 'breakout' || alert.type === 'bullish' ? '#6ee7b7' : '#fca5a5'),
                                 fontWeight: alert.color === 'amber' ? '900' : 'normal'
                             }}>
-                                {alert.color === 'amber' ? 'AMBER ALERT' : (alert.type === 'breakout' ? 'TRENDING' : 'DOWNTREND')}
+                                {alert.color === 'amber' ? 'AMBER ALERT' : (alert.type === 'breakout' ? 'TRENDING' : alert.type === 'bullish' ? 'BULLISH' : alert.type === 'bearish' ? 'BEARISH' : 'DOWNTREND')}
                             </span>
                         </div>
                         <div style={{ fontSize: '0.9rem', color: alert.color === 'amber' ? '#fef3c7' : '#e2e8f0', marginBottom: '0.5rem', fontWeight: alert.color === 'amber' ? 'bold' : 'normal' }}>
@@ -286,7 +286,7 @@ const LiveAlerts = () => {
                                 }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                                         <span style={{ fontWeight: 'bold', color: alert.color === 'amber' ? '#fcd34d' : 'white' }}>
-                                            ${alert.symbol} {alert.type === 'breakout' ? '🚀' : '⚠️'}
+                                            ${alert.symbol} {alert.type === 'breakout' || alert.type === 'bullish' ? '🚀' : '⚠️'}
                                         </span>
                                         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                             {new Date(alert.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
