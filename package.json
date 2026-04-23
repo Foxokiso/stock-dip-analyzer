@@ -52,7 +52,8 @@
       "category": "public.app-category.finance"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "forceCodeSigning": false
     },
     "nsis": {
       "include": "assets/installer.nsh"

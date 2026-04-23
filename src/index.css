@@ -29,7 +29,7 @@
   --glass-blur: blur(20px);
 
   /* Deep atmospheric glow */
-  --bg-image: 
+  --bg-image:
     radial-gradient(circle at 15% 30%, rgba(212, 175, 55, 0.08), transparent 45%),
     radial-gradient(circle at 85% 70%, rgba(107, 76, 255, 0.12), transparent 50%),
     radial-gradient(circle at 50% 10%, rgba(76, 38, 255, 0.05), transparent 40%),
@@ -127,8 +127,13 @@ body.theme-anime {
 }
 
 @keyframes alien-breath {
-  0% { filter: hue-rotate(0deg); }
-  100% { filter: hue-rotate(15deg); }
+  0% {
+    filter: hue-rotate(0deg);
+  }
+
+  100% {
+    filter: hue-rotate(15deg);
+  }
 }
 
 body.theme-anime .glass-panel {
@@ -180,20 +185,18 @@ body.theme-anime .btn:hover {
   /* Panels: stark borders with sickly glow */
   --glass-border: 1px solid rgba(0, 150, 50, 0.4);
   --glass-shadow: 0 0 0 1px rgba(0, 80, 20, 0.4),
-                  0 0 30px rgba(0, 100, 30, 0.2),
-                  inset 0 0 40px rgba(0, 20, 5, 0.8);
+    0 0 30px rgba(0, 100, 30, 0.2),
+    inset 0 0 40px rgba(0, 20, 5, 0.8);
   --glass-blur: blur(0px);
 
   /* Oppressive abyssal bg: heavy green/purple toxicity */
   --bg-image:
     radial-gradient(ellipse at center, rgba(0, 4, 2, 0.0) 0%, rgba(2, 0, 5, 0.98) 80%),
-    repeating-linear-gradient(
-      0deg,
+    repeating-linear-gradient(0deg,
       rgba(0, 5, 2, 0.3) 0px,
       rgba(0, 5, 2, 0.3) 1px,
       transparent 1px,
-      transparent 3px
-    );
+      transparent 3px);
 
   /* Same terrifying serif font */
   --font-heading: 'Georgia', 'Times New Roman', serif;
@@ -209,9 +212,17 @@ body.theme-seizure {
 
 /* ── Slow oppressive breathing effect on bg — GPU only ── */
 @keyframes grim-body-breathe {
-  0%   { filter: brightness(1.0); }
-  50%  { filter: brightness(0.85); }
-  100% { filter: brightness(1.0); }
+  0% {
+    filter: brightness(1.0);
+  }
+
+  50% {
+    filter: brightness(0.85);
+  }
+
+  100% {
+    filter: brightness(1.0);
+  }
 }
 
 /* ── Scanline + vignette overlay, absolutely no layout touching ── */
@@ -223,13 +234,18 @@ body.theme-seizure::before {
   z-index: 9997;
   /* Heavy dark vignette corners - sickly purple/black */
   background:
-    radial-gradient(ellipse at center, transparent 30%, rgba(2,0,5,0.95) 100%);
+    radial-gradient(ellipse at center, transparent 30%, rgba(2, 0, 5, 0.95) 100%);
   animation: grim-vignette-pulse 2s ease-in-out infinite alternate;
 }
 
 @keyframes grim-vignette-pulse {
-  0%   { opacity: 0.85; }
-  100% { opacity: 1.0; }
+  0% {
+    opacity: 0.85;
+  }
+
+  100% {
+    opacity: 1.0;
+  }
 }
 
 /* ── Toxic green scanline glow layer ── */
@@ -240,19 +256,22 @@ body.theme-seizure::after {
   pointer-events: none;
   z-index: 9998;
   background:
-    repeating-linear-gradient(
-      0deg,
+    repeating-linear-gradient(0deg,
       transparent 0px,
       transparent 2px,
       rgba(0, 200, 80, 0.03) 2px,
-      rgba(0, 200, 80, 0.03) 3px
-    );
+      rgba(0, 200, 80, 0.03) 3px);
   animation: grim-scanline-crawl 8s linear infinite;
 }
 
 @keyframes grim-scanline-crawl {
-  0%   { background-position: 0 0; }
-  100% { background-position: 0 -120px; }
+  0% {
+    background-position: 0 0;
+  }
+
+  100% {
+    background-position: 0 -120px;
+  }
 }
 
 /* ── Panels: stark, hard shadow glow ── */
@@ -350,16 +369,19 @@ body.theme-seizure h3 {
     transform: scale(0.98) translateY(2px);
     filter: blur(8px) hue-rotate(-5deg);
   }
+
   10% {
     opacity: 1;
     transform: scale(1.0) translateY(0);
     filter: blur(0px) hue-rotate(0deg);
   }
+
   85% {
     opacity: 0.9;
     transform: scale(1.02) translateY(0);
     filter: blur(1px) hue-rotate(5deg);
   }
+
   100% {
     opacity: 0;
     transform: scale(1.05) translateY(-2px);
@@ -369,9 +391,11 @@ body.theme-seizure h3 {
 
 /* Severity-high variant: Creepier, more distorted hallucination */
 .severity-severe {
-  color: #ffd8d8; /* Pale, sickly reddish tint */
+  color: #ffd8d8;
+  /* Pale, sickly reddish tint */
   text-shadow:
-    -3px 0 0 rgba(255, 0, 0, 0.6), /* Chromatic aberration */
+    -3px 0 0 rgba(255, 0, 0, 0.6),
+    /* Chromatic aberration */
     3px 0 0 rgba(0, 200, 255, 0.6),
     0 0 40px rgba(200, 0, 0, 0.8),
     0 0 80px rgba(100, 0, 0, 0.5),
@@ -385,18 +409,27 @@ body.theme-seizure h3 {
     transform: scale(0.95) skewX(-2deg);
     filter: blur(10px) contrast(1.5);
   }
+
   5% {
     opacity: 1;
     transform: scale(1.0) skewX(1deg);
     filter: blur(0px) contrast(1.2);
   }
-  10% { transform: scale(1.0) skewX(-1deg); }
-  15% { transform: scale(1.0) skewX(0deg); }
+
+  10% {
+    transform: scale(1.0) skewX(-1deg);
+  }
+
+  15% {
+    transform: scale(1.0) skewX(0deg);
+  }
+
   85% {
     opacity: 0.8;
     transform: scale(1.05) skewX(0deg);
     filter: blur(2px) contrast(1.5);
   }
+
   100% {
     opacity: 0;
     transform: scale(1.1) skewX(3deg);
@@ -428,13 +461,19 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   font-family: var(--font-heading);
   font-weight: 700;
   letter-spacing: -0.015em;
   margin-bottom: 0.5em;
   color: var(--text-main);
 }
+
 h2 {
   font-size: 2.2rem;
   letter-spacing: -0.03em;
@@ -467,12 +506,15 @@ a:hover {
 }
 
 /* Base input and select styles for a pristine UI */
-input, select {
+input,
+select {
   transition: all var(--transition-normal);
 }
-input:focus, select:focus {
+
+input:focus,
+select:focus {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(255,255,255,0.1), 0 0 15px var(--primary);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1), 0 0 15px var(--primary);
   border-color: var(--primary) !important;
   transform: translateY(-1px);
 }
@@ -513,14 +555,14 @@ input:focus, select:focus {
   background: rgba(255, 255, 255, 0.02);
   color: var(--text-main);
   border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .btn-outline:hover {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.3);
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
 }
 
 .nav-link {
