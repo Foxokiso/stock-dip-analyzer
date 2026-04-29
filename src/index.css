@@ -497,8 +497,8 @@ a:hover {
 
 .glass-panel {
   background: var(--bg-card);
-  backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
   border: var(--glass-border);
   border-radius: 20px;
   box-shadow: var(--glass-shadow);
