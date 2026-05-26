@@ -34,9 +34,21 @@ const LiveAlerts = () => {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             const ctx = new AudioContext();
             
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(350, ctx.currentTime); // Muffle the piercing highs
+
+            const compressor = ctx.createDynamicsCompressor();
+            compressor.attack.setValueAtTime(0.120, ctx.currentTime);
+            compressor.threshold.setValueAtTime(-24, ctx.currentTime);
+            compressor.ratio.setValueAtTime(12, ctx.currentTime);
+            compressor.connect(ctx.destination);
+            
+            filter.connect(compressor);
+
             const masterGain = ctx.createGain();
-            masterGain.gain.value = 0.3; // Volume
-            masterGain.connect(ctx.destination);
+            masterGain.gain.value = 0.03; // Drastically lower base volume
+            masterGain.connect(filter);
 
             // Create 4 jarring oscillator sounds
             const createDrone = (type, freq, detune, duration, startTime) => {
@@ -52,10 +64,10 @@ const LiveAlerts = () => {
                 osc.frequency.linearRampToValueAtTime(freq + randomOffset, ctx.currentTime + duration / 2);
                 osc.frequency.linearRampToValueAtTime(freq, ctx.currentTime + duration);
 
-                // Envelopes for jarring attack
+                // Envelopes for smoother swell (anti jump-scare)
                 gain.gain.setValueAtTime(0, ctx.currentTime + startTime);
-                gain.gain.linearRampToValueAtTime(1, ctx.currentTime + startTime + 0.1);
-                gain.gain.setValueAtTime(1, ctx.currentTime + startTime + duration - 0.2);
+                gain.gain.linearRampToValueAtTime(1, ctx.currentTime + startTime + 0.5);
+                gain.gain.setValueAtTime(1, ctx.currentTime + startTime + duration - 0.5);
                 gain.gain.linearRampToValueAtTime(0, ctx.currentTime + startTime + duration);
 
                 osc.connect(gain);
@@ -121,21 +133,16 @@ const LiveAlerts = () => {
 
             // Add to history
             setHistory(prev => [newAlert, ...prev]);
+
+            // Auto dismiss this specific alert after 5 seconds
+            setTimeout(() => {
+                setAlerts((prev) => prev.filter(a => a.id !== newAlert.id));
+            }, 5000);
         };
 
         window.addEventListener('stock-alert', handleAlert);
         return () => window.removeEventListener('stock-alert', handleAlert);
     }, []);
-
-    // Auto-dismiss toasts
-    useEffect(() => {
-        if (alerts.length > 0) {
-            const timer = setTimeout(() => {
-                setAlerts((prev) => prev.slice(1));
-            }, 6000);
-            return () => clearTimeout(timer);
-        }
-    }, [alerts]);
 
     return (
         <>
@@ -147,7 +154,7 @@ const LiveAlerts = () => {
                 zIndex: 9999,
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '1rem',
+                gap: '0.5rem',
                 pointerEvents: 'none'
             }}>
                 {alerts.map((alert) => (
@@ -158,21 +165,34 @@ const LiveAlerts = () => {
                         backdropFilter: 'blur(16px)',
                         WebkitBackdropFilter: 'blur(16px)',
                         border: alert.color === 'amber' ? '1px solid rgba(252, 211, 77, 0.7)' : '1px solid rgba(167, 139, 250, 0.3)',
-                        borderRadius: '16px',
-                        padding: '1.25rem 1.5rem',
-                        boxShadow: alert.color === 'amber' ? '0 10px 30px rgba(217, 119, 6, 0.5), inset 0 1px 1px rgba(255,255,255,0.2)' : '0 10px 30px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,255,255,0.1)',
+                        borderRadius: '12px',
+                        padding: '0.75rem 1rem',
+                        boxShadow: alert.color === 'amber' ? '0 8px 20px rgba(217, 119, 6, 0.4), inset 0 1px 1px rgba(255,255,255,0.2)' : '0 8px 20px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.1)',
                         color: '#f8f9fc',
                         transformOrigin: 'bottom right',
                         animation: 'slide-in-alert 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-                        minWidth: '300px'
+                        minWidth: '240px',
+                        maxWidth: '350px'
                     }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                            <span style={{ fontWeight: 'bold', fontSize: '1.1rem', letterSpacing: '0.05em', color: alert.color === 'amber' ? '#fffbeb' : '#fff' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.2rem' }}>
+                            <span 
+                                onClick={() => window.location.hash = `/stock/${alert.symbol}`}
+                                style={{ 
+                                    fontWeight: 'bold', 
+                                    fontSize: '0.95rem', 
+                                    letterSpacing: '0.05em', 
+                                    color: alert.color === 'amber' ? '#fffbeb' : '#fff',
+                                    cursor: 'pointer',
+                                    textDecoration: 'underline',
+                                    pointerEvents: 'auto'
+                                }}
+                                title="View Details"
+                            >
                                 ${alert.symbol} {alert.type === 'breakout' || alert.type === 'bullish' ? '🚀' : '⚠️'}
                             </span>
                             <span style={{ 
-                                fontSize: '0.75rem', 
-                                padding: '0.15rem 0.5rem', 
+                                fontSize: '0.65rem', 
+                                padding: '0.15rem 0.4rem', 
                                 borderRadius: '12px', 
                                 background: alert.color === 'amber' ? 'rgba(255,255,255,0.25)' : (alert.type === 'breakout' || alert.type === 'bullish' ? 'rgba(52, 211, 153, 0.2)' : 'rgba(248, 113, 113, 0.2)'),
                                 color: alert.color === 'amber' ? '#fde68a' : (alert.type === 'breakout' || alert.type === 'bullish' ? '#6ee7b7' : '#fca5a5'),
@@ -181,7 +201,7 @@ const LiveAlerts = () => {
                                 {alert.color === 'amber' ? 'AMBER ALERT' : (alert.type === 'breakout' ? 'TRENDING' : alert.type === 'bullish' ? 'BULLISH' : alert.type === 'bearish' ? 'BEARISH' : 'DOWNTREND')}
                             </span>
                         </div>
-                        <div style={{ fontSize: '0.9rem', color: alert.color === 'amber' ? '#fef3c7' : '#e2e8f0', marginBottom: '0.5rem', fontWeight: alert.color === 'amber' ? 'bold' : 'normal' }}>
+                        <div style={{ fontSize: '0.8rem', color: alert.color === 'amber' ? '#fef3c7' : '#e2e8f0', margin: 0, fontWeight: alert.color === 'amber' ? 'bold' : 'normal' }}>
                             {alert.message}
                         </div>
                     </div>
@@ -285,7 +305,16 @@ const LiveAlerts = () => {
                                     border: alert.color === 'amber' ? '1px solid rgba(252, 211, 77, 0.4)' : '1px solid rgba(255,255,255,0.1)',
                                 }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                                        <span style={{ fontWeight: 'bold', color: alert.color === 'amber' ? '#fcd34d' : 'white' }}>
+                                        <span 
+                                            onClick={(e) => { e.stopPropagation(); window.location.hash = `/stock/${alert.symbol}`; setShowHistory(false); }}
+                                            style={{ 
+                                                fontWeight: 'bold', 
+                                                color: alert.color === 'amber' ? '#fcd34d' : 'white',
+                                                cursor: 'pointer',
+                                                textDecoration: 'underline'
+                                            }}
+                                            title="View Details"
+                                        >
                                             ${alert.symbol} {alert.type === 'breakout' || alert.type === 'bullish' ? '🚀' : '⚠️'}
                                         </span>
                                         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>

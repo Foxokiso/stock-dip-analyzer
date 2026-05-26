@@ -1,7 +1,96 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, TrendingDown, AlertTriangle, ArrowUpRight, RefreshCw } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
+const RESOURCE_TABS = [
+    { id: 'tradingview', label: 'TradingView', type: 'widget' },
+    { id: 'finviz',      label: 'Finviz',       type: 'webview', url: (s) => `https://finviz.com/quote.ashx?t=${s}&p=d` },
+    { id: 'chartmill',   label: 'Chartmill',    type: 'webview', url: (s) => `https://www.chartmill.com/stock/quote/${s}/technical-rating` },
+    { id: 'stockcharts', label: 'StockCharts',  type: 'webview', url: (s) => `https://stockcharts.com/h-sc/ui?s=${s}` },
+    { id: 'fidelity',    label: 'Fidelity',     type: 'webview', url: (s) => `https://digital.fidelity.com/prgw/digital/research/quote/dashboard/summary?symbol=${s}` },
+    { id: 'yahoo',       label: 'Yahoo Finance',type: 'webview', url: (s) => `https://finance.yahoo.com/quote/${s}` },
+];
+
+const InternalResourceViewer = ({ symbol }) => {
+    const [activeTab, setActiveTab] = useState('tradingview');
+    const tvContainerRef = useRef(null);
+    const tab = RESOURCE_TABS.find(t => t.id === activeTab);
+
+    // Mount TradingView widget whenever its tab is active
+    useEffect(() => {
+        if (activeTab !== 'tradingview' || !tvContainerRef.current) return;
+        tvContainerRef.current.innerHTML = '';
+        const script = document.createElement('script');
+        script.src = 'https://s3.tradingview.com/tv.js';
+        script.async = true;
+        script.onload = () => {
+            if (window.TradingView) {
+                new window.TradingView.widget({
+                    autosize: true,
+                    symbol,
+                    interval: 'D',
+                    timezone: 'America/New_York',
+                    theme: 'dark',
+                    style: '1',
+                    locale: 'en',
+                    enable_publishing: false,
+                    hide_side_toolbar: false,
+                    allow_symbol_change: true,
+                    container_id: 'tv_stockdetail_chart',
+                });
+            }
+        };
+        tvContainerRef.current.appendChild(script);
+    }, [activeTab, symbol]);
+
+    return (
+        <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '2rem' }}>
+            {/* Tab bar */}
+            <div className="flex-center" style={{ justifyContent: 'flex-start', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                {RESOURCE_TABS.map(t => (
+                    <button
+                        key={t.id}
+                        onClick={() => setActiveTab(t.id)}
+                        className="btn"
+                        style={{
+                            padding: '0.4rem 1rem',
+                            fontSize: '0.85rem',
+                            background: activeTab === t.id
+                                ? 'var(--primary-gradient)'
+                                : 'rgba(255,255,255,0.04)',
+                            color: activeTab === t.id ? '#030409' : 'var(--text-muted)',
+                            border: activeTab === t.id ? 'none' : '1px solid rgba(255,255,255,0.1)',
+                            fontWeight: activeTab === t.id ? 700 : 400,
+                            transition: 'all 0.2s ease',
+                        }}
+                    >
+                        {t.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* TradingView Widget */}
+            {activeTab === 'tradingview' && (
+                <div
+                    id="tv_stockdetail_chart"
+                    ref={tvContainerRef}
+                    style={{ height: '550px', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)' }}
+                />
+            )}
+
+            {/* Webview for all other tabs */}
+            {tab?.type === 'webview' && (
+                <webview
+                    key={activeTab + symbol}
+                    src={tab.url(symbol)}
+                    style={{ width: '100%', height: '550px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}
+                    allowpopups="true"
+                />
+            )}
+        </div>
+    );
+};
 
 const StockDetails = () => {
     const { symbol } = useParams();
@@ -192,6 +281,10 @@ const StockDetails = () => {
                             Add to Watchlist
                         </button>
                     </div>
+
+                    {/* Internal Resource Viewer */}
+                    <InternalResourceViewer symbol={symbol} />
+
 
                     <div className="glass-panel" style={{ padding: '2rem', height: '400px', marginBottom: '2rem' }}>
                         <h3 style={{ marginTop: 0, marginBottom: '1.5rem' }}>Price Action (30 Days)</h3>

@@ -120,7 +120,17 @@ const ETFAwards = ({ excludedSectors, autoRefreshInterval = 0, globalFilter = 'A
                 }}>
                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                         <span style={{ color: 'var(--text-muted)', fontWeight: 'bold', width: '20px' }}>#{i + 1}</span>
-                        <Link to={`/stock/${etf.symbol}`} style={{ fontWeight: 'bold', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <Link 
+                            to={`/stock/${etf.symbol}`} 
+                            style={{ 
+                                fontWeight: 'bold', 
+                                color: 'var(--text-main)', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '0.25rem',
+                                textDecoration: 'underline'
+                            }}
+                        >
                             {etf.symbol}
                         </Link>
                     </div>

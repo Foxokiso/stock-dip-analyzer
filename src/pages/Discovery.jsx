@@ -175,7 +175,14 @@ const Discovery = ({ excludedSectors, globalFilter = 'All' }) => {
                                 >
                                     <div>
                                         <div style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                            {stock.symbol}
+                                            <Link 
+                                                to={`/stock/${stock.symbol}`} 
+                                                title="View Dip Analysis" 
+                                                onClick={(e) => e.stopPropagation()}
+                                                style={{ color: 'inherit', textDecoration: 'underline', cursor: 'pointer' }}
+                                            >
+                                                {stock.symbol}
+                                            </Link>
                                             <Link to={`/stock/${stock.symbol}`} title="View Dip Analysis" onClick={(e) => e.stopPropagation()}>
                                                 <Activity size={14} color="var(--primary)" />
                                             </Link>

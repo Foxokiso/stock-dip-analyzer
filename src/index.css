@@ -261,17 +261,7 @@ body.theme-seizure::after {
       transparent 2px,
       rgba(0, 200, 80, 0.03) 2px,
       rgba(0, 200, 80, 0.03) 3px);
-  animation: grim-scanline-crawl 8s linear infinite;
-}
-
-@keyframes grim-scanline-crawl {
-  0% {
-    background-position: 0 0;
-  }
-
-  100% {
-    background-position: 0 -120px;
-  }
+  /* Removed animation to prevent GPU layout thrashing on full screen layer */
 }
 
 /* ── Panels: stark, hard shadow glow ── */
@@ -336,7 +326,7 @@ body.theme-seizure h3 {
   justify-content: center;
   align-items: center;
   overflow: hidden;
-  mix-blend-mode: hard-light;
+  /* Removed mix-blend-mode as it causes full screen compositing lag */
 }
 
 /* ── Telemetry headline text: sickly green glow, very readable, grim slow fade ── */
@@ -353,39 +343,34 @@ body.theme-seizure h3 {
   letter-spacing: 0.15em;
   white-space: pre-wrap;
   word-wrap: break-word;
-  /* Sickly glowing drop shadow to punch through overlay */
+  /* Simplified text shadow to prevent GPU stall */
   text-shadow:
-    0 0 40px rgba(0, 255, 68, 0.8),
-    0 0 80px rgba(0, 150, 40, 0.5),
+    0 0 15px rgba(0, 255, 68, 0.5),
     2px 2px 0px rgba(0, 0, 0, 0.9);
   /* 7.5s matches the JS swap timeout */
   animation: telemetry-hallucination 7.5s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
 }
 
-/* Subtle, grim delusional hallucination baseline */
+/* Subtle, grim delusional hallucination baseline (Hardware accelerated properties only) */
 @keyframes telemetry-hallucination {
   0% {
     opacity: 0;
     transform: scale(0.98) translateY(2px);
-    filter: blur(8px) hue-rotate(-5deg);
   }
 
   10% {
     opacity: 1;
     transform: scale(1.0) translateY(0);
-    filter: blur(0px) hue-rotate(0deg);
   }
 
   85% {
     opacity: 0.9;
     transform: scale(1.02) translateY(0);
-    filter: blur(1px) hue-rotate(5deg);
   }
 
   100% {
     opacity: 0;
     transform: scale(1.05) translateY(-2px);
-    filter: blur(8px) hue-rotate(10deg);
   }
 }
 
@@ -395,10 +380,8 @@ body.theme-seizure h3 {
   /* Pale, sickly reddish tint */
   text-shadow:
     -3px 0 0 rgba(255, 0, 0, 0.6),
-    /* Chromatic aberration */
     3px 0 0 rgba(0, 200, 255, 0.6),
-    0 0 40px rgba(200, 0, 0, 0.8),
-    0 0 80px rgba(100, 0, 0, 0.5),
+    0 0 20px rgba(200, 0, 0, 0.5),
     2px 2px 0px rgba(0, 0, 0, 0.9);
   animation: telemetry-severe-hallucination 7.5s cubic-bezier(0.25, 0.1, 0.25, 1) forwards;
 }
@@ -407,13 +390,11 @@ body.theme-seizure h3 {
   0% {
     opacity: 0;
     transform: scale(0.95) skewX(-2deg);
-    filter: blur(10px) contrast(1.5);
   }
 
   5% {
     opacity: 1;
     transform: scale(1.0) skewX(1deg);
-    filter: blur(0px) contrast(1.2);
   }
 
   10% {
@@ -427,13 +408,11 @@ body.theme-seizure h3 {
   85% {
     opacity: 0.8;
     transform: scale(1.05) skewX(0deg);
-    filter: blur(2px) contrast(1.5);
   }
 
   100% {
     opacity: 0;
     transform: scale(1.1) skewX(3deg);
-    filter: blur(15px) contrast(2);
   }
 }
 
@@ -509,6 +488,11 @@ a:hover {
 input,
 select {
   transition: all var(--transition-normal);
+}
+
+option {
+  background-color: var(--bg-dark);
+  color: var(--text-main);
 }
 
 input:focus,

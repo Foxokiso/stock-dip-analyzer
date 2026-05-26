@@ -68,12 +68,32 @@ const StockRow = memo(({ stock }) => {
     );
 });
 
+// ─── Stable module-level constant — not a React dependency ───────────────────
+const YAHOO_SCREENER_IDS = [
+    'day_losers',               // biggest % losers today
+    'most_actives',             // high volume (often volatile dippers)
+    'undervalued_growth_stocks', // fundamentally cheap + recent dip
+];
+
 const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter = 'All' }) => {
-    const [chartCount, setChartCount] = useState(20);
+    const [chartCount, setChartCount] = useState(() => {
+        const saved = localStorage.getItem('dipAnalyzerChartCount');
+        return saved ? Number(saved) : 20;
+    });
     const [searchTerm, setSearchTerm] = useState('');
-    const [sector, setSector] = useState(''); // Empty string means "Any Sector"
+    const [sector, setSector] = useState(() => {
+        return localStorage.getItem('dipAnalyzerSector') || '';
+    }); // Empty string means "Any Sector"
     const [stocks, setStocks] = useState([]);
     const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        localStorage.setItem('dipAnalyzerChartCount', chartCount);
+    }, [chartCount]);
+
+    useEffect(() => {
+        localStorage.setItem('dipAnalyzerSector', sector);
+    }, [sector]);
 
     const calculateRecoveryScore = async (symbol, electron, livePrice) => {
         if (!electron) {
@@ -199,6 +219,27 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
         }
     };
 
+
+    // Fetch a Yahoo predefined screener and return normalised stock objects
+    const fetchYahooScreener = async (scrId, electron) => {
+        const url = `https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?formatted=false&scrIds=${scrId}&count=100`;
+        const html = await electron.ipcRenderer.invoke('fetch-url', url);
+        try {
+            const json = JSON.parse(html);
+            const quotes = json?.finance?.result?.[0]?.quotes || [];
+            return quotes.map(q => ({
+                symbol: q.symbol,
+                name: q.shortName || q.longName || q.symbol,
+                price: q.regularMarketPrice || 0,
+                changePercentage: q.regularMarketChangePercent || 0,
+                dipPercentage: q.regularMarketChangePercent < 0 ? Math.abs(q.regularMarketChangePercent) : 0,
+                recoveryProbability: null,
+                isZombie: false,
+                source: scrId,
+            }));
+        } catch { return []; }
+    };
+
     const fetchFinvizData = useCallback(async (targetCount) => {
         setLoading(true);
         try {
@@ -210,7 +251,7 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
             let allStocks = [];
 
             if (!electron) {
-                console.warn("Electron environment not detected. Loading mock dashboard data.");
+                console.warn('Electron environment not detected. Loading mock dashboard data.');
                 allStocks = [
                     { symbol: 'AAPL', name: 'Apple Inc.', price: 173.5, changePercentage: -2.4, dipPercentage: 2.4, recoveryProbability: 85, isZombie: false },
                     { symbol: 'TSLA', name: 'Tesla Inc.', price: 180.2, changePercentage: -5.1, dipPercentage: 5.1, recoveryProbability: 60, isZombie: false },
@@ -222,166 +263,82 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                 return;
             }
 
-            // --- PHOTONICS BASKET OVERRIDE ---
+            // ── PHOTONICS BASKET OVERRIDE ─────────────────────────────────────
             if (sector === 'photonics') {
                 const photonicsTickers = ['LITE', 'COHR', 'IPGP', 'MKSI', 'FN', 'CAMT', 'ONTO', 'VIAV'];
-                // We construct a specific ticker search URL
-                const tickerStr = photonicsTickers.join(',');
-                const url = `https://finviz.com/screener.ashx?v=111&t=${tickerStr}`;
-                const html = await electron.ipcRenderer.invoke('fetch-url', url);
-
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(html, 'text/html');
-                const rows = doc.querySelectorAll('tr');
+                const quotesUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${photonicsTickers.join(',')}&formatted=false`;
+                const html = await electron.ipcRenderer.invoke('fetch-url', quotesUrl);
                 let pageStocks = [];
+                try {
+                    const json = JSON.parse(html);
+                    const quotes = json?.quoteResponse?.result || [];
+                    pageStocks = quotes.map(q => ({
+                        symbol: q.symbol,
+                        name: q.shortName || q.symbol,
+                        price: q.regularMarketPrice || 0,
+                        changePercentage: q.regularMarketChangePercent || 0,
+                        dipPercentage: q.regularMarketChangePercent < 0 ? Math.abs(q.regularMarketChangePercent) : 0,
+                        recoveryProbability: null,
+                        isZombie: false,
+                    }));
+                } catch { /* keep empty */ }
 
-                rows.forEach(row => {
-                    const cells = row.querySelectorAll('td');
-                    if (cells.length >= 10) {
-                        const numberText = cells[0].textContent.trim();
-                        const tickerLink = cells[1].querySelector('a[href^="quote.ashx"]');
-
-                        if (parseInt(numberText) > 0 && tickerLink) {
-                            const ticker = tickerLink.textContent.trim();
-                            const changeStr = cells[9].textContent.trim();
-                            const change = parseFloat(changeStr.replace('%', '')) || 0;
-
-                            if (ticker && !pageStocks.find(s => s.symbol === ticker)) {
-                                const cleanPrice = parseFloat(cells[8].textContent.trim().replace(/,/g, '')) || 0;
-                                pageStocks.push({
-                                    symbol: ticker,
-                                    name: cells[2].textContent.trim(),
-                                    price: cleanPrice,
-                                    changePercentage: change,
-                                    dipPercentage: change < 0 ? Math.abs(change) : 0,
-                                    // Use explicit null so we know not to overwrite existing values prematurely during a merge
-                                    recoveryProbability: null,
-                                    isZombie: false
-                                });
-                            }
-                        }
-                    }
-                });
-
-                // Cleanly merge pageStocks into existing state to prevent flickering
-                setStocks((prevStocks) => {
-                    const newStocksList = pageStocks.map(newStock => {
-                        const existing = prevStocks.find(p => p.symbol === newStock.symbol);
-                        return existing ? { 
-                            ...newStock, 
-                            recoveryProbability: existing.recoveryProbability, 
-                            isZombie: existing.isZombie 
-                        } : { ...newStock, recoveryProbability: 50 };
-                    });
-                    return newStocksList;
-                });
-
-                // Fire async score calculations passing live prices
-                Promise.all(pageStocks.map(async (stock) => {
-                    const score = await calculateRecoveryScore(stock.symbol, electron, stock.price);
-                    setStocks((prev) => prev.map(s => s.symbol === stock.symbol ? {
-                        ...s,
-                        recoveryProbability: score,
-                        isZombie: score < 20
-                    } : s));
+                setStocks(prevStocks => pageStocks.map(ns => {
+                    const ex = prevStocks.find(p => p.symbol === ns.symbol);
+                    return ex ? { ...ns, recoveryProbability: ex.recoveryProbability, isZombie: ex.isZombie } : { ...ns, recoveryProbability: 50 };
                 }));
 
+                Promise.all(pageStocks.map(async stock => {
+                    const score = await calculateRecoveryScore(stock.symbol, electron, stock.price);
+                    setStocks(prev => prev.map(s => s.symbol === stock.symbol ? { ...s, recoveryProbability: score, isZombie: score < 20 } : s));
+                }));
                 setLoading(false);
                 return;
             }
-            // --- END PHOTONICS OVERRIDE ---
+            // ── END PHOTONICS ─────────────────────────────────────────────────
 
-            // Calculate how many pages we need (20 items per page)
-            const pagesNeeded = Math.ceil(targetCount / 20);
-            const pageIndices = Array.from({ length: pagesNeeded }, (_, i) => i * 20 + 1);
+            // ── MULTI-SOURCE YAHOO SCREENER FETCH ─────────────────────────────
+            const combinedMap = new Map();
 
-            let filterStr = 'ind_stocksonly%2Cta_perf_1wup%2Cta_perf2_4wup%2Cta_sma20_pa%2Cta_sma200_sb50%2Cta_sma50_sb20';
-            if (sector) {
-                filterStr += `%2Csec_${sector}`;
-            }
-
-            // Fire requests sequentially, but incrementally buffer and parse to the screen so user feels zero lag!
-            let combinedStocksMap = new Map();
-            allStocks = [];
-
-            for (const offset of pageIndices) {
-                const url = `https://finviz.com/screener.ashx?v=111&p=d&f=${filterStr}&ta=0&dr=y1&o=-marketcap&r=${offset}`;
-                const html = await electron.ipcRenderer.invoke('fetch-url', url);
-                
-                if (html) {
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    const rows = doc.querySelectorAll('tr');
-
-                    rows.forEach(row => {
-                        const cells = row.querySelectorAll('td');
-                        if (cells.length >= 10) {
-                            const numberText = cells[0].textContent.trim();
-                            const tickerLink = cells[1].querySelector('a[href^="quote.ashx"]');
-
-                            if (parseInt(numberText) > 0 && tickerLink) {
-                                const ticker = tickerLink.textContent.trim();
-
-                                const finvizSectorStr = cells[3]?.textContent.trim().toLowerCase().replace(/ /g, '') || '';
-                                if (excludedSectors.includes(finvizSectorStr)) {
-                                    return; // Skip
-                                }
-
-                                const changeStr = cells[9].textContent.trim();
-                                const change = parseFloat(changeStr.replace('%', '')) || 0;
-
-                                if (ticker && !combinedStocksMap.has(ticker)) {
-                                    const cleanPrice = parseFloat(cells[8].textContent.trim().replace(/,/g, '')) || 0;
-                                    combinedStocksMap.set(ticker, {
-                                        symbol: ticker,
-                                        name: cells[2].textContent.trim(),
-                                        price: cleanPrice,
-                                        changePercentage: change,
-                                        dipPercentage: change < 0 ? Math.abs(change) : 0,
-                                        recoveryProbability: null, // Keep null temporarily
-                                        isZombie: false
-                                    });
-                                }
-                            }
-                        }
-                    });
-
-                    // Flush the buffer to the screen incrementally so UI is totally responsive and immediately populates
-                    allStocks = Array.from(combinedStocksMap.values()).slice(0, targetCount);
-                    setStocks((prevStocks) => {
-                        return allStocks.map(newStock => {
-                            const existing = prevStocks.find(p => p.symbol === newStock.symbol);
-                            return existing ? { 
-                                ...newStock, 
-                                recoveryProbability: existing.recoveryProbability, 
-                                isZombie: existing.isZombie 
-                            } : { ...newStock, recoveryProbability: 50 };
-                        });
-                    });
+            for (const scrId of YAHOO_SCREENER_IDS) {
+                const results = await fetchYahooScreener(scrId, electron);
+                for (const stock of results) {
+                    if (!combinedMap.has(stock.symbol)) {
+                        // Apply sector exclusion (Yahoo doesn't return sector in screener, skip sector filter)
+                        if (sector && sector !== '') continue; // sector filter: only show all if no sector selected
+                        combinedMap.set(stock.symbol, stock);
+                    }
                 }
-                await new Promise(r => setTimeout(r, 600)); // 600ms delay between pages
+                // Flush incrementally so UI populates immediately
+                allStocks = Array.from(combinedMap.values())
+                    .filter(s => s.dipPercentage > 0) // only actual dippers
+                    .sort((a, b) => b.dipPercentage - a.dipPercentage)
+                    .slice(0, targetCount);
+
+                setStocks(prevStocks => allStocks.map(ns => {
+                    const ex = prevStocks.find(p => p.symbol === ns.symbol);
+                    return ex ? { ...ns, recoveryProbability: ex.recoveryProbability, isZombie: ex.isZombie } : { ...ns, recoveryProbability: 50 };
+                }));
+
+                await new Promise(r => setTimeout(r, 300));
             }
 
-            // Asynchronously hydrate scores in small batches to avoid Yahoo 429 rate limits
+            // Hydrate recovery scores in small batches
             const hydrateScores = async () => {
                 const chunkSize = 5;
                 for (let i = 0; i < allStocks.length; i += chunkSize) {
                     const chunk = allStocks.slice(i, i + chunkSize);
-                    await Promise.all(chunk.map(async (stock) => {
+                    await Promise.all(chunk.map(async stock => {
                         const score = await calculateRecoveryScore(stock.symbol, electron, stock.price);
-                        setStocks((prev) => prev.map(s => s.symbol === stock.symbol ? {
-                            ...s,
-                            recoveryProbability: score,
-                            isZombie: score < 20
-                        } : s));
+                        setStocks(prev => prev.map(s => s.symbol === stock.symbol ? { ...s, recoveryProbability: score, isZombie: score < 20 } : s));
                     }));
-                    await new Promise(r => setTimeout(r, 800)); // Delay between chunks
+                    await new Promise(r => setTimeout(r, 800));
                 }
             };
-            hydrateScores().catch(err => console.error("Error hydrating scores:", err));
+            hydrateScores().catch(err => console.error('Error hydrating scores:', err));
 
         } catch (error) {
-            console.error("Failed to fetch Finviz", error);
+            console.error('Failed to fetch screener data', error);
         } finally {
             setLoading(false);
         }
@@ -436,7 +393,7 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                         Market Dips Analysis
                         {loading && <RefreshCw size={20} className="text-muted" style={{ animation: 'spin 1s linear infinite' }} />}
                     </h2>
-                    <p className="text-muted">Analyzing oversold opportunities based on your Finviz screener.</p>
+                    <p className="text-muted">Scanning market dippers from Yahoo Finance, Finviz & more.</p>
                 </div>
                 
                 <div style={{ marginRight: 'auto', paddingLeft: '2rem' }}>
@@ -544,7 +501,7 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                         {loading && Array.from({ length: Math.max(0, chartCount - stocks.length) }).map((_, i) => (
                             <tr key={`loading-${i}`} style={{ opacity: 0.3 }}>
                                 <td colSpan="5" style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-                                    Scanning Finviz #{stocks.length + i + 1}...
+                                    Scanning markets #{stocks.length + i + 1}...
                                 </td>
                             </tr>
                         ))}

@@ -155,29 +155,36 @@ function App() {
         audioCtx = new AudioContext();
         
         const gainNode = audioCtx.createGain();
-        gainNode.gain.value = 0.05; // Very subtle, not loud
+        gainNode.gain.value = 0.15; // Balanced volume
         gainNode.connect(audioCtx.destination);
 
-        // Sinister chord (Sub-bass and dissonant low mids)
-        const frequencies = [45, 55, 65.41, 110];
+        // 297 Hz fundamental and 27 Hz subharmonic
+        const frequencies = [
+          { freq: 297, type: 'triangle', gain: 0.2 }, // Whistle-like fundamental
+          { freq: 27, type: 'sine', gain: 1.0 }        // Sub-bass 11th subharmonic
+        ];
         
-        frequencies.forEach(freq => {
+        frequencies.forEach(({ freq, type, gain }) => {
           const osc = audioCtx.createOscillator();
-          osc.type = 'sawtooth';
+          osc.type = type;
           osc.frequency.value = freq;
+
+          const indivGain = audioCtx.createGain();
+          indivGain.gain.value = gain;
           
           // LFO to create a wobbling, uneasy feeling
           const lfo = audioCtx.createOscillator();
           lfo.type = 'sine';
-          lfo.frequency.value = Math.random() * 3 + 0.5; // 0.5Hz to 3.5Hz wobble
+          lfo.frequency.value = 0.2; // Very slow breathing wobble
           
           const lfoGain = audioCtx.createGain();
-          lfoGain.gain.value = 3; // frequency variation
+          lfoGain.gain.value = freq * 0.015; // subtle pitch variation
           
           lfo.connect(lfoGain);
           lfoGain.connect(osc.frequency);
           
-          osc.connect(gainNode);
+          osc.connect(indivGain);
+          indivGain.connect(gainNode);
           osc.start();
           lfo.start();
           oscillators.push(osc, lfo);

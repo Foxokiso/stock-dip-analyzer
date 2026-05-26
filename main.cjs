@@ -96,11 +96,12 @@ let mainWindow;
 
 function createWindow() {
     mainWindow = new BrowserWindow({
-        width: 1200,
-        height: 800,
+        width: 1400,
+        height: 900,
         webPreferences: {
             nodeIntegration: true,
-            contextIsolation: false
+            contextIsolation: false,
+            webviewTag: true  // Required for internal embedded site viewers
         }
     });
 
@@ -116,11 +117,8 @@ function createWindow() {
     });
 }
 
-app.commandLine.appendSwitch('enable-gpu-rasterization');
-app.commandLine.appendSwitch('enable-zero-copy');
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
-// Allow uncapped frame rates if supported, helping reach 120fps on high-refresh monitors
-app.commandLine.appendSwitch('disable-frame-rate-limit');
+// Force software rendering / disable hardware acceleration
+app.disableHardwareAcceleration();
 
 app.whenReady().then(() => {
     createWindow();
