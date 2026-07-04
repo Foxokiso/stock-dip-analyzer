@@ -219,13 +219,35 @@ const StockDetails = () => {
     const [chartData, setChartData] = useState([]);
     const [news, setNews] = useState([]);
     const [stats, setStats] = useState(null); // Map<label, value> | null
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(true);        // full-page, first load of a symbol only
+    const [chartLoading, setChartLoading] = useState(true); // chart panel only (range switches)
+    const [chartError, setChartError] = useState(false);
+    const [chartRetry, setChartRetry] = useState(0);
+    const lastSymbolRef = useRef(null);
 
     // Effect A: fetch the price chart whenever symbol or range changes.
+    // Only a NEW SYMBOL gates the whole page behind the spinner; range switches
+    // keep the body (resource viewer, stats, news) mounted and just refresh the
+    // chart panel. Old data is cleared on symbol change and on failure so a
+    // failed fetch can never render the previous stock's numbers.
     useEffect(() => {
         let cancelled = false;
-        const loadChart = async () => {
+        const isNewSymbol = lastSymbolRef.current !== symbol;
+        if (isNewSymbol) {
+            lastSymbolRef.current = symbol;
             setLoading(true);
+            setChartData([]);
+        }
+        setChartLoading(true);
+        setChartError(false);
+
+        const finish = () => {
+            if (cancelled) return;
+            setChartLoading(false);
+            setLoading(false);
+        };
+
+        const loadChart = async () => {
             const electron = getElectron();
 
             if (!electron) {
@@ -233,7 +255,7 @@ const StockDetails = () => {
                 setTimeout(() => {
                     if (cancelled) return;
                     setChartData(buildMockChart(range));
-                    setLoading(false);
+                    finish();
                 }, 600);
                 return;
             }
@@ -241,7 +263,8 @@ const StockDetails = () => {
             try {
                 const yahooData = await electron.ipcRenderer.invoke('fetch-yahoo-chart', symbol, range, '1d');
                 const result = yahooData?.chart?.result?.[0];
-                if (result && !cancelled) {
+                if (cancelled) return;
+                if (result) {
                     const timestamps = result.timestamp || [];
                     const closes = result.indicators.quote[0].close;
                     const formattedChartData = timestamps.map((ts, index) => {
@@ -252,17 +275,24 @@ const StockDetails = () => {
                         };
                     }).filter(d => typeof d.price === 'number' && !Number.isNaN(d.price));
                     setChartData(formattedChartData);
+                } else {
+                    setChartData([]);
+                    setChartError(true);
                 }
             } catch (err) {
                 console.error("Error loading chart data:", err);
+                if (!cancelled) {
+                    setChartData([]);
+                    setChartError(true);
+                }
             } finally {
-                if (!cancelled) setLoading(false);
+                finish();
             }
         };
 
         loadChart();
         return () => { cancelled = true; };
-    }, [symbol, range]);
+    }, [symbol, range, chartRetry]);
 
     // Effect B: fetch the Finviz quote page ONCE per symbol (news + key stats).
     useEffect(() => {
@@ -460,7 +490,10 @@ const StockDetails = () => {
 
                     <div className="glass-panel" style={{ padding: '2rem', height: '420px', marginBottom: '2rem' }}>
                         <div className="flex-between" style={{ marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-                            <h3 style={{ margin: 0 }}>Price Action ({rangeLabel})</h3>
+                            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                                Price Action ({rangeLabel})
+                                {chartLoading && <RefreshCw size={16} className="text-muted" style={{ animation: 'spin 1s linear infinite' }} />}
+                            </h3>
                             <div className="flex-center" style={{ gap: '0.4rem' }}>
                                 {RANGES.map(r => (
                                     <button
@@ -483,6 +516,20 @@ const StockDetails = () => {
                                 ))}
                             </div>
                         </div>
+                        {chartError ? (
+                            <div className="flex-center" style={{ height: 320, flexDirection: 'column', gap: '1rem' }}>
+                                <p className="text-muted" style={{ margin: 0 }}>
+                                    Failed to load {rangeText} chart data for {symbol}.
+                                </p>
+                                <button className="btn btn-outline" onClick={() => setChartRetry(n => n + 1)}>
+                                    Retry
+                                </button>
+                            </div>
+                        ) : chartLoading && plotData.length === 0 ? (
+                            <div className="flex-center" style={{ height: 320 }}>
+                                <RefreshCw size={28} className="text-muted" style={{ animation: 'spin 1s linear infinite' }} />
+                            </div>
+                        ) : (
                         <ResponsiveContainer width="100%" height={320}>
                             <ComposedChart data={plotData}>
                                 <defs>
@@ -519,6 +566,7 @@ const StockDetails = () => {
                                 )}
                             </ComposedChart>
                         </ResponsiveContainer>
+                        )}
                     </div>
 
                     {/* Key Statistics (Finviz snapshot) */}
@@ -580,7 +628,9 @@ const StockDetails = () => {
                                 AI Analysis
                             </h3>
                             <p className="text-muted" style={{ lineHeight: '1.7' }}>
-                                {isZombie ? (
+                                {!analysis ? (
+                                    <>No {rangeText} chart data is available for {symbol}, so no score can be computed. The ticker may be delisted, halted, or temporarily unavailable from the data provider.</>
+                                ) : isZombie ? (
                                     <>Based on the {rangeText} historical chart, {symbol} has flatlined into a <strong>ZOMBIE STOCK</strong>. It reached a high of ${peakPrice.toFixed(2)} on {peakDate} but has since crashed {dipPercentage}% with minimal-to-zero signs of recovery volatility. Our AI analysis highly suggests avoiding due to lack of buyer momentum.</>
                                 ) : (
                                     <>Based on the {rangeText} historical chart, {symbol} reached a high of ${peakPrice.toFixed(2)} on {peakDate}, after normalizing around ${normalizedHigh.toFixed(2)} prior to that. It has since dropped {dipPercentage}% to its current price. This could indicate an oversold bounce opportunity if the underlying fundamentals remain strong despite the recent negative catalysts found in the news.</>
@@ -607,6 +657,7 @@ const StockDetails = () => {
                                 </div>
                             )}
 
+                            {analysis && (
                             <div className={scoreClass} style={{ marginTop: '1.5rem', padding: '1rem', background: scoreBg, borderRadius: '8px', border: `1px solid ${scoreColor}` }}>
                                 <strong className="flex-center" style={{ gap: '0.5rem', justifyContent: 'flex-start', color: scoreColor, flexWrap: 'wrap' }}>
                                     <ArrowUpRight size={18} /> {isZombie ? `Zombie Classification Score: ${score}/100` : `Recovery Probability Rating: ${score}/100`}
@@ -617,6 +668,7 @@ const StockDetails = () => {
                                     )}
                                 </strong>
                             </div>
+                            )}
                         </div>
 
                         <div className="glass-panel" style={{ padding: '2rem' }}>

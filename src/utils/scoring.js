@@ -19,6 +19,8 @@ export function computeRSI(values, period = 14) {
         if (diff >= 0) gains += diff;
         else losses -= diff;
     }
+    // Flat window (no gains AND no losses) is neutral, not "all gains".
+    if (gains === 0 && losses === 0) return 50;
     if (losses === 0) return 100;
     const rs = gains / losses;
     return 100 - 100 / (1 + rs);
@@ -55,6 +57,7 @@ export function getVerdict(score, isZombie = score < 20) {
  *   currentPrice, peakPrice, peakIndex, dipPercentage,
  *   recentLow, recentHigh, rsi, ema5, ema10,
  *   trend: 'bullish'|'bearish'|'neutral',
+ *   trendAlertEligible,        // peak old enough that trend alerts may fire
  *   isBreakout, isBreakdown,
  *   sparkline: number[]        // trailing closes for mini-charts
  * } or null when there is no usable data.
@@ -153,6 +156,9 @@ export function analyzeStock(closes, livePrice = null) {
         ema5,
         ema10,
         trend,
+        // Trend ALERTS historically only fired once the peak was >5 bars old with
+        // >=10 post-peak bars; the trend itself stays informative regardless.
+        trendAlertEligible: prices.length - peakIndex > 5 && postPeak.length >= 10,
         isBreakout,
         isBreakdown,
         sparkline: prices.slice(-15),

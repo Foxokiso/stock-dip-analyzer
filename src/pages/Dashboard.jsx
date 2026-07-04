@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, memo } from 'react';
+import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { Search, SlidersHorizontal, RefreshCw, ChevronDown } from 'lucide-react';
 import MarketPulse from '../components/MarketPulse';
 import { analyzeStock, getVerdict } from '../utils/scoring';
@@ -19,9 +19,9 @@ const BEARISH_MSGS = ["Bearish trend confirmed. Distribution in progress.", "Bea
 // ─── Alert dispatch driven by the shared analysis object ─────────────────────
 const dispatchAlertsFromAnalysis = (symbol, analysis) => {
     if (!analysis) return;
-    const { isBreakout, isBreakdown, trend, dipPercentage, currentPrice } = analysis;
-    const isBullish = trend === 'bullish';
-    const isBearish = trend === 'bearish';
+    const { isBreakout, isBreakdown, trend, trendAlertEligible, dipPercentage, currentPrice } = analysis;
+    const isBullish = trend === 'bullish' && trendAlertEligible;
+    const isBearish = trend === 'bearish' && trendAlertEligible;
     if (!(isBreakdown || isBreakout || isBullish || isBearish)) return;
 
     if (!window._stockAlertsEmitted) window._stockAlertsEmitted = new Set();
@@ -87,7 +87,9 @@ const analyzeSymbol = async (symbol, electron, livePrice) => {
         if (closes.length === 0) return null;
         const analysis = analyzeStock(closes, livePrice);
         if (!analysis) return null;
-        dispatchAlertsFromAnalysis(symbol, analysis);
+        // Only real market data may raise alerts — synthetic browser-mode series
+        // must not pollute the (persisted) alert history with fabricated ambers.
+        if (electron) dispatchAlertsFromAnalysis(symbol, analysis);
         return analysis;
     } catch (e) {
         console.error(`Failed to analyze ${symbol}`, e);
@@ -353,6 +355,9 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
     const [sortKey, setSortKey] = useState(null); // null = default order (day change asc)
     const [sortDir, setSortDir] = useState('desc');
     const [expandedRows, setExpandedRows] = useState(() => new Set());
+    // Monotonic scan counter: state writes from superseded scans are dropped so a
+    // slow older run (screener flushes, hydration) can't overwrite a newer one.
+    const runSeqRef = useRef(0);
 
     useEffect(() => {
         localStorage.setItem('dipAnalyzerChartCount', chartCount);
@@ -411,6 +416,8 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
     };
 
     const fetchFinvizData = useCallback(async (targetCount) => {
+        const runId = ++runSeqRef.current;
+        const isStale = () => runSeqRef.current !== runId;
         setLoading(true);
         try {
             let electron = null;
@@ -420,7 +427,7 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
 
             // Apply the shared analysis result onto a stock in state.
             const applyAnalysis = (symbol, analysis) => {
-                if (!analysis) return;
+                if (!analysis || isStale()) return;
                 setStocks(prev => prev.map(s => s.symbol === symbol
                     ? { ...s, recoveryProbability: analysis.score, isZombie: analysis.isZombie, analysis }
                     : s));
@@ -436,6 +443,7 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                     { symbol: 'DEAD', name: 'Zombie Corp', price: 0.5, changePercentage: -80.0, dipPercentage: 80.0, volume: 900000, avgVolume: null, marketCap: 12000000, fiftyTwoWeekLow: null, fiftyTwoWeekHigh: null, recoveryProbability: 50, isZombie: false, analysis: null, source: 'mock' },
                     { symbol: 'MSFT', name: 'Microsoft', price: 400.1, changePercentage: 1.2, dipPercentage: 0, volume: 24500000, avgVolume: 26100000, marketCap: 3.0e12, fiftyTwoWeekLow: 309.4, fiftyTwoWeekHigh: 430.8, recoveryProbability: 50, isZombie: false, analysis: null, source: 'mock' }
                 ];
+                if (isStale()) return;
                 setStocks(allStocks);
                 setLoading(false);
                 // Hydrate mock analyses via the shared engine on synthetic series.
@@ -456,9 +464,11 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                         const { meta, closes } = chart;
                         const lastClose = closes[closes.length - 1];
                         const price = meta.regularMarketPrice ?? lastClose ?? 0;
-                        const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? null;
-                        const changePercentage = (meta.regularMarketPrice != null && prevClose)
-                            ? ((meta.regularMarketPrice - prevClose) / prevClose) * 100
+                        // Day change must come from the prior daily bar: for a 1mo request,
+                        // meta.chartPreviousClose is the close from a MONTH ago, not yesterday.
+                        const prevClose = closes.length >= 2 ? closes[closes.length - 2] : null;
+                        const changePercentage = (price && prevClose)
+                            ? ((price - prevClose) / prevClose) * 100
                             : 0;
 
                         // Reuse the closes we already have for the shared hydration path.
@@ -483,6 +493,7 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                         };
                     } catch { return null; }
                 }));
+                if (isStale()) return;
                 setStocks(results.filter(Boolean));
                 setLoading(false);
                 return;
@@ -493,7 +504,9 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
             const combinedMap = new Map();
 
             for (const scrId of YAHOO_SCREENER_IDS) {
+                if (isStale()) return;
                 const results = await fetchYahooScreener(scrId, electron);
+                if (isStale()) return;
                 for (const stock of results) {
                     if (!combinedMap.has(stock.symbol)) {
                         // Defensive: Yahoo screeners rarely return sector, but honour exclusions when present.
@@ -522,6 +535,7 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
             const hydrateScores = async () => {
                 const chunkSize = 5;
                 for (let i = 0; i < allStocks.length; i += chunkSize) {
+                    if (isStale()) return;
                     const chunk = allStocks.slice(i, i + chunkSize);
                     await Promise.all(chunk.map(async stock => {
                         const analysis = await analyzeSymbol(stock.symbol, electron, stock.price);
@@ -535,7 +549,7 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
         } catch (error) {
             console.error('Failed to fetch screener data', error);
         } finally {
-            setLoading(false);
+            if (!isStale()) setLoading(false);
         }
     }, [sector, excludedSectors]);
 
@@ -582,8 +596,9 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
         : null;
     const buySignals = stocks.filter(s => (s.recoveryProbability ?? 0) >= 60).length;
     const zombieCount = stocks.filter(s => s.isZombie).length;
+    // Only actual losers qualify — an all-green basket must not crown a "dip".
     const deepestDip = stocks.reduce((worst, s) =>
-        (worst === null || s.changePercentage < worst.changePercentage) ? s : worst, null);
+        (s.changePercentage < 0 && (worst === null || s.changePercentage < worst.changePercentage)) ? s : worst, null);
 
     const stickyThBase = {
         padding: '0.9rem 0.5rem',
