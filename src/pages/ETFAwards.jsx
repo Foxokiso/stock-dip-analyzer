@@ -67,16 +67,16 @@ const ETFAwards = ({ excludedSectors, autoRefreshInterval = 0, globalFilter = 'A
                     console.warn("Electron environment not detected. Loading mock data.");
                     setEtfs({
                         performance: [
-                            { symbol: 'SOXL', name: 'Direxion Daily Semiconductor Bull', price: 42.50, change: 5.2 },
-                            { symbol: 'TQQQ', name: 'ProShares UltraPro QQQ', price: 61.20, change: 3.1 }
+                            { symbol: 'SOXL', name: 'Direxion Daily Semiconductor Bull', price: 42.50, change: 5.2, volume: '68,412,300' },
+                            { symbol: 'TQQQ', name: 'ProShares UltraPro QQQ', price: 61.20, change: 3.1, volume: '52,108,900' }
                         ],
                         dividend: [
-                            { symbol: 'SCHD', name: 'Schwab US Dividend Equity', price: 78.40, change: 0.2 },
-                            { symbol: 'VYM', name: 'Vanguard High Dividend Yield', price: 115.60, change: 0.1 }
+                            { symbol: 'SCHD', name: 'Schwab US Dividend Equity', price: 78.40, change: 0.2, volume: '11,304,500' },
+                            { symbol: 'VYM', name: 'Vanguard High Dividend Yield', price: 115.60, change: 0.1, volume: '1,208,700' }
                         ],
                         capitalGain: [
-                            { symbol: 'SPY', name: 'SPDR S&P 500', price: 512.30, change: 0.8 },
-                            { symbol: 'QQQ', name: 'Invesco QQQ Trust', price: 445.10, change: 1.1 }
+                            { symbol: 'SPY', name: 'SPDR S&P 500', price: 512.30, change: 0.8, volume: '74,921,600' },
+                            { symbol: 'QQQ', name: 'Invesco QQQ Trust', price: 445.10, change: 1.1, volume: '41,377,200' }
                         ]
                     });
                 }
@@ -120,19 +120,32 @@ const ETFAwards = ({ excludedSectors, autoRefreshInterval = 0, globalFilter = 'A
                 }}>
                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                         <span style={{ color: 'var(--text-muted)', fontWeight: 'bold', width: '20px' }}>#{i + 1}</span>
-                        <Link 
-                            to={`/stock/${etf.symbol}`} 
-                            style={{ 
-                                fontWeight: 'bold', 
-                                color: 'var(--text-main)', 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                gap: '0.25rem',
-                                textDecoration: 'underline'
-                            }}
-                        >
-                            {etf.symbol}
-                        </Link>
+                        <div>
+                            <Link
+                                to={`/stock/${etf.symbol}`}
+                                style={{
+                                    fontWeight: 'bold',
+                                    color: 'var(--text-main)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem',
+                                    textDecoration: 'underline'
+                                }}
+                            >
+                                {etf.symbol}
+                            </Link>
+                            {etf.name && (
+                                <div className="text-muted" style={{
+                                    fontSize: '0.7rem',
+                                    maxWidth: '180px',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis'
+                                }}>
+                                    {etf.name}
+                                </div>
+                            )}
+                        </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
                         <div style={{ fontWeight: '500' }}>${etf.price.toFixed(2)}</div>
@@ -142,6 +155,11 @@ const ETFAwards = ({ excludedSectors, autoRefreshInterval = 0, globalFilter = 'A
                         }}>
                             {etf.change > 0 ? '+' : ''}{etf.change.toFixed(2)}%
                         </div>
+                        {etf.volume && (
+                            <div className="text-muted" style={{ fontSize: '0.7rem' }}>
+                                Vol {etf.volume}
+                            </div>
+                        )}
                     </div>
                 </div>
             ))}
