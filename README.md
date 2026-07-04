@@ -1,6 +1,26 @@
 # Stock Dip Analyzer Pro
 
-Welcome to the Stock Dip Analyzer! This application connects real-time financial market data with an advanced algorithmic recovery scoring system to highlight highly oversold "dip" opportunities across all market sectors.
+Welcome to the Stock Dip Analyzer! This application connects real-time financial market data with a fully transparent, factor-by-factor recovery scoring engine to highlight highly oversold "dip" opportunities across all market sectors — complete with live market context, data-dense sortable dashboards, and deep multi-range stock detail views.
+
+## Release Notes v1.2.0
+
+This release is all about making the app more informative: richer data, transparent scoring, and market context on every screen.
+
+* **Transparent Recovery Score:**
+  * Every score now comes with a per-factor breakdown visible everywhere (dashboard, stock details), so you can see exactly which signals earned or lost points.
+  * All views share a single scoring engine (`src/utils/scoring.js`) — no more subtly divergent numbers between pages.
+  * New RSI and momentum factors feed the score alongside the existing dip-depth and trend signals.
+* **Market Pulse Strip:**
+  * A new market-context strip at the top of the Dashboard tracks SPY, QQQ, DIA, IWM, and the VIX with live prices, signed day-change badges, and intraday sparklines.
+* **Data-Dense Sortable Dashboard:**
+  * Columns for day change, off-30-day-high, volume, relative volume, and market cap.
+  * 52-week range bar, RSI readout, trend indicator, and per-row sparklines.
+  * Summary stat tiles up top for an at-a-glance read of the whole scan.
+* **Deeper Stock Details:**
+  * Switchable 1M / 3M / 6M / 1Y chart ranges with SMA20 plus peak and support overlays.
+  * Finviz key-statistics panel, a 52-week position bar, and 10 news items with source attribution.
+* **Reliability:**
+  * The photonics basket was moved off the crumb-gated Yahoo v7 quote API onto the chart API, eliminating a whole class of intermittent fetch failures.
 
 ## Release Notes v1.1.0
 
