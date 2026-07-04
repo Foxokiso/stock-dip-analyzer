@@ -74,8 +74,10 @@ ipcMain.handle('fetch-url', async (event, url) => {
     }
 });
 
-ipcMain.handle('fetch-yahoo-chart', async (event, symbol) => {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=1mo&interval=1d`;
+// range/interval are optional so existing fetch-yahoo-chart(symbol) callers keep working.
+// Valid ranges: 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, max. Intervals: 1m..1d, 1wk, 1mo.
+ipcMain.handle('fetch-yahoo-chart', async (event, symbol, range = '1mo', interval = '1d') => {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${encodeURIComponent(range)}&interval=${encodeURIComponent(interval)}`;
     try {
         const response = await fetch(url, {
             cache: 'no-store',
