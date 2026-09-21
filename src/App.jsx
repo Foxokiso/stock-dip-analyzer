@@ -1,16 +1,25 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { HashRouter as Router, Routes, Route, Link } from 'react-router-dom'
-import { Activity, LayoutDashboard, Settings, Palette, Trophy, Compass, Droplet } from 'lucide-react'
+import { Activity, LayoutDashboard, Settings, Palette, Trophy, Compass, Droplet, RefreshCw } from 'lucide-react'
 import './App.css'
 import { getLocalNewsHeadlines } from './utils/telemetry'
 
-// Placeholder components
+// The Dashboard is the home route and loads eagerly; every other page is
+// code-split so its code (recharts for Stock Details, etc.) is parsed only
+// when first visited.
 import Dashboard from './pages/Dashboard'
-import StockDetails from './pages/StockDetails'
-import ETFAwards from './pages/ETFAwards'
-import Discovery from './pages/Discovery'
-import OilWatch from './pages/OilWatch'
 import LiveAlerts from './components/LiveAlerts'
+const StockDetails = lazy(() => import('./pages/StockDetails'))
+const ETFAwards = lazy(() => import('./pages/ETFAwards'))
+const Discovery = lazy(() => import('./pages/Discovery'))
+const OilWatch = lazy(() => import('./pages/OilWatch'))
+
+const RouteFallback = () => (
+  <div className="flex-center" style={{ height: '40vh', flexDirection: 'column', gap: '1rem' }}>
+    <RefreshCw size={32} className="text-muted" style={{ animation: 'spin 1s linear infinite' }} />
+    <style>{`@keyframes spin { 100% { transform: rotate(360deg); } }`}</style>
+  </div>
+)
 
 const SECTORS = [
   { id: 'basicmaterials', label: 'Basic Materials' },
@@ -95,6 +104,7 @@ const SettingsPage = ({ excludedSectors, setExcludedSectors, autoRefreshInterval
           <option value={30}>Every 30 Minutes</option>
         </select>
       </div>
+
     </div>
   )
 }
@@ -337,6 +347,7 @@ function App() {
         </header>
 
         <main>
+          <Suspense fallback={<RouteFallback />}>
           <Routes>
             <Route path="/" element={<Dashboard excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
             <Route path="/stock/:symbol" element={<StockDetails />} />
@@ -345,6 +356,7 @@ function App() {
             <Route path="/discovery" element={<Discovery excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
             <Route path="/settings" element={<SettingsPage excludedSectors={excludedSectors} setExcludedSectors={setExcludedSectors} autoRefreshInterval={autoRefreshInterval} setAutoRefreshInterval={setAutoRefreshInterval} />} />
           </Routes>
+          </Suspense>
         </main>
         
         <LiveAlerts />
