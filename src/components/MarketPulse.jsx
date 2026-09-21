@@ -50,9 +50,18 @@ const MarketPulse = ({ autoRefreshInterval = 0, title = 'Market Pulse', tickers 
     const [updatedAt, setUpdatedAt] = useState(null);
 
     useEffect(() => {
+        // Staleness guard: a slow response from a superseded tick (or a prior
+        // tickers/interval configuration) must not overwrite fresher quotes.
+        let cancelled = false;
+        let runSeq = 0;
+
         const fetchQuotes = async () => {
+            const runId = ++runSeq;
+            const isStale = () => cancelled || runId !== runSeq;
+
             if (!electron) {
                 // Browser dev (no IPC): fall back to mock data so the strip still renders.
+                if (isStale()) return;
                 setQuotes(mocks);
                 setUpdatedAt(new Date());
                 return;
@@ -75,6 +84,7 @@ const MarketPulse = ({ autoRefreshInterval = 0, title = 'Market Pulse', tickers 
                     return [sym, null];
                 }
             }));
+            if (isStale()) return;
             setQuotes(Object.fromEntries(results));
             setUpdatedAt(new Date());
         };
@@ -83,8 +93,9 @@ const MarketPulse = ({ autoRefreshInterval = 0, title = 'Market Pulse', tickers 
 
         if (autoRefreshInterval > 0) {
             const intervalId = setInterval(fetchQuotes, autoRefreshInterval * 60 * 1000);
-            return () => clearInterval(intervalId);
+            return () => { cancelled = true; clearInterval(intervalId); };
         }
+        return () => { cancelled = true; };
     }, [autoRefreshInterval, tickers, mocks]);
 
     return (

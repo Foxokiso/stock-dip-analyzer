@@ -1,9 +1,14 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const isDev = !app.isPackaged;
 
-// Persistent cookie jar for Finviz session persistence across requests
-let finvizCookies = '';
+// Per-host cookie jar. Cookies are only attached to (and captured from) the
+// host that set them, so a Google News response can never clobber the Finviz
+// session, and no cookie is ever replayed cross-origin.
+const cookieJar = new Map(); // hostname -> "k=v; k2=v2"
+const hostOf = (url) => {
+    try { return new URL(url).hostname; } catch { return null; }
+};
 
 const BROWSER_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -24,11 +29,13 @@ const BROWSER_HEADERS = {
 
 ipcMain.handle('fetch-url', async (event, url) => {
     const maxRetries = 2;
+    const host = hostOf(url);
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
             const headers = { ...BROWSER_HEADERS };
-            if (finvizCookies) {
-                headers['Cookie'] = finvizCookies;
+            const hostCookies = host ? cookieJar.get(host) : null;
+            if (hostCookies) {
+                headers['Cookie'] = hostCookies;
             }
             if (url.includes('finviz.com') && attempt > 0) {
                 headers['Referer'] = 'https://finviz.com/screener.ashx';
@@ -40,22 +47,22 @@ ipcMain.handle('fetch-url', async (event, url) => {
                 redirect: 'follow',
             });
 
-            // Capture set-cookie headers for session persistence
+            // Capture set-cookie headers for this host's session persistence
             const setCookies = response.headers.getSetCookie?.() || [];
-            if (setCookies.length > 0) {
-                finvizCookies = setCookies.map(c => c.split(';')[0]).join('; ');
+            if (setCookies.length > 0 && host) {
+                cookieJar.set(host, setCookies.map(c => c.split(';')[0]).join('; '));
             }
 
             if (response.status === 403 && attempt < maxRetries) {
                 console.warn(`Fetch attempt ${attempt + 1} got 403, retrying after delay...`);
                 await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000));
                 // On retry, first hit the homepage to establish a session
-                if (!finvizCookies) {
+                if (host === 'finviz.com' && !cookieJar.get(host)) {
                     try {
                         const seedResp = await fetch('https://finviz.com/', { headers: BROWSER_HEADERS, redirect: 'follow' });
                         const seedCookies = seedResp.headers.getSetCookie?.() || [];
                         if (seedCookies.length > 0) {
-                            finvizCookies = seedCookies.map(c => c.split(';')[0]).join('; ');
+                            cookieJar.set(host, seedCookies.map(c => c.split(';')[0]).join('; '));
                         }
                     } catch (_) { /* best effort */ }
                 }
@@ -121,6 +128,18 @@ function createWindow() {
 
 // Force software rendering / disable hardware acceleration
 app.disableHardwareAcceleration();
+
+// Window-open policy: no chromeless in-app popups. Any window.open /
+// target=_blank from the app or its webviews (news links, resource tabs)
+// opens in the system browser instead — and only for http(s) URLs.
+app.on('web-contents-created', (event, contents) => {
+    contents.setWindowOpenHandler(({ url }) => {
+        if (/^https?:\/\//i.test(url)) {
+            shell.openExternal(url);
+        }
+        return { action: 'deny' };
+    });
+});
 
 app.whenReady().then(() => {
     createWindow();
