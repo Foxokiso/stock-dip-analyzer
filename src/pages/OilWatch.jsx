@@ -53,11 +53,18 @@ const OIL_ETFS = [
     { sym: 'CRAK', note: 'Refiners' },
 ];
 
-// Terms that mark a headline as high-impact for oil flows out of the Middle East.
-const HIGH_IMPACT_TERMS = [
-    'hormuz', 'attack', 'strike', 'blockade', 'sanction', 'seiz', 'closure', 'closed',
-    'fire', 'explosion', 'blast', 'drone', 'missile', 'war', 'escalat', 'disrupt', 'halt', 'embargo',
-];
+// High-impact matching: de-escalation phrasing is stripped first, then the
+// remaining text is matched on word boundaries — so 'ceasefire' never trips
+// 'fire', 'warns' never trips 'war', and 'strikes a deal' never trips 'strike'.
+const DEESCALATION_PHRASES = /ceasefire|cease-fire|truce|peace deal|peace talks|de-?escalat\w*|strikes? (a |an )?deal|deal struck|strike price/gi;
+const HIGH_IMPACT_RE = new RegExp(
+    [
+        'hormuz', 'attack\\w*', 'strikes?', 'struck', 'blockade\\w*', 'sanction\\w*', 'seiz\\w*',
+        'closures?', 'closed', 'fires?', 'explosions?', 'blasts?', 'drones?', 'missiles?',
+        'war', 'escalat\\w*', 'disrupt\\w*', 'halts?', 'halted', 'embargo\\w*',
+    ].map(t => `\\b${t}\\b`).join('|'),
+    'i'
+);
 
 const NEWS_QUERY = '"Middle East" oil OR "Strait of Hormuz" OR OPEC OR "oil tanker" OR refinery when:24h';
 
@@ -68,8 +75,8 @@ const MOCK_NEWS = [
 ];
 
 const isHighImpact = (title) => {
-    const lower = (title || '').toLowerCase();
-    return HIGH_IMPACT_TERMS.some(t => lower.includes(t));
+    const cleaned = (title || '').replace(DEESCALATION_PHRASES, ' ');
+    return HIGH_IMPACT_RE.test(cleaned);
 };
 
 // Deterministic-ish mock series so browser dev renders full boards.
@@ -111,7 +118,7 @@ const BoardRow = ({ row, expanded, onToggle }) => {
                 <td style={{ padding: '0.7rem 0.4rem', textAlign: 'right', color: row.changePct == null ? 'var(--text-muted)' : row.changePct >= 0 ? 'var(--success)' : 'var(--danger)' }}>
                     {formatPct(row.changePct)}
                 </td>
-                <td style={{ padding: '0.7rem 0.4rem', textAlign: 'right', color: 'var(--danger)' }}>
+                <td style={{ padding: '0.7rem 0.4rem', textAlign: 'right', color: a ? 'var(--danger)' : 'var(--text-muted)' }}>
                     {a ? `-${a.dipPercentage.toFixed(1)}%` : '—'}
                 </td>
                 <td style={{ padding: '0.7rem 0.4rem', textAlign: 'right', color: rsiColor }}>
@@ -180,8 +187,8 @@ const BoardRow = ({ row, expanded, onToggle }) => {
 };
 
 // ─── A titled board of tickers ───────────────────────────────────────────────
-const TickerBoard = ({ title, icon, color, rows, loading, expandedRows, onToggle }) => (
-    <div className="glass-panel" style={{ padding: '1.25rem', flex: '1 1 420px', minWidth: 0 }}>
+const TickerBoard = ({ title, icon, color, rows, loading, expandedRows, onToggle, flexBasis = '420px' }) => (
+    <div className="glass-panel" style={{ padding: '1.25rem', flex: `1 1 ${flexBasis}`, minWidth: 0 }}>
         <h3 className="flex-center" style={{ justifyContent: 'flex-start', gap: '0.5rem', marginTop: 0, marginBottom: '0.75rem', color }}>
             {icon}
             {title}
@@ -220,6 +227,7 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
     const [loading, setLoading] = useState(true);
     const [news, setNews] = useState([]);
     const [newsLoading, setNewsLoading] = useState(true);
+    const [newsStale, setNewsStale] = useState(false);
     const [expandedRows, setExpandedRows] = useState(() => new Set());
 
     const onToggle = useCallback((sym) => {
@@ -234,25 +242,34 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
     // Fetch every basket symbol once (deduped), in small chunks like the dashboard hydrator.
     useEffect(() => {
         let cancelled = false;
+        let runSeq = 0;
         const allSymbols = [...new Set([...TANKERS, ...REFINERS, ...OIL_ETFS].map(t => t.sym))];
 
         const loadBasket = async () => {
+            // Per-run staleness token: a run that outlasts the refresh interval
+            // must not overwrite rows (or clear the spinner) for the newer run.
+            const runId = ++runSeq;
+            const isStale = () => cancelled || runId !== runSeq;
             setLoading(true);
 
             if (!electron) {
                 const entries = allSymbols.map((sym, i) => {
-                    const closes = buildMockSeries(i + 7);
-                    const price = closes[closes.length - 1];
+                    // Symbols also shown in the Energy Pulse strip reuse its mock
+                    // quote so the two surfaces never contradict each other.
+                    const pulseMock = ENERGY_MOCKS[sym];
+                    const closes = pulseMock ? pulseMock.closes : buildMockSeries(i + 7);
+                    const price = pulseMock ? pulseMock.price : closes[closes.length - 1];
                     const prev = closes[closes.length - 2];
+                    const changePct = pulseMock ? pulseMock.changePct : ((price - prev) / prev) * 100;
                     return [sym, {
                         sym,
                         name: sym,
                         price,
-                        changePct: ((price - prev) / prev) * 100,
+                        changePct,
                         analysis: analyzeStock(closes, price),
                     }];
                 });
-                if (!cancelled) {
+                if (!isStale()) {
                     setBasket(Object.fromEntries(entries));
                     setLoading(false);
                 }
@@ -261,7 +278,7 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
 
             const chunkSize = 5;
             for (let i = 0; i < allSymbols.length; i += chunkSize) {
-                if (cancelled) return;
+                if (isStale()) return;
                 const chunk = allSymbols.slice(i, i + chunkSize);
                 await Promise.all(chunk.map(async (sym) => {
                     try {
@@ -284,14 +301,14 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                             changePct,
                             analysis: analyzeStock(closes, price),
                         };
-                        if (!cancelled) setBasket(prev => ({ ...prev, [sym]: row }));
+                        if (!isStale()) setBasket(prev => ({ ...prev, [sym]: row }));
                     } catch (err) {
                         console.error(`OilWatch: failed to fetch ${sym}`, err);
                     }
                 }));
                 await new Promise(r => setTimeout(r, 300));
             }
-            if (!cancelled) setLoading(false);
+            if (!isStale()) setLoading(false);
         };
 
         loadBasket();
@@ -341,10 +358,15 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                 }
                 // High-impact headlines float to the top, otherwise keep feed order.
                 parsed.sort((a, b) => Number(b.highImpact) - Number(a.highImpact));
-                if (!cancelled) setNews(parsed);
+                if (!cancelled) {
+                    setNews(parsed);
+                    setNewsStale(false);
+                }
             } catch (err) {
                 console.error('OilWatch: news fetch failed', err);
-                if (!cancelled) setNews([]);
+                // Keep the previously loaded headlines on a transient refresh
+                // failure — mark them stale instead of wiping the panel.
+                if (!cancelled) setNewsStale(true);
             } finally {
                 if (!cancelled) setNewsLoading(false);
             }
@@ -418,6 +440,7 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                             loading={loading}
                             expandedRows={expandedRows}
                             onToggle={onToggle}
+                            flexBasis="560px"
                         />
                         <TickerBoard
                             title="Energy ETFs"
@@ -427,6 +450,7 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                             loading={loading}
                             expandedRows={expandedRows}
                             onToggle={onToggle}
+                            flexBasis="560px"
                         />
                     </div>
                 </div>
@@ -442,18 +466,24 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                         Last-24h headlines on Middle East oil, the Strait of Hormuz, OPEC, tankers, and refineries.
                         High-impact events are flagged and float to the top.
                     </p>
+                    {newsStale && news.length > 0 && (
+                        <p style={{ fontSize: '0.72rem', color: 'var(--warning)', margin: '0 0 0.75rem 0' }}>
+                            Feed refresh failed — showing the last loaded headlines.
+                        </p>
+                    )}
                     {!newsLoading && news.length === 0 ? (
                         <div className="text-muted" style={{ textAlign: 'center', padding: '1.5rem 0', fontSize: '0.85rem' }}>
-                            No headlines available right now.
+                            {newsStale ? 'News feed unavailable right now — will retry on the next refresh.' : 'No headlines available right now.'}
                         </div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                             {news.map((item, idx) => (
                                 <a
                                     key={idx}
-                                    href={item.link}
+                                    // Feed-controlled URLs: only http(s) links are clickable.
+                                    href={/^https?:\/\//i.test(item.link) ? item.link : undefined}
                                     target="_blank"
-                                    rel="noreferrer"
+                                    rel="noopener noreferrer"
                                     style={{
                                         display: 'block',
                                         padding: '0.75rem',
