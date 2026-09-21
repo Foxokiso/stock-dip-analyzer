@@ -44,7 +44,7 @@ const Sparkline = ({ closes, color }) => {
     );
 };
 
-const MarketPulse = ({ autoRefreshInterval = 0 }) => {
+const MarketPulse = ({ autoRefreshInterval = 0, title = 'Market Pulse', tickers = TRACKED, mocks = MOCK_QUOTES }) => {
     // quotes: { [sym]: { price, changePct, closes } | null } — null renders as '—'.
     const [quotes, setQuotes] = useState({});
     const [updatedAt, setUpdatedAt] = useState(null);
@@ -53,11 +53,11 @@ const MarketPulse = ({ autoRefreshInterval = 0 }) => {
         const fetchQuotes = async () => {
             if (!electron) {
                 // Browser dev (no IPC): fall back to mock data so the strip still renders.
-                setQuotes(MOCK_QUOTES);
+                setQuotes(mocks);
                 setUpdatedAt(new Date());
                 return;
             }
-            const results = await Promise.all(TRACKED.map(async ({ sym }) => {
+            const results = await Promise.all(tickers.map(async ({ sym }) => {
                 try {
                     const json = await electron.ipcRenderer.invoke('fetch-yahoo-chart', sym, '1d', '5m');
                     const result = json?.chart?.result?.[0];
@@ -85,21 +85,21 @@ const MarketPulse = ({ autoRefreshInterval = 0 }) => {
             const intervalId = setInterval(fetchQuotes, autoRefreshInterval * 60 * 1000);
             return () => clearInterval(intervalId);
         }
-    }, [autoRefreshInterval]);
+    }, [autoRefreshInterval, tickers, mocks]);
 
     return (
         <div style={{ marginBottom: '1.5rem' }}>
             <div className="flex-between" style={{ marginBottom: '0.5rem' }}>
                 <span className="text-muted flex-center" style={{ gap: '0.4rem', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                     <Radio size={14} />
-                    Market Pulse
+                    {title}
                 </span>
                 <span className="text-muted" style={{ fontSize: '0.75rem' }}>
                     {updatedAt ? `updated ${updatedAt.toLocaleTimeString('en-US', { hour12: false })}` : 'updating…'}
                 </span>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
-                {TRACKED.map(({ sym, label }) => {
+                {tickers.map(({ sym, label }) => {
                     const q = quotes[sym];
                     const up = q ? q.changePct >= 0 : true;
                     const changeColor = up ? 'var(--success)' : 'var(--danger)';
