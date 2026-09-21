@@ -1,18 +1,9 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
-const fs = require('fs');
 const isDev = !app.isPackaged;
 
 // Network requests that hang would otherwise stall a whole hydration chunk.
 const FETCH_TIMEOUT_MS = 15000;
-
-// Performance settings persisted in userData (read synchronously at startup
-// because hardware acceleration must be decided before the app is ready).
-const perfSettingsPath = () => path.join(app.getPath('userData'), 'perf-settings.json');
-const readPerfSettings = () => {
-    try { return JSON.parse(fs.readFileSync(perfSettingsPath(), 'utf8')); } catch { return {}; }
-};
-const perfSettings = readPerfSettings();
 
 // Per-host cookie jar. Cookies are only attached to (and captured from) the
 // host that set them, so a Google News response can never clobber the Finviz
@@ -141,23 +132,6 @@ ipcMain.handle('fetch-yahoo-chart', async (event, symbol, range = '1mo', interva
     return pending;
 });
 
-// ─── Performance settings (hardware acceleration opt-in) ─────────────────────
-ipcMain.handle('get-perf-settings', () => ({
-    hardwareAcceleration: !!perfSettings.hardwareAcceleration,
-}));
-
-ipcMain.handle('set-perf-settings', (event, next) => {
-    const merged = { ...readPerfSettings(), ...(next || {}) };
-    fs.mkdirSync(path.dirname(perfSettingsPath()), { recursive: true });
-    fs.writeFileSync(perfSettingsPath(), JSON.stringify(merged, null, 2));
-    return merged;
-});
-
-ipcMain.handle('relaunch-app', () => {
-    app.relaunch();
-    app.exit(0);
-});
-
 let mainWindow;
 
 function createWindow() {
@@ -183,13 +157,8 @@ function createWindow() {
     });
 }
 
-// Software rendering is the safe default (it was forced on in an earlier
-// release). GPU acceleration is opt-in from Settings -> Performance: with it
-// on, the glass-panel backdrop blurs and animations render on the GPU
-// instead of the CPU, which is the single biggest smoothness win available.
-if (!perfSettings.hardwareAcceleration) {
-    app.disableHardwareAcceleration();
-}
+// Force software rendering / disable hardware acceleration
+app.disableHardwareAcceleration();
 
 // Window-open policy: no chromeless in-app popups. Any window.open /
 // target=_blank from the app or its webviews (news links, resource tabs)

@@ -6,8 +6,6 @@ Welcome to the Stock Dip Analyzer! This application connects real-time financial
 
 Responsiveness release — the app gets on screen faster and stays smooth while it scans.
 
-* **GPU Acceleration (opt-in):**
-  * New **Settings → Performance → Hardware (GPU) acceleration** toggle. The glass-panel blur effects and theme animations render on the GPU instead of the CPU — by far the largest smoothness gain available. Off by default (software rendering, as before); relaunch to apply.
 * **Faster startup:**
   * Pages are code-split: the Dashboard loads first and Stock Details, Oil Watch, ETFs, and Discovery load on first visit. Heavy vendors (charts, router, icons) ship as separate cached chunks.
 * **Chart cache + request timeouts:**
