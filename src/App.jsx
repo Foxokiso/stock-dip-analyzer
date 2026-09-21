@@ -1,16 +1,92 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { HashRouter as Router, Routes, Route, Link } from 'react-router-dom'
-import { Activity, LayoutDashboard, Settings, Palette, Trophy, Compass, Droplet } from 'lucide-react'
+import { Activity, LayoutDashboard, Settings, Palette, Trophy, Compass, Droplet, Gauge, RefreshCw } from 'lucide-react'
 import './App.css'
 import { getLocalNewsHeadlines } from './utils/telemetry'
 
-// Placeholder components
+// The Dashboard is the home route and loads eagerly; every other page is
+// code-split so its code (recharts for Stock Details, etc.) is parsed only
+// when first visited.
 import Dashboard from './pages/Dashboard'
-import StockDetails from './pages/StockDetails'
-import ETFAwards from './pages/ETFAwards'
-import Discovery from './pages/Discovery'
-import OilWatch from './pages/OilWatch'
 import LiveAlerts from './components/LiveAlerts'
+const StockDetails = lazy(() => import('./pages/StockDetails'))
+const ETFAwards = lazy(() => import('./pages/ETFAwards'))
+const Discovery = lazy(() => import('./pages/Discovery'))
+const OilWatch = lazy(() => import('./pages/OilWatch'))
+
+const RouteFallback = () => (
+  <div className="flex-center" style={{ height: '40vh', flexDirection: 'column', gap: '1rem' }}>
+    <RefreshCw size={32} className="text-muted" style={{ animation: 'spin 1s linear infinite' }} />
+    <style>{`@keyframes spin { 100% { transform: rotate(360deg); } }`}</style>
+  </div>
+)
+
+const electron = typeof window !== 'undefined' && typeof window.require === 'function'
+  ? window.require('electron')
+  : null
+
+// Settings -> Performance: hardware acceleration is an opt-in persisted by the
+// main process (it must be decided before the window exists), so a relaunch
+// is required for it to take effect.
+const PerformancePanel = () => {
+  const [hwAccel, setHwAccel] = useState(null) // null = loading / unavailable
+  const [dirty, setDirty] = useState(false)
+
+  useEffect(() => {
+    if (!electron) return
+    let cancelled = false
+    electron.ipcRenderer.invoke('get-perf-settings')
+      .then(s => { if (!cancelled) setHwAccel(!!s?.hardwareAcceleration) })
+      .catch(() => { if (!cancelled) setHwAccel(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  if (!electron) return null
+
+  const toggle = async () => {
+    const next = !hwAccel
+    setHwAccel(next)
+    setDirty(true)
+    try {
+      await electron.ipcRenderer.invoke('set-perf-settings', { hardwareAcceleration: next })
+    } catch (err) {
+      console.error('Failed to save performance settings', err)
+    }
+  }
+
+  return (
+    <div className="glass-panel" style={{ padding: '2rem', marginTop: '2rem' }}>
+      <h3 style={{ marginTop: 0, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <Gauge size={18} color="var(--primary)" /> Performance
+      </h3>
+      <p className="text-muted" style={{ fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+        Renders the glass blur effects and animations on your GPU instead of the CPU. Dramatically smoother
+        scrolling and theme effects on most machines. If you see a blank or flickering window after
+        enabling it, turn it back off.
+      </p>
+      <label className="flex-center" style={{ justifyContent: 'flex-start', gap: '0.6rem', cursor: 'pointer' }}>
+        <input
+          type="checkbox"
+          checked={!!hwAccel}
+          disabled={hwAccel === null}
+          onChange={toggle}
+          style={{ accentColor: 'var(--primary)', width: '16px', height: '16px', cursor: 'pointer' }}
+        />
+        <span>Hardware (GPU) acceleration</span>
+        <span className="text-muted" style={{ fontSize: '0.8rem' }}>— requires restart</span>
+      </label>
+      {dirty && (
+        <button
+          className="btn btn-primary"
+          style={{ marginTop: '1.25rem' }}
+          onClick={() => electron.ipcRenderer.invoke('relaunch-app')}
+        >
+          Relaunch now to apply
+        </button>
+      )}
+    </div>
+  )
+}
 
 const SECTORS = [
   { id: 'basicmaterials', label: 'Basic Materials' },
@@ -95,6 +171,8 @@ const SettingsPage = ({ excludedSectors, setExcludedSectors, autoRefreshInterval
           <option value={30}>Every 30 Minutes</option>
         </select>
       </div>
+
+      <PerformancePanel />
     </div>
   )
 }
@@ -337,6 +415,7 @@ function App() {
         </header>
 
         <main>
+          <Suspense fallback={<RouteFallback />}>
           <Routes>
             <Route path="/" element={<Dashboard excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
             <Route path="/stock/:symbol" element={<StockDetails />} />
@@ -345,6 +424,7 @@ function App() {
             <Route path="/discovery" element={<Discovery excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
             <Route path="/settings" element={<SettingsPage excludedSectors={excludedSectors} setExcludedSectors={setExcludedSectors} autoRefreshInterval={autoRefreshInterval} setAutoRefreshInterval={setAutoRefreshInterval} />} />
           </Routes>
+          </Suspense>
         </main>
         
         <LiveAlerts />

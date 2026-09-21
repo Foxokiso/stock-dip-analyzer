@@ -2,6 +2,19 @@
 
 Welcome to the Stock Dip Analyzer! This application connects real-time financial market data with a fully transparent, factor-by-factor recovery scoring engine to highlight highly oversold "dip" opportunities across all market sectors — complete with live market context, data-dense sortable dashboards, deep multi-range stock detail views, and a dedicated Oil Watch desk for tankers, refiners, and Middle East energy flow.
 
+## Release Notes v1.4.0
+
+Responsiveness release — the app gets on screen faster and stays smooth while it scans.
+
+* **GPU Acceleration (opt-in):**
+  * New **Settings → Performance → Hardware (GPU) acceleration** toggle. The glass-panel blur effects and theme animations render on the GPU instead of the CPU — by far the largest smoothness gain available. Off by default (software rendering, as before); relaunch to apply.
+* **Faster startup:**
+  * Pages are code-split: the Dashboard loads first and Stock Details, Oil Watch, ETFs, and Discovery load on first visit. Heavy vendors (charts, router, icons) ship as separate cached chunks.
+* **Chart cache + request timeouts:**
+  * The desktop process caches Yahoo chart responses for 45 seconds and de-duplicates concurrent requests — opening a stock from the Dashboard, flipping sectors, or several panels asking for the same symbol no longer re-download. Every network request now times out after 15 seconds instead of stalling a scan.
+* **Snappier Dashboard:**
+  * Score hydration applies one update per chunk (not one per symbol) and paces slightly faster; filtering/sorting is memoized; the O(n²) merge on each screener flush is now a map lookup; per-row hover effects no longer create a GPU layer per row; the sticky table header no longer re-blurs on every scroll frame.
+
 ## Release Notes v1.3.0
 
 This release adds a dedicated energy desk: **Oil Watch** (new "Oil Watch" tab).

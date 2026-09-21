@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, memo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { Search, SlidersHorizontal, RefreshCw, ChevronDown } from 'lucide-react';
 import MarketPulse from '../components/MarketPulse';
 import { analyzeStock, getVerdict } from '../utils/scoring';
@@ -219,20 +219,11 @@ const StockRow = memo(({ stock, expanded, onToggle }) => {
                     borderBottom: expanded ? 'none' : '1px solid rgba(255,255,255,0.05)',
                     opacity: stock.isZombie ? 0.6 : 1,
                     cursor: 'pointer',
-                    transition: 'all 0.2s ease-in-out',
-                    willChange: 'transform'
+                    transition: 'background 0.15s ease-out'
                 }}
                 onClick={() => window.location.hash = `/stock/${stock.symbol}`}
-                onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-                }}
-                onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'transparent';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
                 <td style={{ ...cellStyle, fontWeight: 'bold', color: 'var(--text-main)' }}>{stock.symbol}</td>
                 <td style={{ ...cellStyle, color: 'var(--text-muted)', fontSize: '0.85rem', maxWidth: '28ch', overflow: 'hidden', textOverflow: 'ellipsis' }} title={stock.name}>
@@ -433,6 +424,19 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                     : s));
             };
 
+            // Batched variant: one re-render per hydration chunk instead of one per symbol.
+            const applyAnalyses = (pairs) => {
+                if (isStale()) return;
+                const bySymbol = new Map(pairs.filter(([, a]) => a).map(([sym, a]) => [sym, a]));
+                if (bySymbol.size === 0) return;
+                setStocks(prev => prev.map(s => {
+                    const analysis = bySymbol.get(s.symbol);
+                    return analysis
+                        ? { ...s, recoveryProbability: analysis.score, isZombie: analysis.isZombie, analysis }
+                        : s;
+                }));
+            };
+
             let allStocks = [];
 
             if (!electron) {
@@ -521,27 +525,31 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                     .sort((a, b) => b.dipPercentage - a.dipPercentage)
                     .slice(0, targetCount);
 
-                setStocks(prevStocks => allStocks.map(ns => {
-                    const ex = prevStocks.find(p => p.symbol === ns.symbol);
-                    return ex
-                        ? { ...ns, recoveryProbability: ex.recoveryProbability, isZombie: ex.isZombie, analysis: ex.analysis }
-                        : { ...ns, recoveryProbability: 50 };
-                }));
+                setStocks(prevStocks => {
+                    const prevBySymbol = new Map(prevStocks.map(p => [p.symbol, p]));
+                    return allStocks.map(ns => {
+                        const ex = prevBySymbol.get(ns.symbol);
+                        return ex
+                            ? { ...ns, recoveryProbability: ex.recoveryProbability, isZombie: ex.isZombie, analysis: ex.analysis }
+                            : { ...ns, recoveryProbability: 50 };
+                    });
+                });
 
                 await new Promise(r => setTimeout(r, 300));
             }
 
             // Hydrate analyses (score + factors + technicals) in small batches
             const hydrateScores = async () => {
-                const chunkSize = 5;
+                const chunkSize = 6;
                 for (let i = 0; i < allStocks.length; i += chunkSize) {
                     if (isStale()) return;
                     const chunk = allStocks.slice(i, i + chunkSize);
-                    await Promise.all(chunk.map(async stock => {
-                        const analysis = await analyzeSymbol(stock.symbol, electron, stock.price);
-                        applyAnalysis(stock.symbol, analysis);
-                    }));
-                    await new Promise(r => setTimeout(r, 800));
+                    const results = await Promise.all(chunk.map(async stock => [
+                        stock.symbol,
+                        await analyzeSymbol(stock.symbol, electron, stock.price),
+                    ]));
+                    applyAnalyses(results);
+                    await new Promise(r => setTimeout(r, 500));
                 }
             };
             hydrateScores().catch(err => console.error('Error hydrating scores:', err));
@@ -567,8 +575,10 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
         return () => clearInterval(intervalId);
     }, [autoRefreshInterval, chartCount, fetchFinvizData]);
 
-    const filteredStocks = stocks.filter(s => {
-        if (!s.symbol.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    const displayStocks = useMemo(() => {
+      const term = searchTerm.toLowerCase();
+      const filtered = stocks.filter(s => {
+        if (!s.symbol.toLowerCase().includes(term)) return false;
 
         if (globalFilter !== 'All') {
             const rating = getVerdict(s.recoveryProbability ?? 50, s.isZombie).label;
@@ -585,9 +595,9 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
             return rating === globalFilter;
         }
         return true;
-    });
-
-    const displayStocks = sortStocks(filteredStocks, sortKey, sortDir);
+      });
+      return sortStocks(filtered, sortKey, sortDir);
+    }, [stocks, searchTerm, globalFilter, sortKey, sortDir]);
 
     // Summary tiles — live-updating as hydration progresses
     const scanned = stocks.length;
@@ -609,8 +619,7 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
         position: 'sticky',
         top: 0,
         zIndex: 1,
-        background: 'rgba(13,17,28,0.92)',
-        backdropFilter: 'blur(6px)'
+        background: 'rgba(13,17,28,0.97)'
     };
 
     return (
