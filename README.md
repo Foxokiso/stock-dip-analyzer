@@ -1,6 +1,21 @@
 # Stock Dip Analyzer Pro
 
-Welcome to the Stock Dip Analyzer! This application connects real-time financial market data with a fully transparent, factor-by-factor recovery scoring engine to highlight highly oversold "dip" opportunities across all market sectors — complete with live market context, data-dense sortable dashboards, and deep multi-range stock detail views.
+Welcome to the Stock Dip Analyzer! This application connects real-time financial market data with a fully transparent, factor-by-factor recovery scoring engine to highlight highly oversold "dip" opportunities across all market sectors — complete with live market context, data-dense sortable dashboards, deep multi-range stock detail views, and a dedicated Oil Watch desk for tankers, refiners, and Middle East energy flow.
+
+## Release Notes v1.3.0
+
+This release adds a dedicated energy desk: **Oil Watch** (new "Oil Watch" tab).
+
+* **Energy Pulse Strip:**
+  * Live WTI (`CL=F`), Brent (`BZ=F`), Gasoline (`RB=F`), Natural Gas (`NG=F`), and Energy Sector (`XLE`) with day change and intraday sparklines — the Market Pulse component is now reusable for any ticker set.
+* **Wet Freight — Tanker Fleet Board:**
+  * Crude tankers (FRO, DHT, INSW, NAT, TNK), product tankers (STNG, TRMD, ASC), and gas carriers (FLNG, LPG), each scored by the shared recovery engine with the same expandable factor breakdown as the main dashboard.
+* **Refiners & Energy ETFs Boards:**
+  * Refiners (VLO, MPC, PSX, PBF, DINO, DK) and oil ETFs (USO, BNO, XLE, XOP, OIH, CRAK) with price, day change, off-30-day-high, RSI, trend, and rating. Every ticker links to the full Stock Details analysis.
+* **Middle East Oil Intelligence Feed:**
+  * Last-24h headlines covering Middle East oil, the Strait of Hormuz, OPEC, tankers, and refineries (Google News RSS). Headlines mentioning high-impact terms (Hormuz, attacks, blockades, sanctions, refinery fires, seizures…) get an amber **HIGH IMPACT** badge and float to the top of the feed.
+* **Wiring:**
+  * Oil Watch honors the global rating filter and the auto-refresh interval like every other page, and renders with mock data outside the desktop app.
 
 ## Release Notes v1.2.0
 

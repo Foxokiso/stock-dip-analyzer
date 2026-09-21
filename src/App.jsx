@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { HashRouter as Router, Routes, Route, Link } from 'react-router-dom'
-import { Activity, LayoutDashboard, Settings, Palette, Trophy, Compass } from 'lucide-react'
+import { Activity, LayoutDashboard, Settings, Palette, Trophy, Compass, Droplet } from 'lucide-react'
 import './App.css'
 import { getLocalNewsHeadlines } from './utils/telemetry'
 
@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard'
 import StockDetails from './pages/StockDetails'
 import ETFAwards from './pages/ETFAwards'
 import Discovery from './pages/Discovery'
+import OilWatch from './pages/OilWatch'
 import LiveAlerts from './components/LiveAlerts'
 
 const SECTORS = [
@@ -323,6 +324,9 @@ function App() {
             <Link to="/etfs" className="nav-link flex-center">
               <Trophy size={18} /> Daily ETFs
             </Link>
+            <Link to="/oil" className="nav-link flex-center">
+              <Droplet size={18} /> Oil Watch
+            </Link>
             <Link to="/discovery" className="nav-link flex-center">
               <Compass size={18} /> Discovery
             </Link>
@@ -337,6 +341,7 @@ function App() {
             <Route path="/" element={<Dashboard excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
             <Route path="/stock/:symbol" element={<StockDetails />} />
             <Route path="/etfs" element={<ETFAwards excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
+            <Route path="/oil" element={<OilWatch autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
             <Route path="/discovery" element={<Discovery excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
             <Route path="/settings" element={<SettingsPage excludedSectors={excludedSectors} setExcludedSectors={setExcludedSectors} autoRefreshInterval={autoRefreshInterval} setAutoRefreshInterval={setAutoRefreshInterval} />} />
           </Routes>
