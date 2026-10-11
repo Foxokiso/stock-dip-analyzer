@@ -1,14 +1,18 @@
 import { TrendingUp, TrendingDown, Clock, Activity } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { getVerdict } from '../utils/scoring';
+import { formatPrice, formatPct } from '../utils/format';
 
 const StockCard = ({ symbol, name, price, dipPercentage, recoveryProbability, isZombie }) => {
     let scoreColor = 'var(--text-muted)';
     let scoreText = 'Neutral Signal';
     let scoreClass = '';
 
-    if (isZombie) {
+    if (!getVerdict(recoveryProbability)) {
+        scoreText = 'Unavailable';
+    } else if (isZombie) {
         scoreColor = '#9ca3af'; // Improved contrast for dark themes
-        scoreText = 'ZOMBIE / DEAD';
+        scoreText = 'Strong Sell';
         scoreClass = '';
     } else if (recoveryProbability >= 80) {
         scoreColor = 'var(--success)';
@@ -56,10 +60,10 @@ const StockCard = ({ symbol, name, price, dipPercentage, recoveryProbability, is
                     <span className="text-muted" style={{ fontSize: '0.85rem' }}>{name}</span>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '1.2rem', fontWeight: '600' }}>${price.toFixed(2)}</div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: '600' }}>{formatPrice(price)}</div>
                     <div className="text-danger flex-center" style={{ gap: '0.25rem', fontSize: '0.9rem', justifyContent: 'flex-end' }}>
                         <TrendingDown size={14} />
-                        {dipPercentage}%
+                        {formatPct(dipPercentage)}
                     </div>
                 </div>
             </div>
@@ -92,7 +96,7 @@ const StockCard = ({ symbol, name, price, dipPercentage, recoveryProbability, is
                         boxShadow: `0 0 8px ${scoreColor}`
                     }} />
                     <span style={{ color: scoreColor }}>
-                        {scoreText} ({recoveryProbability})
+                        {scoreText}{recoveryProbability != null ? ` (${recoveryProbability})` : ''}
                     </span>
                 </div>
             </div>

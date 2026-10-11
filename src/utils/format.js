@@ -2,7 +2,7 @@
 
 // 1234567890 -> "1.23B", 4500000 -> "4.50M", null/undefined/NaN -> "—"
 export function formatCompact(value) {
-    if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+    if (!isDisplayNumber(value)) return '—';
     const n = Number(value);
     const abs = Math.abs(n);
     if (abs >= 1e12) return `${(n / 1e12).toFixed(2)}T`;
@@ -14,13 +14,23 @@ export function formatCompact(value) {
 
 // 2.345 -> "+2.35%", -1.2 -> "-1.20%", null -> "—"
 export function formatPct(value, digits = 2) {
-    if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+    if (!isDisplayNumber(value)) return '—';
     const n = Number(value);
     return `${n > 0 ? '+' : ''}${n.toFixed(digits)}%`;
 }
 
 // 12.3456 -> "$12.35", null -> "—"
 export function formatPrice(value) {
-    if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+    if (!isDisplayNumber(value)) return '—';
     return `$${Number(value).toFixed(2)}`;
+}
+
+function isDisplayNumber(value) {
+    return (typeof value === 'number' || (typeof value === 'string' && value.trim() !== ''))
+        && Number.isFinite(Number(value));
+}
+
+export function formatQuoteTime(value) {
+    const date = value ? new Date(value) : null;
+    return date && Number.isFinite(date.getTime()) ? date.toLocaleString([], { timeZoneName: 'short' }) : 'Unavailable';
 }

@@ -1,63 +1,55 @@
 # Stock Dip Analyzer Pro
 
-Welcome to the Stock Dip Analyzer! This application connects real-time financial market data with a fully transparent, factor-by-factor recovery scoring engine to highlight highly oversold "dip" opportunities across all market sectors — complete with live market context, data-dense sortable dashboards, deep multi-range stock detail views, and a dedicated Oil Watch desk for tankers, refiners, and Middle East energy flow.
+A desktop market research workspace built with React, Vite, and Electron. Finviz is the primary stock screener and futures reference; Yahoo Finance supplies historical technical analysis and market context. Google News RSS supplies the Oil Watch headlines.
 
-## Release Notes v1.3.0
+## Futures desk and modern workspace
 
-This release adds a dedicated energy desk: **Oil Watch** (new "Oil Watch" tab).
+The Futures tab groups Finviz reference instruments across indices, rates, energy, metals, grains, softs, and currencies. It includes search, overview cards, actual source sparklines, and an instrument detail panel. The default theme uses slate surfaces, mint accents, readable tabular numbers, and active navigation. Large route components load on demand; refreshes preserve the interface, and reduced motion is respected.
 
-* **Energy Pulse Strip:**
-  * Live WTI (`CL=F`), Brent (`BZ=F`), Gasoline (`RB=F`), Natural Gas (`NG=F`), and Energy Sector (`XLE`) with day change and intraday sparklines — the Market Pulse component is now reusable for any ticker set.
-* **Wet Freight — Tanker Fleet Board:**
-  * Crude tankers (FRO, DHT, INSW, NAT, TNK), product tankers (STNG, TRMD, ASC), and gas carriers (FLNG, LPG), each scored by the shared recovery engine with the same expandable factor breakdown as the main dashboard.
-* **Refiners & Energy ETFs Boards:**
-  * Refiners (VLO, MPC, PSX, PBF, DINO, DK) and oil ETFs (USO, BNO, XLE, XOP, OIH, CRAK) with price, day change, off-30-day-high, RSI, trend, and rating. Every ticker links to the full Stock Details analysis.
-* **Middle East Oil Intelligence Feed:**
-  * Last-24h headlines covering Middle East oil, the Strait of Hormuz, OPEC, tankers, and refineries (Google News RSS). Headlines mentioning high-impact terms (Hormuz, attacks, blockades, sanctions, refinery fires, seizures…) get an amber **HIGH IMPACT** badge and float to the top of the feed.
-* **Wiring:**
-  * Oil Watch honors the global rating filter and the auto-refresh interval like every other page, and renders with mock data outside the desktop app.
+## Data integrity
 
-## Release Notes v1.2.0
+- Runtime views never substitute synthetic prices, scores, or news. A browser preview without Electron's source connection shows unavailable data.
+- Retrieval time and source quote time are different fields. Unknown quote timestamps remain unknown; retrieving a response does not establish quote freshness.
+- Finviz's [FAQ](https://finviz.com/help/faq) specifies a **20-minute futures delay**, while its [current futures page](https://finviz.com/futures) says **15 minutes**. The app conservatively displays 20 minutes. This is delayed reference data, not a real-time exchange feed or a freshness guarantee.
+- The Finviz futures feed does not supply a confirmed delivery contract or source quote timestamp. Native price units and Treasury decimal fractions are preserved; a universal dollar sign is not applied.
+- Finviz US equity quotes are delayed one minute under its documented regular service. Yahoo delay metadata is shown when supplied; otherwise the delay is unknown. Displayed quote times include their timezone.
+- Failed refreshes retain previous retrieved values only with stale/cached notices. Unknown and invalid values remain unavailable rather than becoming zero or a Hold rating.
+- Recovery scores are rule-based technical scores from a fixed one-month Yahoo history and its current source quote. They are not calibrated recovery probabilities or guarantees. Changing the detail chart range does not change the scoring period.
+- Technical alerts require sufficient history, an explicitly zero-delay source, and a recent source quote timestamp. Messages describe observed technical conditions, not unmeasured trading flows.
+- Stock screening honors sector exclusions. ETF rankings show the return period or dividend yield corresponding to their ranking criteria.
 
-This release is all about making the app more informative: richer data, transparent scoring, and market context on every screen.
+## Run locally
 
-* **Transparent Recovery Score:**
-  * Every score now comes with a per-factor breakdown visible everywhere (dashboard, stock details), so you can see exactly which signals earned or lost points.
-  * All views share a single scoring engine (`src/utils/scoring.js`) — no more subtly divergent numbers between pages.
-  * New RSI and momentum factors feed the score alongside the existing dip-depth and trend signals.
-* **Market Pulse Strip:**
-  * A new market-context strip at the top of the Dashboard tracks SPY, QQQ, DIA, IWM, and the VIX with live prices, signed day-change badges, and intraday sparklines.
-* **Data-Dense Sortable Dashboard:**
-  * Columns for day change, off-30-day-high, volume, relative volume, and market cap.
-  * 52-week range bar, RSI readout, trend indicator, and per-row sparklines.
-  * Summary stat tiles up top for an at-a-glance read of the whole scan.
-* **Deeper Stock Details:**
-  * Switchable 1M / 3M / 6M / 1Y chart ranges with SMA20 plus peak and support overlays.
-  * Finviz key-statistics panel, a 52-week position bar, and 10 news items with source attribution.
-* **Reliability:**
-  * The photonics basket was moved off the crumb-gated Yahoo v7 quote API onto the chart API, eliminating a whole class of intermittent fetch failures.
+Requires Node.js 22.12 or later (supported by this Vite version).
 
-## Release Notes v1.1.0
+```bash
+npm ci
+npm start
+```
 
-This major update introduces critical intelligence features, severe-drop alerts, and massive performance optimizations for heavy visual modes.
+`npm start` launches Vite and Electron together. `npm run dev` provides a browser layout preview; market data requires Electron. Existing refresh settings and alternate themes are retained.
 
-* **Live Alert History & Amber Alerts:**
-  * Replaced the transient alert toasts with a fully persistent "Alert History" side-drawer.
-  * Introduced "Amber Alerts" for catastrophic breakdown events (>15% drop). 
-  * History actively preserves critical Amber Alerts across sessions while automatically purging old minor alerts to keep memory tight.
-* **Ambient Web Audio Sirens:**
-  * Integrated the Web Audio API to procedurally generate a dynamic, dissonant 4-tone siren when an Amber Alert strikes. The tones morph unpredictably, providing a jarring, unignorable hardware-level warning.
-* **1000% Accurate Data Pipeline:**
-  * Rewrote the dip calculation algorithm to utilize live, down-to-the-second pricing from Finviz rather than delayed daily-close charts from Yahoo Finance. Every math operation is now anchored in real-time truth.
-  * Injected strict `cache: 'no-store'` commands into the Desktop IPC to guarantee the app never falls back to stale caching.
-* **Buttery Smooth UI Merging (No Flashing):**
-  * Patched the auto-refresh cycle in `Dashboard.jsx`. New data now seamlessly merges into the existing UI State, fully preventing the visual "flashing" or wiping of scores when scanning the market.
-* **Seizure Mode Optimizations (120fps):**
-  * Deleted CPU-bottlenecked wildcard animations triggering layout thrashing across thousands of DOM nodes.
-  * Rebuilt the visual distress system using a single, unified GPU-accelerated overlay (`mix-blend-mode` & `radial-gradients`) that guarantees ultra-smooth 60-120fps performance.
-  * Added a subtle, creeping sub-bass continuous audio drone to Seizure mode to vastly improve the atmosphere without blowing out speakers.
-* **Darker Anime Theme:**
-  * Deepened the `theme-anime` aesthetic to a highly saturated, low-light neon vibe (`#1a0f14`), massively improving text legibility and aesthetic contrast.
+## Verify and build
 
-## Installation
-Extract the provided archive, install the application via the `.exe`, and run the app from your Desktop/Start Menu. No additional configuration is required.
+```bash
+npm test
+npm run lint
+npm run build:renderer
+```
+
+The native test suite covers financial parsing, current Finviz table schemas, daily session comparisons, missing data, futures fractions, source provenance, cached failures, and RSS integrity.
+
+For browser regressions, run `npm run dev` in one terminal, then:
+
+```bash
+npx playwright install --with-deps chromium
+npm run test:ui
+```
+
+These checks exercise unavailable states across seven routes, futures filtering and decimal precision, retained cached quotes, narrow-screen layout, and alert audio cleanup. They use recorded test fixtures rather than a live feed. Screenshots are written to the ignored `artifacts/` directory.
+
+`npm run build` also invokes electron-builder to create a platform installer. Native packaging requires the target platform's build dependencies; the renderer build alone does not verify an installer.
+
+## Source limits
+
+Public providers can be unavailable, delayed, rate limited, or change their response schemas. Network requests have bounded timeouts, and those failures are exposed in the interface. Live prices with exchange entitlements require an authorized feed or broker connection; Finviz's built-in futures delay cannot be removed by faster polling.
