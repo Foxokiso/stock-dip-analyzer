@@ -66,6 +66,23 @@ The Windows Actions job and its PowerShell artifact checks have not been execute
 in this Linux workspace. Consult the PR's current check run for runner results;
 workflow syntax validation alone is not a successful Windows build.
 
+## Windows runner results
+
+[Actions run 38304205901](https://github.com/Foxokiso/stock-dip-analyzer/actions/runs/38304205901)
+completed successfully on commit `fa2fe86d1561959a7088a036554c20ff118a6ba7`.
+Dependency installation, regression tests, lint, renderer build, Chromium
+installation, browser regressions, x64 NSIS packaging, executable/archive checks,
+and validation-artifact upload all passed on the Windows runner.
+
+The non-expired artifact `windows-x64-installer-38304205901-1` (artifact ID
+11771174661) was reported at 102,748,359 bytes and expires October 19, 2026.
+The API reports archive digest
+`sha256:9f86414c872deba0e3f418db9c7fc6bdf1f7be4c81932538e524ab3cf96c4eab`;
+this is the uploaded artifact archive digest, not the installer's own SHA256.
+The installer hash is recorded in the artifact's `installer-validation.txt`.
+No installer execution, upgrade, uninstall, or application launch is implied by
+these successful packaging and browser checks.
+
 ## Remaining target-platform checks
 
 Even a green packaging job proves artifact production, not installer behavior.
