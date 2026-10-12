@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { History, X } from 'lucide-react';
 import alienAudio from '../assets/alien_ominous.wav';
+import { formatQuoteTime } from '../utils/format';
 
 const LiveAlerts = () => {
     const [alerts, setAlerts] = useState([]); // active live toasts
@@ -27,12 +28,16 @@ const LiveAlerts = () => {
     const [showHistory, setShowHistory] = useState(false);
     
     const audioRef = useRef(null);
+    const activeSymbolsRef = useRef(new Set());
+    const timersRef = useRef(new Set());
+    const contextsRef = useRef(new Set());
 
     // Dynamic Amber Alert Audio Generation
     const playAmberAlertSound = () => {
         try {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             const ctx = new AudioContext();
+            contextsRef.current.add(ctx);
             
             const filter = ctx.createBiquadFilter();
             filter.type = 'lowpass';
@@ -75,6 +80,7 @@ const LiveAlerts = () => {
                 
                 osc.start(ctx.currentTime + startTime);
                 osc.stop(ctx.currentTime + startTime + duration);
+                return osc;
             };
 
             // Play the 4 discordant tones layered and slightly staggered
@@ -88,7 +94,11 @@ const LiveAlerts = () => {
             // Tone 3: Low rumble/groan
             createDrone('sine', 150, -25, totalDuration, baseTime + 0.2);
             // Tone 4: Random unstable morphing tone
-            createDrone('triangle', 450 + (Math.random() * 300), 10, totalDuration, baseTime + 0.3);
+            const finalTone = createDrone('triangle', 450 + (Math.random() * 300), 10, totalDuration, baseTime + 0.3);
+            finalTone.onended = () => {
+                contextsRef.current.delete(ctx);
+                ctx.close().catch(() => {});
+            };
 
         } catch (e) {
             console.error("Web Audio API not supported or thwarted:", e);
@@ -111,37 +121,47 @@ const LiveAlerts = () => {
 
     useEffect(() => {
         const handleAlert = (e) => {
-            const { symbol, type, message, color = 'blue', timestamp = Date.now() } = e.detail;
+            const { symbol, type, message, color = 'blue', timestamp = Date.now(), source, quotedAt, delayMinutes } = e.detail;
+            if (activeSymbolsRef.current.has(symbol)) return;
+            activeSymbolsRef.current.add(symbol);
             
-            const newAlert = { id: timestamp + Math.random(), symbol, type, message, color, timestamp };
+            const newAlert = { id: crypto.randomUUID(), symbol, type, message, color, timestamp, source, quotedAt, delayMinutes };
 
             // Prevent duplicate toasts
-            setAlerts((prev) => {
-                if (prev.find(a => a.symbol === symbol)) return prev;
-
-                if (color === 'amber') {
-                    // Play the new Web Audio amber alert
-                    playAmberAlertSound();
-                } else if (audioRef.current) {
-                    // Play standard alien audio
-                    audioRef.current.currentTime = 0;
-                    audioRef.current.play().catch(err => console.log('Audio play prevented', err));
-                }
-                
-                return [...prev, newAlert];
-            });
+            setAlerts((prev) => [...prev, newAlert]);
+            // Effects belong in the event handler, outside React's pure updater.
+            if (color === 'amber') {
+                playAmberAlertSound();
+            } else if (audioRef.current) {
+                audioRef.current.currentTime = 0;
+                audioRef.current.play().catch(err => console.log('Audio play prevented', err));
+            }
 
             // Add to history
             setHistory(prev => [newAlert, ...prev]);
 
             // Auto dismiss this specific alert after 5 seconds
-            setTimeout(() => {
+            const timer = setTimeout(() => {
+                timersRef.current.delete(timer);
+                activeSymbolsRef.current.delete(symbol);
                 setAlerts((prev) => prev.filter(a => a.id !== newAlert.id));
             }, 5000);
+            timersRef.current.add(timer);
         };
 
         window.addEventListener('stock-alert', handleAlert);
-        return () => window.removeEventListener('stock-alert', handleAlert);
+        const timers = timersRef.current;
+        const contexts = contextsRef.current;
+        const activeSymbols = activeSymbolsRef.current;
+        return () => {
+            window.removeEventListener('stock-alert', handleAlert);
+            timers.forEach(clearTimeout);
+            timers.clear();
+            contexts.forEach(ctx => ctx.close().catch(() => {}));
+            contexts.clear();
+            activeSymbols.clear();
+            audioRef.current?.pause();
+        };
     }, []);
 
     return (
@@ -216,6 +236,7 @@ const LiveAlerts = () => {
                 zIndex: 9998,
             }}>
                 <button 
+                        className="alert-history-toggle"
                     onClick={() => setShowHistory(!showHistory)}
                     style={{
                         background: history.some(h => h.color === 'amber') ? '#d97706' : 'var(--primary)',
@@ -324,6 +345,7 @@ const LiveAlerts = () => {
                                     <div style={{ fontSize: '0.9rem', color: alert.color === 'amber' ? '#fef3c7' : 'var(--text-main)', lineHeight: '1.4' }}>
                                         {alert.message}
                                     </div>
+                                    <div className="quote-meta" style={{ marginTop: '8px' }}>{alert.source || 'Legacy alert · source unknown'} · Quote: {formatQuoteTime(alert.quotedAt)}</div>
                                 </div>
                             ))
                         )}

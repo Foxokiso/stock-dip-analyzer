@@ -1,16 +1,17 @@
-import { useState, useEffect, useRef } from 'react'
-import { HashRouter as Router, Routes, Route, Link } from 'react-router-dom'
-import { Activity, LayoutDashboard, Settings, Palette, Trophy, Compass, Droplet } from 'lucide-react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
+import { HashRouter as Router, Routes, Route, NavLink } from 'react-router-dom'
+import { Activity, LayoutDashboard, Settings, Palette, Trophy, Compass, Droplet, ChartNoAxesCombined, ArrowUpRight } from 'lucide-react'
 import './App.css'
 import { getLocalNewsHeadlines } from './utils/telemetry'
 
-// Placeholder components
 import Dashboard from './pages/Dashboard'
-import StockDetails from './pages/StockDetails'
-import ETFAwards from './pages/ETFAwards'
-import Discovery from './pages/Discovery'
-import OilWatch from './pages/OilWatch'
 import LiveAlerts from './components/LiveAlerts'
+
+const StockDetails = lazy(() => import('./pages/StockDetails'));
+const ETFAwards = lazy(() => import('./pages/ETFAwards'));
+const Discovery = lazy(() => import('./pages/Discovery'));
+const OilWatch = lazy(() => import('./pages/OilWatch'));
+const Futures = lazy(() => import('./pages/Futures'));
 
 const SECTORS = [
   { id: 'basicmaterials', label: 'Basic Materials' },
@@ -227,6 +228,7 @@ function App() {
         if (!isActive) return;
         setTelemetryData(lines);
         setCurrentLine(0);
+        if (lines.length === 0) return;
         // Swap out text slowly to allow reading (hallucinatory crawl)
         const swapLine = () => {
           if (!isActive) return;
@@ -265,86 +267,59 @@ function App() {
           </div>
         )}
 
-        <header className="flex-between glass-panel" style={{ padding: '1rem 2rem', marginBottom: '2rem' }}>
-          <div className="logo flex-center" style={{ gap: '0.5rem' }}>
-            <Activity color="var(--primary)" />
-            <span className="text-gradient" style={{ fontFamily: 'var(--font-heading)', fontWeight: '700', fontSize: '1.2rem' }}>
-              DipAnalyzer Pro
-            </span>
+        <header className="workspace-header">
+          <div className="workspace-topbar">
+            <NavLink to="/" className="workspace-brand" aria-label="Dip Analyzer home">
+              <span className="brand-mark"><Activity size={22} /></span>
+              <span><strong>dip<span className="brand-light">analyzer</span><sup>PRO</sup></strong><small>Market intelligence workspace</small></span>
+            </NavLink>
+            <div className="workspace-preferences">
+              <span className="workspace-source-note"><span className="status-dot" />Source timing disclosed</span>
+              <label className="compact-select"><span>Ratings</span>
+                <select aria-label="Global rating filter" value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)}>
+                  <option value="All">All Ratings</option>
+                  <option value="Strong Buy">Strong Buy</option>
+                  <option value="Buy">Buy</option>
+                  <option value="Hold">Hold</option>
+                  <option value="Sell/Strong Sell">Sell / Strong Sell</option>
+                  <option value="Bullish">Bullish</option>
+                  <option value="Bearish">Bearish</option>
+                </select>
+              </label>
+              <label className="compact-select theme-select"><Palette size={14} />
+                <select aria-label="Visual theme" value={theme} onChange={(e) => setTheme(e.target.value)}>
+                  <option value="theme-majestic">Modern</option>
+                  <option value="theme-anime">Alien Fractal</option>
+                  <option value="theme-seizure">Seizure Mode</option>
+                </select>
+              </label>
+            </div>
           </div>
-          <nav style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
-            <div className="flex-center" style={{ gap: '0.5rem', marginRight: '1rem' }}>
-              <select
-                value={globalFilter}
-                onChange={(e) => setGlobalFilter(e.target.value)}
-                style={{
-                  background: 'black',
-                  border: '1px solid rgba(255,255,255,0.2)',
-                  color: 'white',
-                  padding: '0.4rem 0.6rem',
-                  borderRadius: '4px',
-                  outline: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  fontSize: '0.85rem'
-                }}
-              >
-                <option value="All">All Ratings</option>
-                <option value="Strong Buy">Strong Buy</option>
-                <option value="Buy">Buy</option>
-                <option value="Hold">Hold</option>
-                <option value="Sell">Sell/Strong Sell</option>
-                <option value="Bullish">Bullish</option>
-                <option value="Bearish">Bearish</option>
-              </select>
-            </div>
-            <div className="flex-center" style={{ gap: '0.5rem', color: 'var(--text-muted)', marginRight: '1rem' }}>
-              <Palette size={16} />
-              <select
-                value={theme}
-                onChange={(e) => setTheme(e.target.value)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'var(--text-main)',
-                  outline: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  fontSize: '0.9rem'
-                }}
-              >
-                <option value="theme-majestic">Majestic</option>
-                <option value="theme-anime">Alien Fractal</option>
-                <option value="theme-seizure">Seizure Mode</option>
-              </select>
-            </div>
-            <Link to="/" className="nav-link flex-center">
-              <LayoutDashboard size={18} /> Dashboard
-            </Link>
-            <Link to="/etfs" className="nav-link flex-center">
-              <Trophy size={18} /> Daily ETFs
-            </Link>
-            <Link to="/oil" className="nav-link flex-center">
-              <Droplet size={18} /> Oil Watch
-            </Link>
-            <Link to="/discovery" className="nav-link flex-center">
-              <Compass size={18} /> Discovery
-            </Link>
-            <Link to="/settings" className="nav-link flex-center text-muted">
-              <Settings size={18} /> Settings
-            </Link>
+          <nav className="workspace-nav" aria-label="Main navigation">
+            <NavLink to="/" end className="nav-link"><LayoutDashboard size={16} />Overview</NavLink>
+            <NavLink to="/futures" className="nav-link"><ChartNoAxesCombined size={16} />Futures<span className="nav-new">NEW</span></NavLink>
+            <NavLink to="/etfs" className="nav-link"><Trophy size={16} />ETF rankings</NavLink>
+            <NavLink to="/oil" className="nav-link"><Droplet size={16} />Oil Watch</NavLink>
+            <NavLink to="/discovery" className="nav-link"><Compass size={16} />Discovery</NavLink>
+            <NavLink to="/settings" className="nav-link nav-settings"><Settings size={16} />Settings</NavLink>
           </nav>
         </header>
 
         <main>
+          <Suspense fallback={<div className="desk-empty" role="status">Opening workspace…</div>}>
           <Routes>
-            <Route path="/" element={<Dashboard excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
-            <Route path="/stock/:symbol" element={<StockDetails />} />
+            <Route path="/" element={<>
+              <div className="overview-intro"><div><div className="eyebrow">YOUR RESEARCH DESK</div><span>Find the dip. Understand the context.</span></div><NavLink to="/futures">Explore the futures desk <ArrowUpRight size={16} /></NavLink></div>
+              <Dashboard excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />
+            </>} />
+            <Route path="/futures" element={<Futures autoRefreshInterval={autoRefreshInterval} />} />
+            <Route path="/stock/:symbol" element={<StockDetails autoRefreshInterval={autoRefreshInterval} />} />
             <Route path="/etfs" element={<ETFAwards excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
             <Route path="/oil" element={<OilWatch autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
             <Route path="/discovery" element={<Discovery excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
             <Route path="/settings" element={<SettingsPage excludedSectors={excludedSectors} setExcludedSectors={setExcludedSectors} autoRefreshInterval={autoRefreshInterval} setAutoRefreshInterval={setAutoRefreshInterval} />} />
           </Routes>
+          </Suspense>
         </main>
         
         <LiveAlerts />

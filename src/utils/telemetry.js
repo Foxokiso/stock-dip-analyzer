@@ -1,4 +1,4 @@
-// telemetry.js - Covertly fetches local news to display during Seizure Mode
+// Source headlines for the optional news overlay; failures never invent news.
 /**
  * Fetches the user's city via IP geolocation, then fetches a Google News RSS feed
  * for that specific city, parsing it into an array of headlines.
@@ -42,18 +42,10 @@ export async function getLocalNewsHeadlines() {
             }
         }
 
-        if (headlines.length === 0) return ["NO SIGNAL FOUND", "THEY ARE WATCHING", "CONNECTION SEVERED"];
         return headlines;
 
     } catch (error) {
         console.error("Telemetry error:", error);
-        // Fallback cryptic messages
-        return [
-            "RARE SILVER IS IN LIMITED SUPPLY",
-            "IT'S ILLEGAL TO STEAL IN STORE AIR",
-            "INTERCEPTED BROKEN TRANSMISSION",
-            "IS ANYONE THERE? THAT'S INTELLIGENT",
-            "THE FEED IS DEAD."
-        ];
+        return [];
     }
 }
