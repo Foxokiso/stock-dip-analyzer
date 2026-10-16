@@ -106,14 +106,20 @@ const getSeverityLevel = (text) => {
   return severeWords.some(w => lower.includes(w)) ? 'severe' : 'normal';
 };
 
+// Null Sector is the default. The storage key is versioned so a Majestic
+// choice saved by an earlier build doesn't override the new default.
+const DEFAULT_THEME = 'theme-nullsector';
+const THEME_STORAGE_KEY = 'dipAnalyzerThemeV2';
+const VALID_THEMES = ['theme-nullsector', 'theme-majestic', 'theme-anime', 'theme-seizure'];
+
 function App() {
   const [theme, setTheme] = useState(() => {
-    const saved = localStorage.getItem('dipAnalyzerTheme');
-    if (saved === 'theme-seizure') return 'theme-majestic';
-    return saved || 'theme-majestic';
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    if (saved === 'theme-seizure') return DEFAULT_THEME;
+    return VALID_THEMES.includes(saved) ? saved : DEFAULT_THEME;
   });
 
-  const previousThemeRef = useRef('theme-majestic');
+  const previousThemeRef = useRef(DEFAULT_THEME);
 
   const [excludedSectors, setExcludedSectors] = useState(() => {
     const saved = localStorage.getItem('excludedSectors');
@@ -126,15 +132,15 @@ function App() {
   
   const [globalFilter, setGlobalFilter] = useState('All');
 
-  // Ensure Majestic is the absolute default, ignore saved non-majestic themes.
+  // Fall back to the default theme if a stored value is no longer recognized.
   useEffect(() => {
-    if (theme !== 'theme-majestic' && theme !== 'theme-seizure' && theme !== 'theme-anime') {
-      setTimeout(() => setTheme('theme-majestic'), 0);
+    if (!VALID_THEMES.includes(theme)) {
+      setTimeout(() => setTheme(DEFAULT_THEME), 0);
     }
     document.body.className = theme;
     // Don't persist seizure mode so it doesn't terrify someone on next startup
     if (theme !== 'theme-seizure') {
-      localStorage.setItem('dipAnalyzerTheme', theme);
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
       previousThemeRef.current = theme;
     }
   }, [theme]);
@@ -147,7 +153,7 @@ function App() {
 
     if (theme === 'theme-seizure') {
       timer = setTimeout(() => {
-        setTheme(previousThemeRef.current || 'theme-majestic');
+        setTheme(previousThemeRef.current || DEFAULT_THEME);
       }, 20000);
 
       // Play continuous ambient, creepy low-volume drone
@@ -313,6 +319,7 @@ function App() {
                   fontSize: '0.9rem'
                 }}
               >
+                <option value="theme-nullsector">Null Sector</option>
                 <option value="theme-majestic">Majestic</option>
                 <option value="theme-anime">Alien Fractal</option>
                 <option value="theme-seizure">Seizure Mode</option>

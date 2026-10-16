@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@400;500;600&family=Anton&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 .theme-majestic,
 :root {
@@ -678,4 +678,206 @@ select:focus {
 
 .rating-pulse-danger {
   animation: pulse-danger 2s infinite;
+}
+
+/* ========================================
+ * NULL SECTOR THEME
+ * Dark ink ground, paper type, one hot pierce color.
+ * Hard offset shadows instead of glass, square corners,
+ * Anton headings, mono data. Header is an inverted paper band.
+ * ======================================== */
+.theme-nullsector {
+  --bg-dark: #0a0a0b;
+  --bg-card: #111113;
+  --bg-card-hover: #19191c;
+
+  --primary: #ff3d1f;
+  --primary-gradient: linear-gradient(135deg, #ff3d1f 0%, #ff3d1f 100%);
+  --secondary: #f1efe8;
+  --secondary-gradient: linear-gradient(135deg, #f1efe8 0%, #d9d6cc 100%);
+
+  --text-main: #f1efe8;
+  --text-muted: #9a9892;
+
+  --success: #b6f36a;
+  --danger: #ff3d1f;
+  --warning: #ffc400;
+
+  --font-heading: 'Anton', Impact, 'Haettenschweiler', sans-serif;
+  --font-body: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+
+  --glass-border: 2px solid rgba(241, 239, 232, 0.85);
+  --glass-shadow: 6px 6px 0 var(--primary);
+  --glass-blur: blur(0px);
+
+  --bg-image:
+    repeating-linear-gradient(0deg, rgba(241, 239, 232, 0.035) 0px, rgba(241, 239, 232, 0.035) 1px, transparent 1px, transparent 32px),
+    repeating-linear-gradient(90deg, rgba(241, 239, 232, 0.035) 0px, rgba(241, 239, 232, 0.035) 1px, transparent 1px, transparent 32px);
+}
+
+body.theme-nullsector {
+  font-size: 15px;
+  letter-spacing: 0.01em;
+}
+
+body.theme-nullsector ::selection {
+  background: var(--primary);
+  color: var(--bg-dark);
+}
+
+body.theme-nullsector ::-webkit-scrollbar-thumb {
+  background: var(--primary);
+  border-radius: 0;
+}
+
+/* Headings: condensed poster caps */
+body.theme-nullsector h1,
+body.theme-nullsector h2,
+body.theme-nullsector h3,
+body.theme-nullsector h4 {
+  text-transform: uppercase;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  line-height: 0.95;
+}
+
+body.theme-nullsector h2 { font-size: 3.2rem; }
+body.theme-nullsector h3 { font-size: 1.7rem; }
+
+/* Panels: square, hard pierce shadow, no glass blur */
+body.theme-nullsector .glass-panel {
+  border-radius: 0;
+  background: var(--bg-card);
+  border: var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Contrast: anything highlighted gets a pierce block with ink type */
+body.theme-nullsector .text-danger { color: var(--primary); }
+
+/* Links: underline on hover instead of glow */
+body.theme-nullsector a:hover {
+  filter: none;
+  opacity: 1;
+  text-decoration: underline;
+  text-decoration-thickness: 3px;
+  text-underline-offset: 4px;
+}
+
+/* Buttons */
+body.theme-nullsector .btn {
+  border-radius: 0;
+  font-family: var(--font-heading);
+  font-weight: 400;
+  font-size: 1.1rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 10px 22px;
+}
+
+body.theme-nullsector .btn-primary {
+  background: var(--primary);
+  color: var(--bg-dark);
+  box-shadow: 4px 4px 0 var(--secondary);
+}
+
+body.theme-nullsector .btn-primary:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 var(--secondary);
+  filter: none;
+}
+
+body.theme-nullsector .btn-outline {
+  background: transparent;
+  color: var(--text-main);
+  border: 2px solid var(--text-main);
+  box-shadow: none;
+}
+
+body.theme-nullsector .btn-outline:hover {
+  background: var(--text-main);
+  color: var(--bg-dark);
+  border-color: var(--text-main);
+  transform: none;
+  box-shadow: none;
+}
+
+/* Inputs and selects: square, paper hairline, mono */
+body.theme-nullsector input,
+body.theme-nullsector select {
+  font-family: var(--font-body);
+  border-radius: 0;
+}
+
+/* Nav */
+body.theme-nullsector .nav-link {
+  border-radius: 0;
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+body.theme-nullsector .nav-link:hover {
+  background: var(--primary);
+  color: var(--bg-dark);
+  transform: none;
+}
+
+/* Header: inverted paper band with ink type and a pierce shadow */
+body.theme-nullsector header.glass-panel {
+  background: var(--secondary);
+  border-color: var(--secondary);
+  color: var(--bg-dark);
+  box-shadow: 8px 8px 0 var(--primary);
+}
+
+body.theme-nullsector header.glass-panel nav > div {
+  color: var(--bg-dark) !important;
+}
+
+body.theme-nullsector header.glass-panel .nav-link,
+body.theme-nullsector header.glass-panel .nav-link.text-muted {
+  color: var(--bg-dark);
+}
+
+body.theme-nullsector header.glass-panel .nav-link:hover {
+  background: var(--bg-dark);
+  color: var(--secondary);
+}
+
+body.theme-nullsector header.glass-panel .logo svg {
+  color: var(--primary);
+}
+
+body.theme-nullsector header.glass-panel .text-gradient {
+  background: none;
+  -webkit-text-fill-color: var(--bg-dark);
+  color: var(--bg-dark);
+  font-size: 1.6rem !important;
+}
+
+body.theme-nullsector header.glass-panel select {
+  background: var(--secondary) !important;
+  color: var(--bg-dark) !important;
+  border: 2px solid var(--bg-dark) !important;
+}
+
+/* Ticker band above the page, static, full-bleed inside the page padding */
+body.theme-nullsector .app-container::before {
+  content: "Dip watch // Not financial advice // Know your exit before you enter";
+  display: block;
+  margin: -2rem -2rem 1.5rem;
+  padding: 6px 2rem;
+  background: var(--primary);
+  color: var(--bg-dark);
+  font-family: var(--font-heading);
+  font-size: 1.2rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
 }
