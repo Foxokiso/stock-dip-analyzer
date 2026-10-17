@@ -1,10 +1,239 @@
-/* App specific styles (currently handled globally in index.css) */
+/* App shell — Pierce/27.
+ *
+ * Imported by src/App.jsx (after styles/tokens.css and index.css, so equal-
+ * specificity rules here win). Owns the container, header, brand mark,
+ * preferences (compact selects) and the main navigation. The layout — one
+ * centred column, topbar above a nav strip above <main> — is unchanged from
+ * v1; only the style follows docs/design/pierce27-brief.md. Role tokens only.
+ */
+
+/* ── container ── */
 .app-container {
-  min-height: 100vh;
   display: flex;
   flex-direction: column;
+  min-height: 100vh;
+  max-width: 1640px;
+  margin: 0 auto;
+  padding: 0 calc(var(--gap) + var(--radius)) var(--gap);
+}
+main { flex: 1; }
+
+/* ── header ── */
+.workspace-header { margin-bottom: calc(var(--gap) + var(--gap-xs)); }
+.workspace-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--gap);
+  padding: calc(var(--gap) - 2px) 0 calc(var(--gap-sm) + var(--radius));
 }
 
-main {
-  flex: 1;
+/* ── brand: the Activity icon in --primary inside a 1px --pierce-gradient ring ── */
+.workspace-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  color: var(--text-main);
+  border-radius: var(--radius);
+}
+.workspace-brand:hover { filter: none; opacity: 1; }
+.workspace-brand:hover .brand-mark::after { opacity: var(--glow-intensity); }
+.workspace-brand:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.brand-mark {
+  position: relative;
+  isolation: isolate;
+  width: 39px;
+  height: 39px;
+  display: grid;
+  place-items: center;
+  color: var(--primary);
+  border-radius: calc(var(--radius) + 2px);
+  border: 1px solid transparent;
+  /* Two layers: the sheen fills the padding box, the gradient paints the
+     border box and so shows only through the 1px transparent border. */
+  background:
+    var(--sheen) padding-box,
+    var(--pierce-gradient) border-box;
+}
+.brand-mark::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  box-shadow: var(--glow-p);
+  opacity: 0;
+  z-index: -1;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
+}
+.brand-mark svg { position: relative; }
+.brand-text { display: block; min-width: 0; }
+.workspace-brand strong {
+  display: block;
+  font-family: var(--font-heading);
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.8px;
+  line-height: 1.1;
+}
+.brand-light { font-weight: 350; color: var(--text-muted); }
+.workspace-brand sup {
+  margin-left: 6px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  background: var(--pierce-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+.workspace-brand small {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+/* ── preferences ── */
+.workspace-preferences { display: flex; align-items: center; gap: calc(var(--gap-sm) + var(--radius)); }
+.workspace-source-note {
+  display: flex;
+  gap: var(--gap-xs);
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.status-dot {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: pierce-pulse var(--t-pulse) ease-in-out infinite;
+}
+.status-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 13px color-mix(in oklch, var(--primary) 46%, transparent);
+  opacity: var(--glow-intensity);
+}
+.compact-select {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-xs);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.compact-select svg { color: var(--primary); flex: none; }
+.compact-select select {
+  color: var(--text-main);
+  background: var(--sheen);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 7px 24px 7px 9px;
+  max-width: 150px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast), box-shadow var(--transition-fast);
+}
+.compact-select select:hover { border-color: var(--line-strong); background: var(--bg-card-hover); }
+.compact-select select:focus-visible { outline: none; border-color: var(--secondary); box-shadow: var(--focus-ring); }
+
+/* ── main navigation: active = --primary on --wash-p-14 with a 2px gradient underline ── */
+.workspace-nav {
+  display: flex;
+  gap: 5px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 0;
+}
+.workspace-nav .nav-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-heading);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  padding: 10px 15px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.workspace-nav .nav-link::after {
+  content: '';
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 3px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--pierce-gradient);
+  opacity: 0;
+  transform: scaleX(0.46);
+  transition: opacity var(--transition-fast), transform var(--transition-normal);
+}
+.workspace-nav .nav-link:hover { color: var(--text-main); background: var(--wash-p-07); transform: none; filter: none; opacity: 1; }
+.workspace-nav .nav-link.active { color: var(--primary); background: var(--wash-p-14); }
+.workspace-nav .nav-link.active::after { opacity: 1; transform: scaleX(1); }
+.workspace-nav .nav-link:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.nav-settings { margin-left: auto; }
+.nav-new {
+  color: var(--ink);
+  background: var(--primary-x);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.7px;
+}
+
+/* ── overview intro (route "/") ── */
+.overview-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--gap-sm) + 5px);
+  padding: 2px 0 calc(var(--gap) + 1px);
+}
+.overview-intro > div > span {
+  display: block;
+  margin-top: 8px;
+  font-family: var(--font-heading);
+  font-size: clamp(20px, 2.2vw, 30px);
+  letter-spacing: -0.8px;
+}
+.overview-intro > a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--primary);
+  border-radius: var(--radius-sm);
+}
+.overview-intro > a:hover { color: var(--primary-x); filter: none; opacity: 1; }
+
+/* ── responsive: breakpoints and the layout they set are unchanged ── */
+@media (max-width: 1100px) {
+  .workspace-preferences { gap: var(--gap-sm); }
+  .workspace-source-note { display: none; }
+}
+@media (max-width: 900px) {
+  .app-container { padding: 0 20px 24px; }
+  .workspace-nav { overflow-x: auto; }
+  .nav-settings { margin-left: 0; }
+}
+@media (max-width: 600px) {
+  .app-container { padding: 0 14px 22px; }
+  .workspace-topbar { flex-wrap: wrap; gap: 17px; padding-top: 19px; }
+  .workspace-preferences { justify-content: space-between; width: 100%; }
+  .workspace-nav .nav-link { padding: 9px 11px; font-size: 11px; }
+  .workspace-header { margin-bottom: 25px; }
+  .overview-intro { flex-direction: column; align-items: flex-start; }
 }

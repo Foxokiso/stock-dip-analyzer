@@ -602,8 +602,15 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                                 return (
                                     <th
                                         key={col.id}
+                                        scope="col"
                                         className={`dash-th dash-th--${col.align}${col.sortKey ? ' is-sortable' : ''}${active ? ' is-active' : ''}`}
                                         onClick={col.sortKey ? () => handleSort(col.sortKey) : undefined}
+                                        onKeyDown={col.sortKey ? (e) => {
+                                            if (e.key !== 'Enter' && e.key !== ' ') return;
+                                            e.preventDefault();
+                                            handleSort(col.sortKey);
+                                        } : undefined}
+                                        tabIndex={col.sortKey ? 0 : undefined}
                                         title={col.sortKey ? 'Click to sort' : undefined}
                                         aria-sort={active ? (sortDir === 'desc' ? 'descending' : 'ascending') : undefined}
                                     >

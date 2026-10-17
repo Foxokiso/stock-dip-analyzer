@@ -46,7 +46,7 @@
   font-weight: 500;
   letter-spacing: 0.01em;
   box-shadow: none;
-  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast);
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast), transform var(--transition-fast);
 }
 .futures-page .btn-outline::after {
   content: '';
@@ -63,6 +63,8 @@
   border-color: var(--primary);
   transform: none;
   box-shadow: none;
+  filter: none;
+  opacity: 1;
 }
 .futures-page .btn-outline:hover::after { opacity: var(--glow-intensity); }
 .futures-page .btn-outline:focus-visible { outline: none; box-shadow: var(--focus-ring); }
@@ -277,7 +279,8 @@
 }
 .futures-workspace .desk-search input { color: var(--text-main); font-family: var(--font-body); transition: none; }
 .futures-workspace .desk-search input::placeholder { color: var(--text-faint); }
-.futures-workspace .desk-search input:focus-visible { outline: none; box-shadow: none; }
+.futures-workspace .desk-search input:focus,
+.futures-workspace .desk-search input:focus-visible { outline: none; box-shadow: none; transform: none; }
 
 /* ── Board table: hairlines, mono numerals, hover = card-hover fill plus a hairline shift, no transforms. ── */
 .futures-workspace .futures-table { color: var(--text-main); font-family: var(--font-body); }

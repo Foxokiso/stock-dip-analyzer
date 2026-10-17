@@ -107,10 +107,12 @@ const STAT_DEFS = [
     { label: 'Perf Month' },
 ];
 
-// Recharts draws the tooltip as an HTML div with inline styles, so the role
-// tokens reach it through style objects; the SVG marks take var() directly.
+// Chromium parses SVG presentation attributes and inline styles as CSS, so the
+// role tokens reach Recharts as var() references: the marks re-skin on a theme
+// switch without a computed-style snapshot. The tooltip is an HTML div whose
+// default inline style is merged key by key, so longhands override its defaults.
 const CHART_TOOLTIP_STYLE = {
-    background: 'var(--bg-raised)',
+    backgroundColor: 'var(--bg-raised)',
     border: '1px solid var(--line-strong)',
     borderRadius: 'var(--radius-sm)',
     boxShadow: 'var(--glass-shadow)',
@@ -120,7 +122,8 @@ const CHART_TOOLTIP_STYLE = {
     padding: '7px 10px',
 };
 const CHART_TOOLTIP_LABEL_STYLE = { color: 'var(--text-muted)', marginBottom: 4 };
-const CHART_TOOLTIP_ITEM_STYLE = { color: 'var(--text-main)', padding: 0 };
+// Item colour is left to Recharts so each row carries its own series stroke.
+const CHART_TOOLTIP_ITEM_STYLE = { paddingTop: 2, paddingBottom: 2 };
 const CHART_TOOLTIP_CURSOR = { stroke: 'var(--line-strong)', strokeDasharray: '3 3' };
 const CHART_TICK = { fill: 'var(--text-muted)', fontSize: 10, fontFamily: 'var(--font-mono)' };
 const CHART_AXIS_LINE = { stroke: 'var(--line)' };
@@ -406,8 +409,8 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
     const boxTone = scoreTone(score, isZombie);
     const chipTone = verdictTone(verdict, isZombie);
 
-    // Header pill tones
-    const dipTone = isZombie ? 'muted' : 'danger';
+    // Header pill tones: an unavailable dip is shown as unavailable, not as a signal.
+    const dipTone = isZombie || dipPercentage === null ? 'muted' : 'danger';
     const rsiTone = rsi === null
         ? 'muted'
         : rsi <= 30 ? 'success' : rsi >= 70 ? 'danger' : 'muted';
@@ -520,6 +523,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
                         ) : chartLoading && plotData.length === 0 ? (
                             <div className="sd-chart-empty" role="status">
                                 <RefreshCw size={28} className="sd-spin" />
+                                <p>Loading {rangeText} chart data for {symbol}…</p>
                             </div>
                         ) : (
                         <div className="sd-chart">

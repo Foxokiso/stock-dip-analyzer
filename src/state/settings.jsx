@@ -1,20 +1,31 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SettingsContext } from './settingsContext.js';
-import { DEFAULT_SETTINGS, SETTINGS_KEY, loadSettings, mergeKnown, setPath } from './settingsSchema.js';
+import { DEFAULT_SETTINGS, SETTINGS_KEY, isTransientTheme, loadSettings, mergeKnown, normalizeSettings, persistableSettings, setPath } from './settingsSchema.js';
 
 export function SettingsProvider({ children }) {
   const [settings, setSettings] = useState(() => loadSettings());
+  // The last theme that may be saved, so a restart during the 20-second
+  // Seizure Mode stunt lands on the theme the user actually chose.
+  const lastPersistableTheme = useRef(settings.appearance.theme);
 
   useEffect(() => {
-    // Seizure mode is a 20-second stunt; never let it survive a restart.
-    const persisted = settings.appearance.theme === 'theme-seizure'
-      ? setPath(settings, ['appearance', 'theme'], DEFAULT_SETTINGS.appearance.theme) : settings;
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(persisted));
+    const theme = settings.appearance.theme;
+    if (!isTransientTheme(theme)) lastPersistableTheme.current = theme;
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(persistableSettings(settings, lastPersistableTheme.current)));
+    } catch {
+      // Storage can be unavailable (private window, quota); the session still works.
+    }
   }, [settings]);
 
-  // Appearance → document attributes consumed by tokens.css.
+  // Appearance → document attributes consumed by tokens.css. The theme class
+  // goes on <html> as well as <body>: the derived tokens (washes, tints, sheen,
+  // glows) are declared on :root, so they only re-resolve against a theme's
+  // role tokens when that theme is applied at the root.
   useEffect(() => {
     const root = document.documentElement;
+    root.className = settings.appearance.theme;
+    document.body.className = settings.appearance.theme;
     root.dataset.motion = settings.appearance.motion;
     root.dataset.density = settings.appearance.density;
     root.style.setProperty('--glow-intensity', String(settings.appearance.glow));
@@ -26,10 +37,10 @@ export function SettingsProvider({ children }) {
   }, []);
 
   const reset = useCallback((section) => {
-    setSettings(current => section ? { ...current, [section]: DEFAULT_SETTINGS[section] } : mergeKnown(DEFAULT_SETTINGS, {}));
+    setSettings(current => section ? { ...current, [section]: mergeKnown(DEFAULT_SETTINGS[section], {}) } : mergeKnown(DEFAULT_SETTINGS, {}));
   }, []);
 
-  const replace = useCallback((next) => setSettings(mergeKnown(DEFAULT_SETTINGS, next)), []);
+  const replace = useCallback((next) => setSettings(normalizeSettings(next).settings), []);
 
   const value = useMemo(() => ({ settings, update, reset, replace }), [settings, update, reset, replace]);
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;

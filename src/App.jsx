@@ -5,7 +5,7 @@ import './App.css'
 import { getLocalNewsHeadlines } from './utils/telemetry'
 import { SettingsProvider } from './state/settings.jsx'
 import { useSettings } from './state/settingsContext.js'
-import { THEMES, DEFAULT_SETTINGS } from './state/settingsSchema.js'
+import { THEMES, DEFAULT_SETTINGS, RATING_FILTERS } from './state/settingsSchema.js'
 
 import Dashboard from './pages/Dashboard'
 import LiveAlerts from './components/LiveAlerts'
@@ -16,6 +16,8 @@ const Discovery = lazy(() => import('./pages/Discovery'));
 const OilWatch = lazy(() => import('./pages/OilWatch'));
 const Futures = lazy(() => import('./pages/Futures'));
 const SettingsPage = lazy(() => import('./pages/Settings'));
+
+const RATING_LABELS = { All: 'All Ratings', 'Sell/Strong Sell': 'Sell / Strong Sell' };
 
 const getSeverityLevel = (text) => {
   if (!text) return 'normal';
@@ -30,14 +32,18 @@ function Workspace() {
   const setTheme = (next) => update('appearance.theme', next);
   const excludedSectors = settings.scanner.excludedSectors;
   const autoRefreshInterval = settings.scanner.refreshMinutes;
+  const defaultRating = settings.scanner.defaultRating;
 
+  // The theme class itself is applied to <html> and <body> by SettingsProvider;
+  // this only remembers where to return after the Seizure Mode stunt.
   const previousThemeRef = useRef(DEFAULT_SETTINGS.appearance.theme);
-  const [globalFilter, setGlobalFilter] = useState(settings.scanner.defaultRating);
-
   useEffect(() => {
-    document.body.className = theme;
     if (theme !== 'theme-seizure') previousThemeRef.current = theme;
   }, [theme]);
+
+  // The header filter starts from, and follows, Settings → Scanner → default rating.
+  const [globalFilter, setGlobalFilter] = useState(defaultRating);
+  useEffect(() => { setGlobalFilter(defaultRating); }, [defaultRating]);
 
   // 20 Second Reversion & Audio Control for Seizure Mode
   useEffect(() => {
@@ -162,23 +168,17 @@ function Workspace() {
         <header className="workspace-header">
           <div className="workspace-topbar">
             <NavLink to="/" className="workspace-brand" aria-label="Dip Analyzer home">
-              <span className="brand-mark"><Activity size={22} /></span>
-              <span><strong>dip<span className="brand-light">analyzer</span><sup>PRO</sup></strong><small>Market intelligence workspace</small></span>
+              <span className="brand-mark" aria-hidden="true"><Activity size={22} /></span>
+              <span className="brand-text"><strong>dip<span className="brand-light">analyzer</span><sup>PRO</sup></strong><small>Market intelligence workspace</small></span>
             </NavLink>
             <div className="workspace-preferences">
-              <span className="workspace-source-note"><span className="status-dot" />Source timing disclosed</span>
+              <span className="workspace-source-note"><span className="status-dot" aria-hidden="true" />Source timing disclosed</span>
               <label className="compact-select"><span>Ratings</span>
                 <select aria-label="Global rating filter" value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)}>
-                  <option value="All">All Ratings</option>
-                  <option value="Strong Buy">Strong Buy</option>
-                  <option value="Buy">Buy</option>
-                  <option value="Hold">Hold</option>
-                  <option value="Sell/Strong Sell">Sell / Strong Sell</option>
-                  <option value="Bullish">Bullish</option>
-                  <option value="Bearish">Bearish</option>
+                  {RATING_FILTERS.map(item => <option key={item} value={item}>{RATING_LABELS[item] ?? item}</option>)}
                 </select>
               </label>
-              <label className="compact-select theme-select"><Palette size={14} />
+              <label className="compact-select theme-select"><Palette size={14} aria-hidden="true" /><span>Theme</span>
                 <select aria-label="Visual theme" value={theme} onChange={(e) => setTheme(e.target.value)}>
                   {THEMES.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
                 </select>
@@ -186,12 +186,12 @@ function Workspace() {
             </div>
           </div>
           <nav className="workspace-nav" aria-label="Main navigation">
-            <NavLink to="/" end className="nav-link"><LayoutDashboard size={16} />Overview</NavLink>
-            <NavLink to="/futures" className="nav-link"><ChartNoAxesCombined size={16} />Futures<span className="nav-new">NEW</span></NavLink>
-            <NavLink to="/etfs" className="nav-link"><Trophy size={16} />ETF rankings</NavLink>
-            <NavLink to="/oil" className="nav-link"><Droplet size={16} />Oil Watch</NavLink>
-            <NavLink to="/discovery" className="nav-link"><Compass size={16} />Discovery</NavLink>
-            <NavLink to="/settings" className="nav-link nav-settings"><Settings size={16} />Settings</NavLink>
+            <NavLink to="/" end className="nav-link"><LayoutDashboard size={16} aria-hidden="true" />Overview</NavLink>
+            <NavLink to="/futures" className="nav-link"><ChartNoAxesCombined size={16} aria-hidden="true" />Futures<span className="nav-new">NEW</span></NavLink>
+            <NavLink to="/etfs" className="nav-link"><Trophy size={16} aria-hidden="true" />ETF rankings</NavLink>
+            <NavLink to="/oil" className="nav-link"><Droplet size={16} aria-hidden="true" />Oil Watch</NavLink>
+            <NavLink to="/discovery" className="nav-link"><Compass size={16} aria-hidden="true" />Discovery</NavLink>
+            <NavLink to="/settings" className="nav-link nav-settings"><Settings size={16} aria-hidden="true" />Settings</NavLink>
           </nav>
         </header>
 
@@ -199,7 +199,7 @@ function Workspace() {
           <Suspense fallback={<div className="desk-empty" role="status">Opening workspace…</div>}>
           <Routes>
             <Route path="/" element={<>
-              <div className="overview-intro"><div><div className="eyebrow">YOUR RESEARCH DESK</div><span>Find the dip. Understand the context.</span></div><NavLink to="/futures">Explore the futures desk <ArrowUpRight size={16} /></NavLink></div>
+              <div className="overview-intro"><div><div className="eyebrow"><span className="eyebrow-line" aria-hidden="true" />YOUR RESEARCH DESK</div><span>Find the dip. Understand the context.</span></div><NavLink to="/futures">Explore the futures desk <ArrowUpRight size={16} aria-hidden="true" /></NavLink></div>
               <Dashboard excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />
             </>} />
             <Route path="/futures" element={<Futures autoRefreshInterval={autoRefreshInterval} />} />

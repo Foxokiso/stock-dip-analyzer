@@ -81,6 +81,13 @@
 /* The global .btn:active press-scale carries !important; silk has no jumps. */
 .dashboard .btn-outline:active { transform: none !important; }
 .dashboard .btn-outline:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+/* A refresh already in flight keeps the resting look (the global rule dims it). */
+.dashboard .btn-outline:disabled { cursor: wait; }
+.dashboard .btn-outline:disabled:hover {
+  background: var(--wash-p-07);
+  border-color: color-mix(in oklch, var(--primary) 27%, var(--line));
+}
+.dashboard .btn-outline:disabled:hover::after { opacity: 0; }
 .dashboard .btn-outline svg { color: var(--primary); flex-shrink: 0; }
 .dashboard .dash-reference { color: var(--primary); }
 
@@ -245,6 +252,14 @@
 .dashboard .dash-th.is-sortable { cursor: pointer; }
 .dashboard .dash-th.is-sortable:hover { color: var(--text-main); }
 .dashboard .dash-th.is-active { color: var(--primary); }
+/* Sortable headers are keyboard-reachable. A collapsed-border table clips a
+   cell's outer box-shadow, so the focus ring (brief rule 4) is drawn inside
+   the cell with the same secondary colour; the hairline stays. */
+.dashboard .dash-th.is-sortable:focus-visible {
+  outline: 2px solid var(--secondary);
+  outline-offset: -4px;
+  color: var(--text-main);
+}
 
 /* Rows: card-hover fill plus a hairline shift on hover; an expanded row is
    the selected state — 14 % primary wash with a 2 px inset primary edge.

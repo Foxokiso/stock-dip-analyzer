@@ -109,6 +109,10 @@ function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
+        title: 'Dip Analyzer PRO',
+        // Pierce/27 ink (--ink in src/styles/tokens.css) so the window never
+        // flashes white before the renderer paints its own background.
+        backgroundColor: '#0b0a10',
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
