@@ -1,147 +1,111 @@
-import { useState, useEffect } from 'react';
-import { Radio } from 'lucide-react';
-import { formatPrice, formatPct } from '../utils/format';
+import { useState, useEffect, memo } from 'react';
+import { Radio, AlertTriangle } from 'lucide-react';
+import { formatPrice, formatPct, formatQuoteTime } from '../utils/format';
+import { getYahooQuote } from '../utils/marketData';
+import '../styles/components.css';
 
 const electron = typeof window.require === 'function' ? window.require('electron') : null;
-
 const TRACKED = [
-    { sym: 'SPY', label: 'S&P 500' },
-    { sym: 'QQQ', label: 'Nasdaq 100' },
-    { sym: 'DIA', label: 'Dow 30' },
-    { sym: 'IWM', label: 'Russell 2000' },
-    { sym: '^VIX', label: 'VIX' }
+    { sym: 'SPY', label: 'S&P 500 ETF' },
+    { sym: 'QQQ', label: 'Nasdaq 100 ETF' },
+    { sym: 'DIA', label: 'Dow 30 ETF' },
+    { sym: 'IWM', label: 'Russell 2000 ETF' },
+    { sym: '^VIX', label: 'Volatility index', unit: 'points' },
 ];
 
-// Plausible mock values so the strip still renders in a plain browser (vite dev).
-const MOCK_QUOTES = {
-    'SPY': { price: 512.30, changePct: 0.82, closes: [508.1, 508.9, 509.4, 508.8, 510.2, 511.0, 510.6, 511.8, 512.5, 512.3] },
-    'QQQ': { price: 445.10, changePct: 1.14, closes: [440.2, 441.0, 440.5, 442.1, 443.0, 442.6, 443.9, 444.7, 445.4, 445.1] },
-    'DIA': { price: 389.60, changePct: -0.24, closes: [390.9, 390.4, 390.7, 390.1, 389.8, 390.2, 389.5, 389.9, 389.4, 389.6] },
-    'IWM': { price: 201.45, changePct: 0.37, closes: [200.6, 200.9, 200.4, 201.1, 200.8, 201.3, 201.0, 201.6, 201.2, 201.45] },
-    '^VIX': { price: 14.82, changePct: -3.51, closes: [15.6, 15.4, 15.5, 15.2, 15.0, 15.1, 14.9, 14.95, 14.8, 14.82] }
-};
+// '' when there is no verified change; the semantic colour lives in components.css.
+const directionOf = (changePct) => (changePct == null ? '' : changePct >= 0 ? 'up' : 'down');
 
-// Manual SVG polyline sparkline (no recharts) — closes normalized into a 100x26 viewBox.
-const Sparkline = ({ closes, color }) => {
-    const width = 100;
-    const height = 26;
-    if (!closes || closes.length < 2) {
-        return <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true" />;
-    }
-    const min = Math.min(...closes);
-    const max = Math.max(...closes);
-    const span = max - min || 1;
-    const pad = 2;
-    const points = closes.map((v, i) => {
-        const x = (i / (closes.length - 1)) * width;
-        const y = pad + (1 - (v - min) / span) * (height - pad * 2);
-        return `${x.toFixed(2)},${y.toFixed(2)}`;
-    }).join(' ');
+const Sparkline = memo(({ closes, direction }) => {
+    const width = 120, height = 26, pad = 2;
+    if (!closes || closes.length < 2) return <div className="pulse-sparkline-empty" aria-hidden="true" />;
+    const min = Math.min(...closes), span = Math.max(...closes) - min || 1;
+    const points = closes.map((value, index) => `${(pad + index / (closes.length - 1) * (width - pad * 2)).toFixed(1)},${(pad + (1 - (value - min) / span) * (height - pad * 2)).toFixed(1)}`).join(' ');
     return (
-        <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
-            <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+        <svg className={`pulse-sparkline${direction ? ` pulse-sparkline--${direction}` : ''}`} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+            <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
         </svg>
     );
-};
+});
 
-const MarketPulse = ({ autoRefreshInterval = 0, title = 'Market Pulse', tickers = TRACKED, mocks = MOCK_QUOTES }) => {
-    // quotes: { [sym]: { price, changePct, closes } | null } — null renders as '—'.
+const MarketPulse = ({ autoRefreshInterval = 0, title = 'Market Pulse', tickers = TRACKED }) => {
     const [quotes, setQuotes] = useState({});
-    const [updatedAt, setUpdatedAt] = useState(null);
+    const [fetchedAt, setFetchedAt] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
 
     useEffect(() => {
-        // Staleness guard: a slow response from a superseded tick (or a prior
-        // tickers/interval configuration) must not overwrite fresher quotes.
-        let cancelled = false;
-        let runSeq = 0;
-
+        let cancelled = false, inFlight = false;
         const fetchQuotes = async () => {
-            const runId = ++runSeq;
-            const isStale = () => cancelled || runId !== runSeq;
-
+            if (inFlight) return;
+            inFlight = true;
+            await Promise.resolve();
+            if (cancelled) return;
+            setLoading(true);
             if (!electron) {
-                // Browser dev (no IPC): fall back to mock data so the strip still renders.
-                if (isStale()) return;
-                setQuotes(mocks);
-                setUpdatedAt(new Date());
+                setError('Market quotes require the desktop app connection.');
+                setLoading(false);
+                inFlight = false;
                 return;
             }
             const results = await Promise.all(tickers.map(async ({ sym }) => {
                 try {
                     const json = await electron.ipcRenderer.invoke('fetch-yahoo-chart', sym, '1d', '5m');
                     const result = json?.chart?.result?.[0];
-                    if (!result) return [sym, null];
-                    const meta = result.meta || {};
-                    const price = meta.regularMarketPrice;
-                    const prevClose = meta.chartPreviousClose ?? meta.previousClose;
-                    if (price == null || prevClose == null || !prevClose) return [sym, null];
-                    const changePct = (price / prevClose - 1) * 100;
-                    const rawCloses = result.indicators?.quote?.[0]?.close || [];
-                    const closes = rawCloses.filter(c => c !== null && c !== undefined);
-                    return [sym, { price, changePct, closes }];
-                } catch (err) {
-                    console.error(`MarketPulse: failed to fetch ${sym}:`, err);
-                    return [sym, null];
-                }
+                    const quote = result ? getYahooQuote(result, { range: '1d' }) : null;
+                    return [sym, quote?.price != null ? { ...quote, stale: false } : null];
+                } catch { return [sym, null]; }
             }));
-            if (isStale()) return;
-            setQuotes(Object.fromEntries(results));
-            setUpdatedAt(new Date());
+            inFlight = false;
+            if (cancelled) return;
+            const successes = results.filter(([, quote]) => quote != null).length;
+            setQuotes(previous => Object.fromEntries(results.map(([sym, quote]) => [sym, quote || (previous[sym] ? { ...previous[sym], stale: true } : null)])));
+            if (successes > 0) setFetchedAt(new Date().toISOString());
+            setError(successes < tickers.length ? `${tickers.length - successes} quote${tickers.length - successes === 1 ? '' : 's'} unavailable. Retained prices are marked stale.` : '');
+            setLoading(false);
         };
-
         fetchQuotes();
+        const timer = autoRefreshInterval > 0 ? setInterval(fetchQuotes, autoRefreshInterval * 60 * 1000) : null;
+        return () => { cancelled = true; if (timer) clearInterval(timer); };
+    }, [autoRefreshInterval, tickers]);
 
-        if (autoRefreshInterval > 0) {
-            const intervalId = setInterval(fetchQuotes, autoRefreshInterval * 60 * 1000);
-            return () => { cancelled = true; clearInterval(intervalId); };
-        }
-        return () => { cancelled = true; };
-    }, [autoRefreshInterval, tickers, mocks]);
+    // Live dot: breathes while fetching and while verified quotes are on screen;
+    // amber when the last pass was partial; still and faint when nothing loaded.
+    const liveState = loading ? 'fetching' : fetchedAt ? (error ? 'partial' : 'live') : '';
 
     return (
-        <div style={{ marginBottom: '1.5rem' }}>
-            <div className="flex-between" style={{ marginBottom: '0.5rem' }}>
-                <span className="text-muted flex-center" style={{ gap: '0.4rem', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                    <Radio size={14} />
-                    {title}
-                </span>
-                <span className="text-muted" style={{ fontSize: '0.75rem' }}>
-                    {updatedAt ? `updated ${updatedAt.toLocaleTimeString('en-US', { hour12: false })}` : 'updating…'}
+        <section className="market-pulse" aria-label={title}>
+            <div className="pulse-heading">
+                <span className="section-kicker"><Radio size={14} /> {title}</span>
+                <span className="source-meta">
+                    <span className={`pulse-live${liveState ? ` pulse-live--${liveState}` : ''}`} aria-hidden="true" />
+                    Yahoo Finance · {loading ? 'Fetching…' : fetchedAt ? `Fetched ${formatQuoteTime(fetchedAt)}` : 'No quotes loaded'}
                 </span>
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
-                {tickers.map(({ sym, label }) => {
-                    const q = quotes[sym];
-                    const up = q ? q.changePct >= 0 : true;
-                    const changeColor = up ? 'var(--success)' : 'var(--danger)';
+            {error && <p className="data-notice data-status" role="status"><AlertTriangle size={13} />{error}</p>}
+            <div className="pulse-grid">
+                {tickers.map(({ sym, label, unit }) => {
+                    const quote = quotes[sym];
+                    const direction = directionOf(quote?.changePct);
+                    const price = quote?.price == null ? '—' : unit === 'points' ? `${quote.price.toFixed(2)}` : quote.currency && quote.currency !== 'USD' ? `${quote.price.toFixed(2)} ${quote.currency}` : formatPrice(quote.price);
                     return (
-                        <div key={sym} className="glass-panel" style={{ padding: '0.75rem 1rem', flex: 1, minWidth: '150px' }}>
-                            <div className="flex-between" style={{ marginBottom: '0.25rem' }}>
-                                <span className="text-muted" style={{ fontSize: '0.75rem' }}>{label}</span>
-                                <span className="text-muted" style={{ fontSize: '0.7rem', fontWeight: 'bold' }}>{sym}</span>
+                        <article key={sym} className={`pulse-card glass-panel${quote?.stale ? ' data-stale' : ''}`}>
+                            <div className="pulse-card-label"><span>{label}</span><span>{sym}</span></div>
+                            <div className="pulse-values">
+                                <span className="pulse-price">{price}</span>
+                                <span className={`pulse-change${direction ? ` pulse-change--${direction}` : ''}`}>{formatPct(quote?.changePct)}</span>
                             </div>
-                            <div className="flex-between" style={{ gap: '0.5rem', marginBottom: '0.35rem' }}>
-                                <span style={{ fontWeight: 'bold', fontSize: '1.05rem', color: 'var(--text-main)' }}>
-                                    {q ? formatPrice(q.price) : '—'}
-                                </span>
-                                <span style={{
-                                    fontSize: '0.75rem',
-                                    fontWeight: '600',
-                                    color: changeColor,
-                                    background: q ? (up ? 'rgba(34, 197, 94, 0.12)' : 'rgba(239, 68, 68, 0.12)') : 'transparent',
-                                    padding: '0.1rem 0.4rem',
-                                    borderRadius: '6px'
-                                }}>
-                                    {q ? formatPct(q.changePct) : '—'}
-                                </span>
+                            <Sparkline closes={quote?.closes} direction={direction} />
+                            <div className="quote-meta" title={quote ? `Quote: ${formatQuoteTime(quote.quotedAt)} · Fetched: ${formatQuoteTime(quote.fetchedAt)}` : 'No verified quote available'}>
+                                {unit && <span>{unit} · </span>}
+                                {quote?.stale ? 'Stale · ' : ''}{quote ? `Quote ${formatQuoteTime(quote.quotedAt)}` : loading ? 'Fetching quote…' : 'Unavailable'}
                             </div>
-                            <Sparkline closes={q ? q.closes : null} color={changeColor} />
-                        </div>
+                            {quote && <div className="quote-meta">{quote.delayMinutes == null ? 'Delay not provided by source' : `Source delay: ${quote.delayMinutes} min`}</div>}
+                        </article>
                     );
                 })}
             </div>
-        </div>
+        </section>
     );
 };
-
 export default MarketPulse;

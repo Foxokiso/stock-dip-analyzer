@@ -1,346 +1,296 @@
-import { useState, useEffect, useRef } from 'react';
-import { History, X } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { History, X, TrendingUp, TrendingDown, AlertTriangle, Activity } from 'lucide-react';
 import alienAudio from '../assets/alien_ominous.wav';
+import { formatQuoteTime } from '../utils/format';
+import { useSettings } from '../state/settingsContext.js';
+import { DEFAULT_SETTINGS } from '../state/settingsSchema.js';
+import '../styles/components.css';
+
+const HISTORY_KEY = 'dipAnalyzerAlertHistory';
+const TOAST_MS = 5000;
+// Base levels from v1; Settings → Alerts → Volume multiplies them (master gain = volume × base).
+const BASE_VOLUME = 0.25;      // HTMLAudio alert
+const BASE_AMBER_GAIN = 0.03;  // synthesized amber-alert master gain
+
+// Which Settings → Alerts toggle governs each alert type. Anything else is dropped
+// before it renders or sounds.
+const SETTING_FOR_TYPE = { breakout: 'breakout', breakdown: 'breakdown', bullish: 'trend', bearish: 'trend' };
+const TAG_FOR_TYPE = { breakout: 'BREAKOUT', breakdown: 'BREAKDOWN', bullish: 'BULLISH', bearish: 'BEARISH' };
+
+// Semantic tone: amber → warning, up moves → success, down moves → danger, else info.
+const toneOf = ({ color, type }) => {
+    if (color === 'amber') return 'warning';
+    if (type === 'breakout' || type === 'bullish') return 'success';
+    if (type === 'breakdown' || type === 'bearish') return 'danger';
+    return 'info';
+};
+const tagOf = ({ color, type }) => (color === 'amber' ? 'AMBER ALERT' : TAG_FOR_TYPE[type] || String(type || 'alert').toUpperCase());
+const clamp01 = (value) => (Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0);
+const historyLimitOf = (prefs) => (Number.isInteger(prefs?.historyLimit) && prefs.historyLimit > 0 ? prefs.historyLimit : DEFAULT_SETTINGS.alerts.historyLimit);
+const openSymbol = (symbol) => { window.location.hash = `/stock/${symbol}`; };
+
+const ToneIcon = ({ tone, size }) => {
+    if (tone === 'warning') return <AlertTriangle size={size} aria-hidden="true" />;
+    if (tone === 'success') return <TrendingUp size={size} aria-hidden="true" />;
+    if (tone === 'danger') return <TrendingDown size={size} aria-hidden="true" />;
+    return <Activity size={size} aria-hidden="true" />;
+};
+
+const loadHistory = () => {
+    try {
+        const saved = localStorage.getItem(HISTORY_KEY);
+        if (!saved) return [];
+        const parsed = JSON.parse(saved);
+        if (!Array.isArray(parsed)) return [];
+        const todayStr = new Date().toDateString();
+        // Keep today's alerts, and amber alerts from any day.
+        return parsed.filter(item => item.color === 'amber' || new Date(item.timestamp).toDateString() === todayStr);
+    } catch (e) {
+        console.error('Failed to parse alert history', e);
+        return [];
+    }
+};
+
+// Dynamic amber-alert audio: four discordant drones through a low-pass filter and a
+// compressor. One AudioContext per alert, closed when the last tone ends, so StrictMode
+// and the verify-alerts script see exactly one context per alert.
+const playAmberAlertSound = (masterLevel, contexts) => {
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const ctx = new AudioContext();
+        contexts.add(ctx);
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(350, ctx.currentTime); // muffle the piercing highs
+
+        const compressor = ctx.createDynamicsCompressor();
+        compressor.attack.setValueAtTime(0.120, ctx.currentTime);
+        compressor.threshold.setValueAtTime(-24, ctx.currentTime);
+        compressor.ratio.setValueAtTime(12, ctx.currentTime);
+        compressor.connect(ctx.destination);
+
+        filter.connect(compressor);
+
+        const masterGain = ctx.createGain();
+        masterGain.gain.value = masterLevel;
+        masterGain.connect(filter);
+
+        const createDrone = (type, freq, detune, duration, startTime) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, ctx.currentTime);
+            osc.detune.setValueAtTime(detune, ctx.currentTime);
+
+            // Morph the frequency a little so the drone never sits still.
+            const randomOffset = (Math.random() * 200) - 100;
+            osc.frequency.linearRampToValueAtTime(freq + randomOffset, ctx.currentTime + duration / 2);
+            osc.frequency.linearRampToValueAtTime(freq, ctx.currentTime + duration);
+
+            // Swell in and out (no jump-scare).
+            gain.gain.setValueAtTime(0, ctx.currentTime + startTime);
+            gain.gain.linearRampToValueAtTime(1, ctx.currentTime + startTime + 0.5);
+            gain.gain.setValueAtTime(1, ctx.currentTime + startTime + duration - 0.5);
+            gain.gain.linearRampToValueAtTime(0, ctx.currentTime + startTime + duration);
+
+            osc.connect(gain);
+            gain.connect(masterGain);
+
+            osc.start(ctx.currentTime + startTime);
+            osc.stop(ctx.currentTime + startTime + duration);
+            return osc;
+        };
+
+        const baseTime = 0;
+        const totalDuration = 2.5;
+        createDrone('square', 853, 0, totalDuration, baseTime);                                  // high alarm
+        createDrone('sawtooth', 960, 50, totalDuration, baseTime + 0.1);                         // dissonant harmonic
+        createDrone('sine', 150, -25, totalDuration, baseTime + 0.2);                            // low rumble
+        const finalTone = createDrone('triangle', 450 + (Math.random() * 300), 10, totalDuration, baseTime + 0.3); // unstable morph
+        finalTone.onended = () => {
+            contexts.delete(ctx);
+            ctx.close().catch(() => {});
+        };
+    } catch (e) {
+        console.error('Web Audio API not supported or thwarted:', e);
+    }
+};
 
 const LiveAlerts = () => {
+    const { settings } = useSettings();
+    const alertSettings = settings.alerts;
     const [alerts, setAlerts] = useState([]); // active live toasts
-    const [history, setHistory] = useState(() => {
-        const saved = localStorage.getItem('dipAnalyzerAlertHistory');
-        if (saved) {
-            try {
-                const parsed = JSON.parse(saved);
-                const now = new Date();
-                const todayStr = now.toDateString();
-                
-                return parsed.filter(item => {
-                    const itemDate = new Date(item.timestamp).toDateString();
-                    if (itemDate === todayStr) return true;
-                    if (item.color === 'amber') return true;
-                    return false;
-                });
-            } catch (e) {
-                console.error("Failed to parse alert history", e);
-            }
-        }
-        return [];
-    }); // all history
+    const [history, setHistory] = useState(loadHistory);
     const [showHistory, setShowHistory] = useState(false);
-    
+
+    const settingsRef = useRef(alertSettings);
     const audioRef = useRef(null);
+    const activeSymbolsRef = useRef(new Set());
+    const timersRef = useRef(new Set());
+    const contextsRef = useRef(new Set());
 
-    // Dynamic Amber Alert Audio Generation
-    const playAmberAlertSound = () => {
-        try {
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            const ctx = new AudioContext();
-            
-            const filter = ctx.createBiquadFilter();
-            filter.type = 'lowpass';
-            filter.frequency.setValueAtTime(350, ctx.currentTime); // Muffle the piercing highs
-
-            const compressor = ctx.createDynamicsCompressor();
-            compressor.attack.setValueAtTime(0.120, ctx.currentTime);
-            compressor.threshold.setValueAtTime(-24, ctx.currentTime);
-            compressor.ratio.setValueAtTime(12, ctx.currentTime);
-            compressor.connect(ctx.destination);
-            
-            filter.connect(compressor);
-
-            const masterGain = ctx.createGain();
-            masterGain.gain.value = 0.03; // Drastically lower base volume
-            masterGain.connect(filter);
-
-            // Create 4 jarring oscillator sounds
-            const createDrone = (type, freq, detune, duration, startTime) => {
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                
-                osc.type = type;
-                osc.frequency.setValueAtTime(freq, ctx.currentTime);
-                osc.detune.setValueAtTime(detune, ctx.currentTime);
-                
-                // Add some morphing/gliding to the frequency based on random values
-                const randomOffset = (Math.random() * 200) - 100;
-                osc.frequency.linearRampToValueAtTime(freq + randomOffset, ctx.currentTime + duration / 2);
-                osc.frequency.linearRampToValueAtTime(freq, ctx.currentTime + duration);
-
-                // Envelopes for smoother swell (anti jump-scare)
-                gain.gain.setValueAtTime(0, ctx.currentTime + startTime);
-                gain.gain.linearRampToValueAtTime(1, ctx.currentTime + startTime + 0.5);
-                gain.gain.setValueAtTime(1, ctx.currentTime + startTime + duration - 0.5);
-                gain.gain.linearRampToValueAtTime(0, ctx.currentTime + startTime + duration);
-
-                osc.connect(gain);
-                gain.connect(masterGain);
-                
-                osc.start(ctx.currentTime + startTime);
-                osc.stop(ctx.currentTime + startTime + duration);
-            };
-
-            // Play the 4 discordant tones layered and slightly staggered
-            const baseTime = 0;
-            const totalDuration = 2.5;
-            
-            // Tone 1: High piercing alarm
-            createDrone('square', 853, 0, totalDuration, baseTime);
-            // Tone 2: Dissonant harmonic
-            createDrone('sawtooth', 960, 50, totalDuration, baseTime + 0.1);
-            // Tone 3: Low rumble/groan
-            createDrone('sine', 150, -25, totalDuration, baseTime + 0.2);
-            // Tone 4: Random unstable morphing tone
-            createDrone('triangle', 450 + (Math.random() * 300), 10, totalDuration, baseTime + 0.3);
-
-        } catch (e) {
-            console.error("Web Audio API not supported or thwarted:", e);
-        }
-    };
+    // The event handler is subscribed once (StrictMode-safe); it reads the live
+    // settings through this ref instead of re-subscribing on every change.
+    useEffect(() => {
+        settingsRef.current = alertSettings;
+    }, [alertSettings]);
 
     useEffect(() => {
-        if (!audioRef.current) {
-            audioRef.current = new Audio(alienAudio);
-            audioRef.current.volume = 0.25;
-        }
-
+        if (!audioRef.current) audioRef.current = new Audio(alienAudio);
     }, []);
 
+    // Settings → Alerts → History length applies to what is shown and stored.
+    const historyLimit = historyLimitOf(alertSettings);
+    const visibleHistory = useMemo(() => (history.length > historyLimit ? history.slice(0, historyLimit) : history), [history, historyLimit]);
+
     useEffect(() => {
-        if (history.length > 0) {
-            localStorage.setItem('dipAnalyzerAlertHistory', JSON.stringify(history));
+        if (visibleHistory.length > 0) {
+            try {
+                localStorage.setItem(HISTORY_KEY, JSON.stringify(visibleHistory));
+            } catch {
+                // Storage can be unavailable; the session still works.
+            }
         }
-    }, [history]);
+    }, [visibleHistory]);
 
     useEffect(() => {
         const handleAlert = (e) => {
-            const { symbol, type, message, color = 'blue', timestamp = Date.now() } = e.detail;
-            
-            const newAlert = { id: timestamp + Math.random(), symbol, type, message, color, timestamp };
+            const detail = e.detail || {};
+            const { symbol, type, message, color = 'blue', timestamp = Date.now(), source, quotedAt, delayMinutes } = detail;
+            const prefs = settingsRef.current;
 
-            // Prevent duplicate toasts
-            setAlerts((prev) => {
-                if (prev.find(a => a.symbol === symbol)) return prev;
+            // Type gate: only breakout / breakdown / trend alerts the user has enabled.
+            const gate = SETTING_FOR_TYPE[type];
+            if (!gate || !prefs[gate]) return;
+            // Score gate, where the emitter attached a score.
+            const score = Number.isFinite(detail.score) ? detail.score : null;
+            if (score != null && score < prefs.minScore) return;
 
+            if (activeSymbolsRef.current.has(symbol)) return;
+            activeSymbolsRef.current.add(symbol);
+
+            const newAlert = { id: crypto.randomUUID(), symbol, type, message, color, timestamp, source, quotedAt, delayMinutes, score };
+            setAlerts((prev) => [...prev, newAlert]);
+
+            // Effects belong in the event handler, outside React's pure updater.
+            const level = clamp01(prefs.volume);
+            if (prefs.sound && level > 0) {
                 if (color === 'amber') {
-                    // Play the new Web Audio amber alert
-                    playAmberAlertSound();
+                    playAmberAlertSound(BASE_AMBER_GAIN * level, contextsRef.current);
                 } else if (audioRef.current) {
-                    // Play standard alien audio
+                    audioRef.current.volume = BASE_VOLUME * level;
                     audioRef.current.currentTime = 0;
                     audioRef.current.play().catch(err => console.log('Audio play prevented', err));
                 }
-                
-                return [...prev, newAlert];
-            });
+            }
 
-            // Add to history
-            setHistory(prev => [newAlert, ...prev]);
+            const limit = historyLimitOf(prefs);
+            setHistory(prev => [newAlert, ...prev].slice(0, limit));
 
-            // Auto dismiss this specific alert after 5 seconds
-            setTimeout(() => {
+            // Auto dismiss this specific toast.
+            const timer = setTimeout(() => {
+                timersRef.current.delete(timer);
+                activeSymbolsRef.current.delete(symbol);
                 setAlerts((prev) => prev.filter(a => a.id !== newAlert.id));
-            }, 5000);
+            }, TOAST_MS);
+            timersRef.current.add(timer);
         };
 
         window.addEventListener('stock-alert', handleAlert);
-        return () => window.removeEventListener('stock-alert', handleAlert);
+        const timers = timersRef.current;
+        const contexts = contextsRef.current;
+        const activeSymbols = activeSymbolsRef.current;
+        return () => {
+            window.removeEventListener('stock-alert', handleAlert);
+            timers.forEach(clearTimeout);
+            timers.clear();
+            contexts.forEach(ctx => ctx.close().catch(() => {}));
+            contexts.clear();
+            activeSymbols.clear();
+            audioRef.current?.pause();
+        };
     }, []);
+
+    const hasWarning = visibleHistory.some(h => h.color === 'amber');
 
     return (
         <>
-            {/* Live Toasts */}
-            <div style={{
-                position: 'fixed',
-                bottom: '5rem', // Moved up slightly to make room for history button
-                right: '2rem',
-                zIndex: 9999,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.5rem',
-                pointerEvents: 'none'
-            }}>
-                {alerts.map((alert) => (
-                    <div key={alert.id} style={{
-                        background: alert.color === 'amber' 
-                            ? 'linear-gradient(135deg, rgba(217, 119, 6, 0.8) 0%, rgba(180, 83, 9, 0.9) 100%)' 
-                            : 'linear-gradient(135deg, rgba(30, 20, 60, 0.85) 0%, rgba(10, 20, 40, 0.9) 100%)',
-                        backdropFilter: 'blur(16px)',
-                        WebkitBackdropFilter: 'blur(16px)',
-                        border: alert.color === 'amber' ? '1px solid rgba(252, 211, 77, 0.7)' : '1px solid rgba(167, 139, 250, 0.3)',
-                        borderRadius: '12px',
-                        padding: '0.75rem 1rem',
-                        boxShadow: alert.color === 'amber' ? '0 8px 20px rgba(217, 119, 6, 0.4), inset 0 1px 1px rgba(255,255,255,0.2)' : '0 8px 20px rgba(0,0,0,0.5), inset 0 1px 1px rgba(255,255,255,0.1)',
-                        color: '#f8f9fc',
-                        transformOrigin: 'bottom right',
-                        animation: 'slide-in-alert 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-                        minWidth: '240px',
-                        maxWidth: '350px'
-                    }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.2rem' }}>
-                            <span 
-                                onClick={() => window.location.hash = `/stock/${alert.symbol}`}
-                                style={{ 
-                                    fontWeight: 'bold', 
-                                    fontSize: '0.95rem', 
-                                    letterSpacing: '0.05em', 
-                                    color: alert.color === 'amber' ? '#fffbeb' : '#fff',
-                                    cursor: 'pointer',
-                                    textDecoration: 'underline',
-                                    pointerEvents: 'auto'
-                                }}
-                                title="View Details"
-                            >
-                                ${alert.symbol} {alert.type === 'breakout' || alert.type === 'bullish' ? '🚀' : '⚠️'}
-                            </span>
-                            <span style={{ 
-                                fontSize: '0.65rem', 
-                                padding: '0.15rem 0.4rem', 
-                                borderRadius: '12px', 
-                                background: alert.color === 'amber' ? 'rgba(255,255,255,0.25)' : (alert.type === 'breakout' || alert.type === 'bullish' ? 'rgba(52, 211, 153, 0.2)' : 'rgba(248, 113, 113, 0.2)'),
-                                color: alert.color === 'amber' ? '#fde68a' : (alert.type === 'breakout' || alert.type === 'bullish' ? '#6ee7b7' : '#fca5a5'),
-                                fontWeight: alert.color === 'amber' ? '900' : 'normal'
-                            }}>
-                                {alert.color === 'amber' ? 'AMBER ALERT' : (alert.type === 'breakout' ? 'TRENDING' : alert.type === 'bullish' ? 'BULLISH' : alert.type === 'bearish' ? 'BEARISH' : 'DOWNTREND')}
-                            </span>
+            {/* Live toasts */}
+            <div className="alert-stack">
+                {alerts.map((alert) => {
+                    const tone = toneOf(alert);
+                    return (
+                        <div key={alert.id} className={`alert-toast alert-toast--${tone}`} role="status">
+                            <div className="alert-toast-head">
+                                <button type="button" className="alert-symbol" onClick={() => openSymbol(alert.symbol)} title="View details">
+                                    <ToneIcon tone={tone} size={14} />${alert.symbol}
+                                </button>
+                                <span className="alert-toast-tag">{tagOf(alert)}</span>
+                            </div>
+                            <div className="alert-toast-message">{alert.message}</div>
                         </div>
-                        <div style={{ fontSize: '0.8rem', color: alert.color === 'amber' ? '#fef3c7' : '#e2e8f0', margin: 0, fontWeight: alert.color === 'amber' ? 'bold' : 'normal' }}>
-                            {alert.message}
-                        </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
 
-            {/* History Toggle Button */}
-            <div style={{
-                position: 'fixed',
-                bottom: '2rem',
-                right: '2rem',
-                zIndex: 9998,
-            }}>
-                <button 
-                    onClick={() => setShowHistory(!showHistory)}
-                    style={{
-                        background: history.some(h => h.color === 'amber') ? '#d97706' : 'var(--primary)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '50%',
-                        width: '3.5rem',
-                        height: '3.5rem',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        boxShadow: history.some(h => h.color === 'amber') ? '0 4px 15px rgba(217, 119, 6, 0.5)' : '0 4px 12px rgba(0,0,0,0.3)',
-                        transition: 'transform 0.2s',
-                        position: 'relative'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
-                    onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                    title="Alert History"
-                >
-                    <History size={24} />
-                    {history.length > 0 && (
-                        <span style={{
-                            position: 'absolute',
-                            top: '-5px',
-                            right: '-5px',
-                            background: history.some(h => h.color === 'amber') ? '#b45309' : '#ef4444',
-                            color: 'white',
-                            fontSize: '0.7rem',
-                            fontWeight: 'bold',
-                            padding: '2px 6px',
-                            borderRadius: '10px',
-                            border: '1px solid rgba(255,255,255,0.2)'
-                        }}>
-                            {history.length}
-                        </span>
-                    )}
-                </button>
-            </div>
+            {/* History toggle */}
+            <button
+                type="button"
+                className={`alert-history-toggle${hasWarning ? ' alert-history-toggle--warning' : ''}`}
+                onClick={() => setShowHistory(open => !open)}
+                title="Alert history"
+                aria-label="Alert history"
+                aria-expanded={showHistory}
+            >
+                <History size={24} aria-hidden="true" />
+                {visibleHistory.length > 0 && <span className="alert-history-badge">{visibleHistory.length}</span>}
+            </button>
 
-            {/* History Panel */}
+            {/* History drawer */}
             {showHistory && (
-                <div style={{
-                    position: 'fixed',
-                    top: 0,
-                    right: 0,
-                    bottom: 0,
-                    width: '350px',
-                    background: 'rgba(15, 23, 42, 0.95)',
-                    backdropFilter: 'blur(10px)',
-                    borderLeft: '1px solid rgba(255,255,255,0.1)',
-                    zIndex: 10000,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    animation: 'slide-in-right 0.3s ease-out forwards',
-                    boxShadow: '-10px 0 25px rgba(0,0,0,0.5)'
-                }}>
-                    <div style={{
-                        padding: '1.5rem',
-                        borderBottom: '1px solid rgba(255,255,255,0.1)',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                    }}>
-                        <h2 style={{ margin: 0, fontSize: '1.25rem', color: 'white', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <History size={20} /> Alert History
-                        </h2>
-                        <button 
-                            onClick={() => setShowHistory(false)}
-                            style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-                        >
-                            <X size={24} />
+                <aside className="alert-drawer" aria-label="Alert history">
+                    <div className="alert-drawer-head">
+                        <h2><History size={20} aria-hidden="true" /> Alert History</h2>
+                        <button type="button" className="alert-drawer-close" onClick={() => setShowHistory(false)} aria-label="Close alert history">
+                            <X size={20} aria-hidden="true" />
                         </button>
                     </div>
-                    
-                    <div style={{ padding: '1rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                        {history.length === 0 ? (
-                            <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '2rem' }}>
-                                No alerts recorded yet.
-                            </div>
+
+                    <div className="alert-drawer-list">
+                        {visibleHistory.length === 0 ? (
+                            <div className="alert-drawer-empty">No alerts recorded yet.</div>
                         ) : (
-                            history.map((alert) => (
-                                <div key={alert.id} style={{
-                                    padding: '1rem',
-                                    borderRadius: '8px',
-                                    background: alert.color === 'amber' ? 'rgba(217, 119, 6, 0.15)' : 'rgba(255,255,255,0.05)',
-                                    border: alert.color === 'amber' ? '1px solid rgba(252, 211, 77, 0.4)' : '1px solid rgba(255,255,255,0.1)',
-                                }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                                        <span 
-                                            onClick={(e) => { e.stopPropagation(); window.location.hash = `/stock/${alert.symbol}`; setShowHistory(false); }}
-                                            style={{ 
-                                                fontWeight: 'bold', 
-                                                color: alert.color === 'amber' ? '#fcd34d' : 'white',
-                                                cursor: 'pointer',
-                                                textDecoration: 'underline'
-                                            }}
-                                            title="View Details"
-                                        >
-                                            ${alert.symbol} {alert.type === 'breakout' || alert.type === 'bullish' ? '🚀' : '⚠️'}
-                                        </span>
-                                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                                            {new Date(alert.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </span>
-                                    </div>
-                                    <div style={{ fontSize: '0.9rem', color: alert.color === 'amber' ? '#fef3c7' : 'var(--text-main)', lineHeight: '1.4' }}>
-                                        {alert.message}
-                                    </div>
-                                </div>
-                            ))
+                            visibleHistory.map((alert) => {
+                                const tone = toneOf(alert);
+                                return (
+                                    <article key={alert.id} className={`alert-entry alert-entry--${tone}`}>
+                                        <div className="alert-entry-head">
+                                            <button
+                                                type="button"
+                                                className="alert-symbol"
+                                                onClick={() => { openSymbol(alert.symbol); setShowHistory(false); }}
+                                                title="View details"
+                                            >
+                                                <ToneIcon tone={tone} size={13} />${alert.symbol}
+                                            </button>
+                                            <span className="alert-entry-time">
+                                                {new Date(alert.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                        </div>
+                                        <div className="alert-entry-message">{alert.message}</div>
+                                        <div className="quote-meta alert-entry-meta">
+                                            {alert.source || 'Legacy alert · source unknown'} · Quote: {formatQuoteTime(alert.quotedAt)}
+                                            {Number.isFinite(alert.score) ? ` · Score ${alert.score}` : ''}
+                                        </div>
+                                    </article>
+                                );
+                            })
                         )}
                     </div>
-                </div>
+                </aside>
             )}
-
-            <style>{`
-                @keyframes slide-in-alert {
-                    0% { opacity: 0; transform: translateY(20px) scale(0.95); }
-                    100% { opacity: 1; transform: translateY(0) scale(1); }
-                }
-                @keyframes slide-in-right {
-                    0% { transform: translateX(100%); }
-                    100% { transform: translateX(0); }
-                }
-            `}</style>
         </>
     );
 };

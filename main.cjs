@@ -27,21 +27,53 @@ const BROWSER_HEADERS = {
     'Upgrade-Insecure-Requests': '1',
 };
 
-ipcMain.handle('fetch-url', async (event, url) => {
+// Share only work that is still in progress. Once a response (including its
+// body) settles, the next refresh always goes back to the provider.
+const pendingRequests = new Map();
+function shareRequest(key, request) {
+    if (pendingRequests.has(key)) return pendingRequests.get(key);
+    const pending = Promise.resolve().then(request);
+    pendingRequests.set(key, pending);
+    const forget = () => pendingRequests.delete(key);
+    pending.then(forget, forget);
+    return pending;
+}
+
+function retryDelay(ms, signal) {
+    return new Promise((resolve, reject) => {
+        signal.throwIfAborted();
+        const abort = () => {
+            clearTimeout(timer);
+            reject(signal.reason);
+        };
+        const timer = setTimeout(() => {
+            signal.removeEventListener('abort', abort);
+            resolve();
+        }, ms);
+        signal.addEventListener('abort', abort, { once: true });
+    });
+}
+
+ipcMain.handle('fetch-url', (event, url) => shareRequest(`url:${url}`, async () => {
     const maxRetries = 2;
     const host = hostOf(url);
+    // A single deadline covers retries, session seeding, backoff and body
+    // consumption. A failing source must not hold up the interface for 40s+.
+    const signal = AbortSignal.timeout(12000);
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
+            signal.throwIfAborted();
             const headers = { ...BROWSER_HEADERS };
             const hostCookies = host ? cookieJar.get(host) : null;
             if (hostCookies) {
                 headers['Cookie'] = hostCookies;
             }
-            if (url.includes('finviz.com') && attempt > 0) {
+            if (host === 'finviz.com' && attempt > 0) {
                 headers['Referer'] = 'https://finviz.com/screener.ashx';
             }
 
             const response = await fetch(url, {
+                signal,
                 cache: 'no-store',
                 headers,
                 redirect: 'follow',
@@ -53,52 +85,65 @@ ipcMain.handle('fetch-url', async (event, url) => {
                 cookieJar.set(host, setCookies.map(c => c.split(';')[0]).join('; '));
             }
 
-            if (response.status === 403 && attempt < maxRetries) {
-                console.warn(`Fetch attempt ${attempt + 1} got 403, retrying after delay...`);
-                await new Promise(r => setTimeout(r, 1500 + Math.random() * 1000));
-                // On retry, first hit the homepage to establish a session
-                if (host === 'finviz.com' && !cookieJar.get(host)) {
-                    try {
-                        const seedResp = await fetch('https://finviz.com/', { headers: BROWSER_HEADERS, redirect: 'follow' });
-                        const seedCookies = seedResp.headers.getSetCookie?.() || [];
-                        if (seedCookies.length > 0) {
-                            cookieJar.set(host, seedCookies.map(c => c.split(';')[0]).join('; '));
-                        }
-                    } catch (_) { /* best effort */ }
-                }
-                continue;
+            if (!response.ok) {
+                // Discard error bodies so retries don't retain unused streams.
+                void response.body?.cancel().catch(() => {});
+                const error = new Error(`HTTP error! status: ${response.status}`);
+                error.status = response.status;
+                throw error;
             }
-
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             return await response.text();
         } catch (err) {
-            if (attempt === maxRetries) {
+            if (signal.aborted) throw signal.reason;
+            const retryable = !err.status || err.status === 403 || err.status === 408 || err.status >= 500;
+            if (attempt === maxRetries || !retryable) {
                 console.error('Fetch error:', err);
                 throw err;
             }
-            await new Promise(r => setTimeout(r, 1000));
+            await retryDelay(err.status === 403 ? 1500 + Math.random() * 1000 : 1000, signal);
+            // On a Finviz challenge, establish a session before trying again.
+            if (err.status === 403 && host === 'finviz.com' && !cookieJar.get(host)) {
+                try {
+                    const seedResp = await fetch('https://finviz.com/', {
+                        signal, cache: 'no-store', headers: BROWSER_HEADERS, redirect: 'follow',
+                    });
+                    const seedCookies = seedResp.headers.getSetCookie?.() || [];
+                    if (seedCookies.length > 0) {
+                        cookieJar.set(host, seedCookies.map(c => c.split(';')[0]).join('; '));
+                    }
+                    void seedResp.body?.cancel().catch(() => {});
+                } catch (_) {
+                    signal.throwIfAborted(); // Other seed failures are best effort.
+                }
+            }
         }
     }
-});
+}));
 
 // range/interval are optional so existing fetch-yahoo-chart(symbol) callers keep working.
 // Valid ranges: 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, max. Intervals: 1m..1d, 1wk, 1mo.
-ipcMain.handle('fetch-yahoo-chart', async (event, symbol, range = '1mo', interval = '1d') => {
+ipcMain.handle('fetch-yahoo-chart', (event, symbol, range = '1mo', interval = '1d') => {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${encodeURIComponent(range)}&interval=${encodeURIComponent(interval)}`;
-    try {
-        const response = await fetch(url, {
-            cache: 'no-store',
-            headers: {
-                ...BROWSER_HEADERS,
-                'Referer': 'https://finance.yahoo.com/',
+    return shareRequest(`yahoo:${url}`, async () => {
+        try {
+            const response = await fetch(url, {
+                signal: AbortSignal.timeout(12000),
+                cache: 'no-store',
+                headers: {
+                    ...BROWSER_HEADERS,
+                    'Referer': 'https://finance.yahoo.com/',
+                }
+            });
+            if (!response.ok) {
+                void response.body?.cancel().catch(() => {});
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
-        });
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        return await response.json();
-    } catch (err) {
-        console.error('Yahoo Fetch error:', err);
-        throw err;
-    }
+            return await response.json();
+        } catch (err) {
+            console.error('Yahoo Fetch error:', err);
+            throw err;
+        }
+    });
 });
 
 let mainWindow;
@@ -107,6 +152,10 @@ function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
+        title: 'Dip Analyzer PRO',
+        // Pierce/27 ink (--ink in src/styles/tokens.css) so the window never
+        // flashes white before the renderer paints its own background.
+        backgroundColor: '#0b0a10',
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
@@ -126,8 +175,7 @@ function createWindow() {
     });
 }
 
-// Force software rendering / disable hardware acceleration
-app.disableHardwareAcceleration();
+// Use Electron's default accelerated rendering for chart and interface compositing.
 
 // Window-open policy: no chromeless in-app popups. Any window.open /
 // target=_blank from the app or its webviews (news links, resource tabs)

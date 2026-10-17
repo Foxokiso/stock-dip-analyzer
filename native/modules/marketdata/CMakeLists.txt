@@ -1,0 +1,10 @@
+# dip::marketdata — Yahoo chart/quote normalization ported from src/utils/marketData.js.
+add_library(dip_marketdata src/marketdata.cpp)
+target_include_directories(dip_marketdata PUBLIC include)
+dip_set_policy(dip_marketdata)
+if(BUILD_TESTING)
+  add_executable(marketdata_driver tests/marketdata_driver.cpp)
+  target_link_libraries(marketdata_driver PRIVATE dip_marketdata)
+  dip_set_policy(marketdata_driver)
+  dip_add_parity_test(marketdata_reference_parity marketdata_driver verify-native-marketdata.mjs)
+endif()

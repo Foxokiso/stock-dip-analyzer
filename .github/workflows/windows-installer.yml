@@ -1,0 +1,104 @@
+name: Windows installer validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-installer-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-installer:
+    name: Tests and Windows x64 NSIS packaging
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      # Validation builds are unsigned and must never publish releases.
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install locked dependencies including Electron binary
+        run: npm ci --ignore-scripts=false --no-audit --no-fund
+
+      - name: Run regression tests
+        run: npm test
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Build production renderer
+        run: npm run build:renderer
+
+      - name: Install browser test runtime
+        run: npm exec -- playwright install chromium
+
+      - name: Run existing browser regressions
+        run: |
+          $server = Start-Process node -ArgumentList 'node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '5174', '--strictPort' -PassThru
+          try {
+            npm exec -- wait-on --timeout 30000 tcp:127.0.0.1:5174
+            if ($LASTEXITCODE -ne 0) { throw 'Browser test server did not start' }
+            npm run test:ui
+            if ($LASTEXITCODE -ne 0) { throw 'Browser regression tests failed' }
+          } finally {
+            Stop-Process -Id $server.Id -ErrorAction SilentlyContinue
+          }
+
+      - name: Build Windows x64 NSIS installer without publishing
+        # Keep packaging output separate from the renderer's dist directory.
+        run: >-
+          npm exec -- electron-builder --win nsis --x64 --publish never
+          '-c.directories.output=release'
+          '-c.nsis.artifactName=stock-dip-analyzer-${version}-${arch}-setup.${ext}'
+
+      - name: Verify installer and packaged application
+        run: |
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $installer = "release/stock-dip-analyzer-$($package.version)-x64-setup.exe"
+          foreach ($path in @($installer, "release/win-unpacked/$($package.build.productName).exe")) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Expected Windows executable missing: $path"
+            }
+            $file = Get-Item -LiteralPath $path
+            if ($file.Length -lt 1024) { throw "Windows executable is unexpectedly small: $path" }
+            $stream = [System.IO.File]::OpenRead($file.FullName)
+            try {
+              if ($stream.ReadByte() -ne 0x4D -or $stream.ReadByte() -ne 0x5A) {
+                throw "Windows executable has no MZ header: $path"
+              }
+            } finally { $stream.Dispose() }
+          }
+          if (-not (Test-Path release/win-unpacked/resources/app.asar -PathType Leaf)) {
+            throw 'Packaged application archive is missing'
+          }
+          $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
+          "Installer: $installer`nSHA256: $hash" | Tee-Object -FilePath release/installer-validation.txt
+          "Unsigned installer produced and checked: $installer. Install, upgrade, uninstall and application launch were not exercised." >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Retain validation evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-x64-installer-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            release/stock-dip-analyzer-*-x64-setup.exe
+            release/installer-validation.txt
+          if-no-files-found: error
+          retention-days: 7

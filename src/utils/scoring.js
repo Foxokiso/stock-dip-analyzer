@@ -38,7 +38,8 @@ export function computeSMASeries(values, period) {
 }
 
 export function getVerdict(score, isZombie = score < 20) {
-    if (isZombie) return { label: 'Zombie', color: '#9ca3af' };
+    if (typeof score !== 'number' || !Number.isFinite(score)) return null;
+    if (isZombie) return { label: 'Strong Sell', color: '#9ca3af' };
     if (score >= 80) return { label: 'Strong Buy', color: 'var(--success)' };
     if (score >= 60) return { label: 'Buy', color: '#22c55e' };
     if (score >= 40) return { label: 'Hold', color: 'var(--warning)' };
@@ -50,7 +51,7 @@ export function getVerdict(score, isZombie = score < 20) {
  * Analyze a chronological series of closing prices.
  *
  * @param {number[]} closes   Chronological closing prices (nulls tolerated).
- * @param {number}   livePrice Optional real-time price overriding the last close.
+ * @param {number}   livePrice Optional validated provider quote overriding the last close.
  * @returns {object|null} {
  *   score, verdict: {label, color}, isZombie,
  *   factors: [{ label, points, detail }],
@@ -63,13 +64,15 @@ export function getVerdict(score, isZombie = score < 20) {
  * } or null when there is no usable data.
  */
 export function analyzeStock(closes, livePrice = null) {
-    const prices = (closes || []).filter(p => typeof p === 'number' && !Number.isNaN(p));
-    if (prices.length === 0) return null;
+    const prices = (closes || []).filter(p => typeof p === 'number' && Number.isFinite(p) && p > 0);
+    // A score using RSI(14) requires at least 15 valid daily observations.
+    if (prices.length < 15) return null;
 
-    const currentPrice = livePrice || prices[prices.length - 1];
+    const currentPrice = typeof livePrice === 'number' && Number.isFinite(livePrice) && livePrice > 0
+        ? livePrice : prices[prices.length - 1];
     const historicalPeak = Math.max(...prices);
-    const peakPrice = Math.max(livePrice || 0, historicalPeak);
-    const peakIndex = prices.indexOf(historicalPeak);
+    const peakPrice = Math.max(currentPrice, historicalPeak);
+    const peakIndex = currentPrice > historicalPeak ? prices.length - 1 : prices.lastIndexOf(historicalPeak);
     const dipPercentage = peakPrice > 0 ? ((peakPrice - currentPrice) / peakPrice) * 100 : 0;
 
     const factors = [];
@@ -115,8 +118,8 @@ export function analyzeStock(closes, livePrice = null) {
     }
 
     // Factor 3: short-term momentum via EMA5 vs EMA10 with price confirmation.
-    const ema5 = computeEMA(prices.slice(-5), 5);
-    const ema10 = computeEMA(prices.slice(-10), 10);
+    const ema5 = computeEMA(prices, 5);
+    const ema10 = computeEMA(prices, 10);
     let trend = 'neutral';
     if (prices.length >= 10 && ema5 !== null && ema10 !== null) {
         if (ema5 > ema10 && currentPrice > ema5 * 1.01) {

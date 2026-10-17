@@ -1,204 +1,91 @@
-import React, { useState, useEffect } from 'react';
-import { Trophy, TrendingUp, DollarSign, Percent, ExternalLink } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Trophy, TrendingUp, DollarSign, Percent, ExternalLink, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { parseFinvizScreener } from '../utils/finviz';
+import { formatPrice, formatPct, formatCompact, formatQuoteTime } from '../utils/format';
+import '../styles/pages/etf-discovery.css';
 
-const ETFAwards = ({ excludedSectors, autoRefreshInterval = 0, globalFilter = 'All' }) => {
+const CATEGORIES = [
+    { key: 'performance', title: 'One month leaders', field: 'perfMonth', metric: '1 month return', view: '141', order: '-perf4w', icon: TrendingUp },
+    { key: 'dividend', title: 'Dividend yield leaders', field: 'dividendYield', metric: 'Dividend yield', view: '161', order: '-dividendyield', icon: DollarSign },
+    { key: 'capitalGain', title: 'One year leaders', field: 'perfYear', metric: '1 year return', view: '141', order: '-perf52w', icon: Percent },
+];
+const initialLists = Object.fromEntries(CATEGORIES.map(category => [category.key, { rows: [], fetchedAt: null, error: '', stale: false }]));
+
+const ETFAwards = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
+    const [lists, setLists] = useState(initialLists);
     const [loading, setLoading] = useState(true);
-    const [etfs, setEtfs] = useState({
-        performance: [],
-        dividend: [],
-        capitalGain: []
-    });
 
     useEffect(() => {
+        let cancelled = false, inFlight = false;
         const fetchEtfs = async () => {
+            if (inFlight) return;
+            inFlight = true;
+            await Promise.resolve();
+            if (cancelled) return;
             setLoading(true);
-            try {
-                if (typeof window.require === 'function') {
-                    const electron = window.require('electron');
-
-                    const fetchCategory = async (sortOrder) => {
-                        const url = `https://finviz.com/screener.ashx?v=111&f=ind_exchangetradedfund&o=${sortOrder}`;
-                        const html = await electron.ipcRenderer.invoke('fetch-url', url);
-                        const parser = new DOMParser();
-                        const doc = parser.parseFromString(html, 'text/html');
-                        const rows = doc.querySelectorAll('tr');
-                        let results = [];
-
-                        rows.forEach(row => {
-                            if (results.length >= 10) return;
-                            const cells = row.querySelectorAll('td');
-                            if (cells.length >= 10) {
-                                const numberText = cells[0].textContent.trim();
-                                const tickerLink = cells[1].querySelector('a[href^="quote.ashx"]');
-                                if (parseInt(numberText) > 0 && tickerLink) {
-                                    const ticker = tickerLink.textContent.trim();
-                                    const price = parseFloat(cells[8].textContent.trim()) || 0;
-                                    const change = parseFloat(cells[9].textContent.replace('%', '')) || 0;
-                                    const volume = cells[10] ? cells[10].textContent.trim() : '';
-
-                                    results.push({
-                                        symbol: ticker,
-                                        name: cells[2].textContent.trim(),
-                                        price,
-                                        change,
-                                        volume
-                                    });
-                                }
-                            }
-                        });
-                        return results;
-                    };
-
-                    const perf = await fetchCategory('-perf4w');
-                    await new Promise(resolve => setTimeout(resolve, 800)); // Rate limit 
-
-                    const div = await fetchCategory('-dividendyield');
-                    await new Promise(resolve => setTimeout(resolve, 800));
-
-                    const cap = await fetchCategory('-perf52w');
-
-                    setEtfs({
-                        performance: perf,
-                        dividend: div,
-                        capitalGain: cap
-                    });
-                } else {
-                    console.warn("Electron environment not detected. Loading mock data.");
-                    setEtfs({
-                        performance: [
-                            { symbol: 'SOXL', name: 'Direxion Daily Semiconductor Bull', price: 42.50, change: 5.2, volume: '68,412,300' },
-                            { symbol: 'TQQQ', name: 'ProShares UltraPro QQQ', price: 61.20, change: 3.1, volume: '52,108,900' }
-                        ],
-                        dividend: [
-                            { symbol: 'SCHD', name: 'Schwab US Dividend Equity', price: 78.40, change: 0.2, volume: '11,304,500' },
-                            { symbol: 'VYM', name: 'Vanguard High Dividend Yield', price: 115.60, change: 0.1, volume: '1,208,700' }
-                        ],
-                        capitalGain: [
-                            { symbol: 'SPY', name: 'SPDR S&P 500', price: 512.30, change: 0.8, volume: '74,921,600' },
-                            { symbol: 'QQQ', name: 'Invesco QQQ Trust', price: 445.10, change: 1.1, volume: '41,377,200' }
-                        ]
-                    });
-                }
-            } catch (err) {
-                console.error("Error fetching ETFs:", err);
-            } finally {
+            if (typeof window.require !== 'function') {
+                setLists(previous => Object.fromEntries(CATEGORIES.map(({ key }) => [key, { ...previous[key], error: 'ETF quotes require the desktop app connection.' }])));
                 setLoading(false);
+                inFlight = false;
+                return;
             }
+            const electron = window.require('electron');
+            for (const category of CATEGORIES) {
+                if (cancelled) return;
+                try {
+                    const url = `https://finviz.com/screener.ashx?v=${category.view}&f=ind_exchangetradedfund&o=${category.order}`;
+                    const html = await electron.ipcRenderer.invoke('fetch-url', url);
+                    const fetchedAt = new Date().toISOString();
+                    const rows = parseFinvizScreener(html, { view: category.view, fetchedAt }).slice(0, 10);
+                    if (!cancelled) setLists(previous => ({ ...previous, [category.key]: { rows, fetchedAt, error: '', stale: false } }));
+                } catch (error) {
+                    if (!cancelled) setLists(previous => ({ ...previous, [category.key]: { ...previous[category.key], stale: previous[category.key].rows.length > 0, error: error.message || 'Finviz ETF data is unavailable.' } }));
+                }
+            }
+            inFlight = false;
+            if (!cancelled) setLoading(false);
         };
-
         fetchEtfs();
+        const timer = autoRefreshInterval > 0 ? setInterval(fetchEtfs, autoRefreshInterval * 60 * 1000) : null;
+        return () => { cancelled = true; if (timer) clearInterval(timer); };
+    }, [autoRefreshInterval]);
 
-        if (autoRefreshInterval > 0) {
-            const intervalId = setInterval(() => {
-                fetchEtfs();
-            }, autoRefreshInterval * 60 * 1000);
-            return () => clearInterval(intervalId);
-        }
-    }, [excludedSectors, autoRefreshInterval]);
-
-    const renderEtfList = (title, icon, data, highlightColor) => {
-        const filteredData = data.filter(etf => {
-            if (globalFilter === 'All') return true;
-            if (globalFilter === 'Bullish' || globalFilter === 'Strong Buy' || globalFilter === 'Buy') return etf.change > 0;
-            if (globalFilter === 'Bearish' || globalFilter === 'Sell/Strong Sell' || globalFilter === 'Hold' || globalFilter === 'Sell') return etf.change < 0;
-            return true;
-        });
-        
-        return (
-        <div className="glass-panel" style={{ padding: '1.5rem', flex: 1 }}>
-            <h3 className="flex-center" style={{ gap: '0.5rem', marginBottom: '1.5rem', color: highlightColor }}>
-                {icon}
-                {title}
-            </h3>
-            {filteredData.map((etf, i) => (
-                <div key={etf.symbol} style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    padding: '0.75rem 0',
-                    borderBottom: i < data.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none'
-                }}>
-                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                        <span style={{ color: 'var(--text-muted)', fontWeight: 'bold', width: '20px' }}>#{i + 1}</span>
-                        <div>
-                            <Link
-                                to={`/stock/${etf.symbol}`}
-                                style={{
-                                    fontWeight: 'bold',
-                                    color: 'var(--text-main)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.25rem',
-                                    textDecoration: 'underline'
-                                }}
-                            >
-                                {etf.symbol}
-                            </Link>
-                            {etf.name && (
-                                <div className="text-muted" style={{
-                                    fontSize: '0.7rem',
-                                    maxWidth: '180px',
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis'
-                                }}>
-                                    {etf.name}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontWeight: '500' }}>${etf.price.toFixed(2)}</div>
-                        <div style={{
-                            fontSize: '0.8rem',
-                            color: etf.change >= 0 ? 'var(--success)' : 'var(--danger)'
-                        }}>
-                            {etf.change > 0 ? '+' : ''}{etf.change.toFixed(2)}%
-                        </div>
-                        {etf.volume && (
-                            <div className="text-muted" style={{ fontSize: '0.7rem' }}>
-                                Vol {etf.volume}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            ))}
-        </div>
-        );
-    };
-
+    const hasRatingFilter = !['All', 'Bullish', 'Bearish'].includes(globalFilter);
     return (
         <div className="etf-awards-page">
-            <div className="flex-between" style={{ marginBottom: '2rem' }}>
-                <div>
-                    <h2 className="text-gradient flex-center" style={{ justifyContent: 'flex-start', gap: '0.5rem' }}>
-                        <Trophy size={24} color="var(--primary)" />
-                        Daily Top 10 ETF Awards
-                    </h2>
-                    <p className="text-muted">Ranking the strongest Exchange Traded Funds across key performance metrics.</p>
-                </div>
-                <div>
-                    <a href="https://etfdb.com/" target="_blank" rel="noopener noreferrer" className="btn btn-outline flex-center" style={{ gap: '0.5rem', textDecoration: 'none' }}>
-                        <ExternalLink size={16} /> ETF Database Reference
-                    </a>
-                </div>
+            <div className="page-heading flex-between">
+                <div><p className="eyebrow">Fund research</p><h2><Trophy size={24} /> ETF leaders</h2><p className="text-muted">Finviz rankings with the corresponding return or dividend yield displayed.</p></div>
+                <a href="https://etfdb.com/" target="_blank" rel="noopener noreferrer" className="btn btn-outline"><ExternalLink size={16} /> ETF Database</a>
             </div>
-
-            {loading ? (
-                <div className="flex-center" style={{ height: '300px' }}>
-                    <div className="text-muted" style={{ fontSize: '1.2rem', animation: 'pulse-success 2s infinite', padding: '1rem', borderRadius: '50%' }}>
-                        Analyzing ETF Metrics...
-                    </div>
-                </div>
-            ) : (
-                <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
-                    {renderEtfList('Top Mover (4W)', <TrendingUp size={20} />, etfs.performance, 'var(--primary)')}
-                    {renderEtfList('Highest Yield', <DollarSign size={20} />, etfs.dividend, 'var(--success)')}
-                    {renderEtfList('Capital Gain (1Y)', <Percent size={20} />, etfs.capitalGain, 'var(--warning)')}
-                </div>
-            )}
+            <div className="source-banner"><span>Finviz · US equities delayed 1 minute · Quote timestamp not supplied</span>{loading && <span className="etf-fetch-status" role="status"><RefreshCw size={13} className="spin" /> Fetching rankings…</span>}</div>
+            {hasRatingFilter && <p className="data-notice">ETF rankings do not carry recovery ratings. Select All Ratings, Bullish, or Bearish to view these lists.</p>}
+            <div className="etf-leaders-grid">
+                {CATEGORIES.map(category => {
+                    const { key, title, field, metric, icon: Icon } = category;
+                    const list = lists[key];
+                    const rows = hasRatingFilter ? [] : list.rows.filter(etf => globalFilter === 'All' || (globalFilter === 'Bullish' ? etf.change > 0 : etf.change < 0));
+                    return (
+                        <section key={key} className={`glass-panel etf-leader-panel${list.stale ? ' data-stale' : ''}`}>
+                            <h3><Icon size={18} />{title}</h3>
+                            <p className="source-meta">{list.fetchedAt ? `Fetched ${formatQuoteTime(list.fetchedAt)}` : 'No verified data loaded'}{list.stale ? ' · Stale' : ''}</p>
+                            {list.error && <p className="data-notice" role="status">{list.error}{list.stale ? ' Showing the last successful list.' : ''}</p>}
+                            {rows.length === 0 && <div className="desk-empty">{loading && !list.fetchedAt ? 'Fetching rankings…' : list.error && !list.fetchedAt ? 'Rankings unavailable.' : 'No funds match the current filter.'}</div>}
+                            {rows.map((etf, index) => {
+                                const rank = list.rows.indexOf(etf) + 1 || index + 1;
+                                const tone = etf[field] == null ? 'text-muted' : etf[field] >= 0 ? 'text-success' : 'text-danger';
+                                return (
+                                    <div key={etf.symbol} className="etf-leader-row">
+                                        <div className="etf-leader-symbol"><span className={`etf-leader-rank${rank <= 3 ? ' is-top' : ''}`}>{rank}</span><div className="etf-leader-ident"><Link to={`/stock/${etf.symbol}`}>{etf.symbol}</Link>{etf.name !== etf.symbol && <p className="etf-leader-name" title={etf.name}>{etf.name}</p>}<span className="quote-meta">Price {formatPrice(etf.price)} · Day {formatPct(etf.change)}</span></div></div>
+                                        <div className="etf-leader-metric"><strong className={`etf-leader-value ${tone}`}>{field === 'dividendYield' && etf[field] != null ? `${etf[field].toFixed(2)}%` : formatPct(etf[field])}</strong><span className="quote-meta">{metric}</span><span className="quote-meta">Vol {formatCompact(etf.volume)}</span></div>
+                                    </div>
+                                );
+                            })}
+                        </section>
+                    );
+                })}
+            </div>
         </div>
     );
 };
-
 export default ETFAwards;

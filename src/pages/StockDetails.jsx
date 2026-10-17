@@ -3,7 +3,11 @@ import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, TrendingDown, AlertTriangle, ArrowUpRight, RefreshCw, BarChart3 } from 'lucide-react';
 import { ComposedChart, Area, Line, ReferenceLine, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { analyzeStock, computeSMASeries } from '../utils/scoring';
-import { formatPrice } from '../utils/format';
+import { formatPrice, formatQuoteTime } from '../utils/format';
+import { getYahooQuote, getYahooChartPoints } from '../utils/marketData';
+import { resolveFinvizNewsUrl } from '../utils/finviz';
+import { mountTradingViewWidget } from '../utils/tradingView';
+import '../styles/pages/stock-details.css';
 
 const RESOURCE_TABS = [
     { id: 'tradingview', label: 'TradingView', type: 'widget' },
@@ -17,55 +21,34 @@ const RESOURCE_TABS = [
 const InternalResourceViewer = ({ symbol }) => {
     const [activeTab, setActiveTab] = useState('tradingview');
     const tvContainerRef = useRef(null);
+    const [chartError, setChartError] = useState(null);
+    const [chartRetry, setChartRetry] = useState(0);
     const tab = RESOURCE_TABS.find(t => t.id === activeTab);
 
-    // Mount TradingView widget whenever its tab is active
     useEffect(() => {
-        if (activeTab !== 'tradingview' || !tvContainerRef.current) return;
-        tvContainerRef.current.innerHTML = '';
-        const script = document.createElement('script');
-        script.src = 'https://s3.tradingview.com/tv.js';
-        script.async = true;
-        script.onload = () => {
-            if (window.TradingView) {
-                new window.TradingView.widget({
-                    autosize: true,
-                    symbol,
-                    interval: 'D',
-                    timezone: 'America/New_York',
-                    theme: 'dark',
-                    style: '1',
-                    locale: 'en',
-                    enable_publishing: false,
-                    hide_side_toolbar: false,
-                    allow_symbol_change: true,
-                    container_id: 'tv_stockdetail_chart',
-                });
-            }
-        };
-        tvContainerRef.current.appendChild(script);
-    }, [activeTab, symbol]);
+        const container = tvContainerRef.current;
+        if (activeTab !== 'tradingview' || !container) return;
+        return mountTradingViewWidget(container, {
+            autosize: true, symbol, interval: 'D', timezone: 'America/New_York', theme: 'dark',
+            style: '1', locale: 'en', enable_publishing: false, hide_side_toolbar: false,
+            container_id: 'tv_stockdetail_chart',
+        }, {
+            onReady: () => setChartError(null),
+            onError: error => setChartError({ symbol, message: error.message }),
+        });
+    }, [activeTab, symbol, chartRetry]);
 
     return (
-        <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '2rem' }}>
+        <div className="glass-panel sd-panel sd-resource-panel">
             {/* Tab bar */}
-            <div className="flex-center" style={{ justifyContent: 'flex-start', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+            <div className="sd-segmented sd-resource-tabs" role="group" aria-label="Research sources">
                 {RESOURCE_TABS.map(t => (
                     <button
                         key={t.id}
+                        type="button"
+                        className="sd-segment"
+                        aria-pressed={activeTab === t.id}
                         onClick={() => setActiveTab(t.id)}
-                        className="btn"
-                        style={{
-                            padding: '0.4rem 1rem',
-                            fontSize: '0.85rem',
-                            background: activeTab === t.id
-                                ? 'var(--primary-gradient)'
-                                : 'rgba(255,255,255,0.04)',
-                            color: activeTab === t.id ? '#030409' : 'var(--text-muted)',
-                            border: activeTab === t.id ? 'none' : '1px solid rgba(255,255,255,0.1)',
-                            fontWeight: activeTab === t.id ? 700 : 400,
-                            transition: 'all 0.2s ease',
-                        }}
                     >
                         {t.label}
                     </button>
@@ -73,12 +56,14 @@ const InternalResourceViewer = ({ symbol }) => {
             </div>
 
             {/* TradingView Widget */}
+            {activeTab === 'tradingview' && chartError?.symbol === symbol && (
+                <div className="data-notice" role="status">
+                    <span>{chartError.message}</span>
+                    <button type="button" className="btn btn-outline" onClick={() => setChartRetry(previous => previous + 1)}>Retry chart</button>
+                </div>
+            )}
             {activeTab === 'tradingview' && (
-                <div
-                    id="tv_stockdetail_chart"
-                    ref={tvContainerRef}
-                    style={{ height: '550px', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)' }}
-                />
+                <div id="tv_stockdetail_chart" ref={tvContainerRef} className="sd-embed" />
             )}
 
             {/* Webview for all other tabs */}
@@ -86,7 +71,7 @@ const InternalResourceViewer = ({ symbol }) => {
                 <webview
                     key={activeTab + symbol}
                     src={tab.url(symbol)}
-                    style={{ width: '100%', height: '550px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}
+                    className="sd-embed"
                     allowpopups="true"
                 />
             )}
@@ -123,107 +108,70 @@ const STAT_DEFS = [
     { label: 'Perf Month' },
 ];
 
+// Chromium parses SVG presentation attributes and inline styles as CSS, so the
+// role tokens reach Recharts as var() references: the marks re-skin on a theme
+// switch without a computed-style snapshot. The tooltip is an HTML div whose
+// default inline style is merged key by key, so longhands override its defaults.
+const CHART_TOOLTIP_STYLE = {
+    backgroundColor: 'var(--bg-raised)',
+    border: '1px solid var(--line-strong)',
+    borderRadius: 'var(--radius-sm)',
+    boxShadow: 'var(--glass-shadow)',
+    color: 'var(--text-main)',
+    fontFamily: 'var(--font-mono)',
+    fontSize: 11,
+    padding: '7px 10px',
+};
+const CHART_TOOLTIP_LABEL_STYLE = { color: 'var(--text-muted)', marginBottom: 4 };
+// Item colour is left to Recharts so each row carries its own series stroke.
+const CHART_TOOLTIP_ITEM_STYLE = { paddingTop: 2, paddingBottom: 2 };
+const CHART_TOOLTIP_CURSOR = { stroke: 'var(--line-strong)', strokeDasharray: '3 3' };
+const CHART_TICK = { fill: 'var(--text-muted)', fontSize: 10, fontFamily: 'var(--font-mono)' };
+const CHART_AXIS_LINE = { stroke: 'var(--line)' };
+
 const getElectron = () => (
     typeof window !== 'undefined' && typeof window.require === 'function'
         ? window.require('electron')
         : null
 );
 
-// ---- Non-Electron (plain browser / vite dev) mock data --------------------
-const MOCK_RANGE_POINTS = { '1mo': 22, '3mo': 66, '6mo': 126, '1y': 252 };
-
-const buildMockChart = (range) => {
-    const points = MOCK_RANGE_POINTS[range] || 22;
-    const now = Date.now();
-    const data = [];
-    for (let i = 0; i < points; i++) {
-        const t = points > 1 ? i / (points - 1) : 0;
-        const base = 150 + Math.sin(t * Math.PI * 3) * 8;
-        const dip = t > 0.6 ? (t - 0.6) * 55 : 0;
-        const price = Number((base - dip + Math.sin(i * 1.7) * 2).toFixed(2));
-        const date = new Date(now - (points - 1 - i) * 86400000);
-        data.push({ date: `${date.getMonth() + 1}/${date.getDate()}`, price });
-    }
-    return data;
+// Tones name the brief's semantic roles in the stylesheet (success / warning /
+// danger / muted). The scorer's own colour strings are never rendered.
+const scoreTone = (score, isZombie) => {
+    if (isZombie) return 'muted';
+    if (score >= 70) return 'success';
+    if (score >= 40) return 'warning';
+    return 'danger';
 };
 
-const MOCK_NEWS = [
-    { time: 'Jul-03-26 09:00AM', title: 'Mock News: Market Reacts to Fake Earnings', link: 'https://finance.yahoo.com/news/mock', source: 'finance.yahoo.com' },
-    { time: 'Jul-02-26 01:20PM', title: 'Mock News: Dow drops 500 points', link: 'https://www.reuters.com/markets/mock', source: 'reuters.com' },
-    { time: 'Jul-01-26 11:05AM', title: 'Mock News: Analysts split on recovery odds after the dip', link: 'https://www.marketwatch.com/story/mock', source: 'marketwatch.com' },
-];
+const VERDICT_TONES = { 'Strong Buy': 'success', Buy: 'success', Hold: 'warning', Sell: 'danger', 'Strong Sell': 'danger' };
+const verdictTone = (verdict, isZombie) => (isZombie ? 'muted' : (VERDICT_TONES[verdict?.label] ?? 'muted'));
 
-const MOCK_STATS = new Map([
-    ['Market Cap', '12.34B'],
-    ['P/E', '18.42'],
-    ['Forward P/E', '15.10'],
-    ['EPS (ttm)', '2.31'],
-    ['Dividend TTM', '1.12 (2.10%)'],
-    ['Beta', '1.24'],
-    ['RSI (14)', '34.12'],
-    ['Volume', '12,345,678'],
-    ['Avg Volume', '9.87M'],
-    ['Rel Volume', '1.25'],
-    ['52W High', '-18.50%'],
-    ['52W Low', '12.30%'],
-    ['52W Range', '98.51 - 182.94'],
-    ['Target Price', '165.00'],
-    ['Short Float', '2.15%'],
-    ['Perf Week', '-3.42%'],
-    ['Perf Month', '-8.15%'],
-]);
-// ---------------------------------------------------------------------------
+const factorTone = (points) => (points > 0 ? 'up' : points < 0 ? 'down' : 'flat');
 
-const getScoreColor = (score) => {
-    if (score >= 70) return 'var(--success)';
-    if (score >= 40) return 'var(--warning)';
-    return 'var(--danger)';
-};
-
-const getScoreBackground = (score) => {
-    if (score < 20) return 'rgba(100, 100, 100, 0.1)';
-    if (score >= 70) return 'rgba(0, 230, 118, 0.1)';
-    if (score >= 40) return 'rgba(255, 234, 0, 0.1)';
-    return 'rgba(255, 82, 82, 0.1)';
-};
-
-const factorBadgeStyle = (points) => {
-    let background = 'rgba(255,255,255,0.06)';
-    let color = 'var(--text-muted)';
-    if (points > 0) { background = 'rgba(0, 230, 118, 0.15)'; color = 'var(--success)'; }
-    else if (points < 0) { background = 'rgba(255, 82, 82, 0.15)'; color = 'var(--danger)'; }
-    return {
-        background,
-        color,
-        fontWeight: 700,
-        fontSize: '0.8rem',
-        padding: '2px 8px',
-        borderRadius: '12px',
-        minWidth: '38px',
-        textAlign: 'center',
-        flexShrink: 0,
-    };
-};
-
-const headerPillStyle = (color) => ({
-    color,
-    fontSize: '0.85rem',
-    padding: '4px 12px',
-    borderRadius: '20px',
-    gap: '4px',
-});
-
-const StockDetails = () => {
+const StockDetails = ({ autoRefreshInterval = 0 }) => {
     const { symbol } = useParams();
     const [range, setRange] = useState('1mo');
     const [chartData, setChartData] = useState([]);
     const [news, setNews] = useState([]);
     const [stats, setStats] = useState(null); // Map<label, value> | null
+    const [technicalQuote, setTechnicalQuote] = useState(null);
+    const [technicalPoints, setTechnicalPoints] = useState([]);
+    const [technicalError, setTechnicalError] = useState('');
+    const [technicalStale, setTechnicalStale] = useState(false);
+    const [technicalRefreshing, setTechnicalRefreshing] = useState(false);
+    const [finvizError, setFinvizError] = useState('');
+    const [finvizStale, setFinvizStale] = useState(false);
+    const [finvizRefreshing, setFinvizRefreshing] = useState(false);
+    const [finvizFetchedAt, setFinvizFetchedAt] = useState(null);
     const [loading, setLoading] = useState(true);        // full-page, first load of a symbol only
     const [chartLoading, setChartLoading] = useState(true); // chart panel only (range switches)
     const [chartError, setChartError] = useState(false);
     const [chartRetry, setChartRetry] = useState(0);
     const lastSymbolRef = useRef(null);
+    const chartScopeRef = useRef(null);
+    const technicalSymbolRef = useRef(null);
+    const finvizSymbolRef = useRef(null);
 
     // Effect A: fetch the price chart whenever symbol or range changes.
     // Only a NEW SYMBOL gates the whole page behind the spinner; range switches
@@ -236,9 +184,13 @@ const StockDetails = () => {
         if (isNewSymbol) {
             lastSymbolRef.current = symbol;
             setLoading(true);
-            setChartData([]);
         }
         setChartLoading(true);
+        const chartScope = `${symbol}:${range}`;
+        if (chartScopeRef.current !== chartScope) {
+            chartScopeRef.current = chartScope;
+            setChartData([]);
+        }
         setChartError(false);
 
         const finish = () => {
@@ -251,12 +203,8 @@ const StockDetails = () => {
             const electron = getElectron();
 
             if (!electron) {
-                // Fallback mock data if running in a standard browser
-                setTimeout(() => {
-                    if (cancelled) return;
-                    setChartData(buildMockChart(range));
-                    finish();
-                }, 600);
+                setChartError(true);
+                finish();
                 return;
             }
 
@@ -265,24 +213,15 @@ const StockDetails = () => {
                 const result = yahooData?.chart?.result?.[0];
                 if (cancelled) return;
                 if (result) {
-                    const timestamps = result.timestamp || [];
-                    const closes = result.indicators.quote[0].close;
-                    const formattedChartData = timestamps.map((ts, index) => {
-                        const date = new Date(ts * 1000);
-                        return {
-                            date: `${date.getMonth() + 1}/${date.getDate()}`,
-                            price: closes[index]
-                        };
-                    }).filter(d => typeof d.price === 'number' && !Number.isNaN(d.price));
-                    setChartData(formattedChartData);
+                    const points = getYahooChartPoints(result);
+                    if (points.length === 0) throw new Error('No usable chart points returned.');
+                    setChartData(points);
                 } else {
-                    setChartData([]);
                     setChartError(true);
                 }
             } catch (err) {
                 console.error("Error loading chart data:", err);
                 if (!cancelled) {
-                    setChartData([]);
                     setChartError(true);
                 }
             } finally {
@@ -294,21 +233,74 @@ const StockDetails = () => {
         return () => { cancelled = true; };
     }, [symbol, range, chartRetry]);
 
-    // Effect B: fetch the Finviz quote page ONCE per symbol (news + key stats).
+    // The score uses a fixed month regardless of the chart's selected display range.
     useEffect(() => {
         let cancelled = false;
-        setNews([]);
-        setStats(null);
+        if (technicalSymbolRef.current !== symbol) {
+            technicalSymbolRef.current = symbol;
+            setTechnicalQuote(null);
+            setTechnicalPoints([]);
+            setTechnicalStale(false);
+        }
+        setTechnicalRefreshing(true);
+        setTechnicalError('');
+        const loadTechnical = async () => {
+            const electron = getElectron();
+            if (!electron) {
+                setTechnicalError('Market data requires the desktop app connection. No sample quotes are shown.');
+                setTechnicalStale(true);
+                setTechnicalRefreshing(false);
+                return;
+            }
+            try {
+                const json = await electron.ipcRenderer.invoke('fetch-yahoo-chart', symbol, '1mo', '1d');
+                const result = json?.chart?.result?.[0];
+                const quote = getYahooQuote(result, { range: '1mo' });
+                if (quote.price === null || quote.closes.length < 15) throw new Error('Quote or sufficient daily history is unavailable from Yahoo Finance.');
+                if (!cancelled) {
+                    setTechnicalQuote(quote);
+                    setTechnicalPoints(getYahooChartPoints(result));
+                    setTechnicalStale(false);
+                }
+            } catch (error) {
+                if (!cancelled) {
+                    setTechnicalError(error.message || 'Technical history is unavailable.');
+                    setTechnicalStale(true);
+                }
+            } finally {
+                if (!cancelled) setTechnicalRefreshing(false);
+            }
+        };
+        loadTechnical();
+        return () => { cancelled = true; };
+    }, [symbol, chartRetry]);
+
+    useEffect(() => {
+        if (autoRefreshInterval <= 0) return;
+        const timer = setInterval(() => setChartRetry(value => value + 1), autoRefreshInterval * 60 * 1000);
+        return () => clearInterval(timer);
+    }, [autoRefreshInterval]);
+
+    // Finviz statistics and news have their own retrieval time and error state.
+    useEffect(() => {
+        let cancelled = false;
+        if (finvizSymbolRef.current !== symbol) {
+            finvizSymbolRef.current = symbol;
+            setNews([]);
+            setStats(null);
+            setFinvizFetchedAt(null);
+            setFinvizStale(false);
+        }
+        setFinvizRefreshing(true);
+        setFinvizError('');
 
         const loadFinviz = async () => {
             const electron = getElectron();
 
             if (!electron) {
-                setTimeout(() => {
-                    if (cancelled) return;
-                    setNews(MOCK_NEWS);
-                    setStats(MOCK_STATS);
-                }, 800);
+                setFinvizError('Finviz statistics and news require the desktop app connection.');
+                setFinvizStale(true);
+                setFinvizRefreshing(false);
                 return;
             }
 
@@ -337,16 +329,13 @@ const StockDetails = () => {
 
                         const linkEl = cells[1].querySelector('a');
                         if (linkEl) {
-                            let source = '';
-                            try {
-                                source = new URL(linkEl.href).hostname.replace(/^www\./, '');
-                            } catch {
-                                source = '';
-                            }
+                            const link = resolveFinvizNewsUrl(linkEl.getAttribute('href'));
+                            if (!link) continue;
+                            const source = new URL(link).hostname.replace(/^www\./, '');
                             extractedNews.push({
                                 time,
                                 title: linkEl.textContent.trim(),
-                                link: linkEl.href,
+                                link,
                                 source,
                             });
                         }
@@ -363,64 +352,69 @@ const StockDetails = () => {
                 }
 
                 if (!cancelled) {
+                    if (statMap.size === 0 && extractedNews.length === 0) throw new Error('Finviz page did not contain a recognized statistics or news table.');
                     setNews(extractedNews);
                     setStats(statMap.size > 0 ? statMap : null);
+                    setFinvizFetchedAt(new Date().toISOString());
+                    setFinvizStale(false);
                 }
             } catch (err) {
                 console.error("Error loading Finviz data:", err);
+                if (!cancelled) {
+                    setFinvizError('Finviz statistics and news refresh failed. Please retry.');
+                    setFinvizStale(true);
+                }
+            } finally {
+                if (!cancelled) setFinvizRefreshing(false);
             }
         };
 
         loadFinviz();
         return () => { cancelled = true; };
-    }, [symbol]);
+    }, [symbol, chartRetry]);
 
     // Shared scoring engine on the fetched closes.
     const closes = useMemo(() => chartData.map(d => d.price), [chartData]);
-    const analysis = useMemo(() => analyzeStock(closes, null), [closes]);
+    const analysis = useMemo(() => technicalQuote ? analyzeStock(technicalQuote.closes, technicalQuote.price) : null, [technicalQuote]);
     const smaSeries = useMemo(() => computeSMASeries(closes, 20), [closes]);
     const plotData = useMemo(
         () => chartData.map((d, i) => ({ ...d, sma: smaSeries[i] })),
         [chartData, smaSeries]
     );
 
-    const score = analysis?.score ?? 0;
+    const score = analysis?.score ?? null;
     const verdict = analysis?.verdict ?? null;
     const isZombie = analysis?.isZombie ?? false;
-    const currentPrice = analysis?.currentPrice ?? 0;
-    const peakPrice = analysis?.peakPrice ?? 0;
+    const currentPrice = technicalQuote?.price ?? null;
+    const peakPrice = analysis?.peakPrice ?? null;
     const peakIndex = analysis?.peakIndex ?? 0;
-    const dipPercentage = analysis ? analysis.dipPercentage.toFixed(2) : '0.00';
+    const dipPercentage = analysis ? analysis.dipPercentage.toFixed(2) : null;
     const recentLow = analysis?.recentLow ?? null;
     const rsi = analysis?.rsi ?? null;
     const trend = analysis?.trend ?? null;
 
-    const peakDate = chartData[peakIndex]?.date ?? "N/A";
+    const peakDate = analysis && technicalQuote && peakPrice > Math.max(...technicalQuote.closes)
+        ? formatQuoteTime(technicalQuote.quotedAt) : technicalPoints[peakIndex]?.date ?? 'Unavailable';
 
     // Where the price "normalized" before the crash (average of up to 5 days leading up to the peak)
     let normalizedHigh = peakPrice;
     if (peakIndex >= 1) {
         const daysToAverage = Math.min(peakIndex, 5);
-        const prePeakPrices = chartData.slice(peakIndex - daysToAverage, peakIndex).map(d => d.price);
+        const prePeakPrices = technicalPoints.slice(peakIndex - daysToAverage, peakIndex).map(d => d.price);
         normalizedHigh = prePeakPrices.reduce((a, b) => a + b, 0) / prePeakPrices.length;
     }
 
-    const scoreColor = isZombie ? '#9ca3af' : getScoreColor(score); // improved contrast
-    const scoreBg = getScoreBackground(score);
+    const boxTone = scoreTone(score, isZombie);
+    const chipTone = verdictTone(verdict, isZombie);
 
-    let scoreClass = '';
-    if (isZombie) scoreClass = '';
-    else if (score >= 70) scoreClass = 'rating-pulse-success';
-    else if (score >= 40) scoreClass = 'rating-pulse-warning';
-    else scoreClass = 'rating-pulse-danger';
-
-    // Header pill colors
-    const rsiColor = rsi === null
-        ? 'var(--text-muted)'
-        : rsi <= 30 ? 'var(--success)' : rsi >= 70 ? 'var(--danger)' : 'var(--text-muted)';
-    const trendColor = trend === 'bullish'
-        ? 'var(--success)'
-        : trend === 'bearish' ? 'var(--danger)' : 'var(--text-muted)';
+    // Header pill tones: an unavailable dip is shown as unavailable, not as a signal.
+    const dipTone = isZombie || dipPercentage === null ? 'muted' : 'danger';
+    const rsiTone = rsi === null
+        ? 'muted'
+        : rsi <= 30 ? 'success' : rsi >= 70 ? 'danger' : 'muted';
+    const trendTone = trend === 'bullish'
+        ? 'success'
+        : trend === 'bearish' ? 'danger' : 'muted';
     const trendLabel = trend ? trend.charAt(0).toUpperCase() + trend.slice(1) : '—';
 
     // 52-week bounds parsed from Finviz's "52W Range" value, e.g. "12.34 - 56.78"
@@ -445,250 +439,243 @@ const StockDetails = () => {
 
     return (
         <div className="stock-details">
-            <Link to="/" className="btn btn-outline" style={{ marginBottom: '2rem' }}>
+            <Link to="/" className="btn btn-outline sd-back">
                 <ArrowLeft size={16} /> Back to Dashboard
             </Link>
 
             {loading ? (
-                <div className="flex-center" style={{ height: '50vh', flexDirection: 'column', gap: '1rem' }}>
-                    <RefreshCw size={40} className="text-muted" style={{ animation: 'spin 1s linear infinite' }} />
-                    <p className="text-muted">Analyzing {symbol}...</p>
+                <div className="sd-loading" role="status">
+                    <RefreshCw size={40} className="sd-spin" />
+                    <p>Analyzing {symbol}...</p>
                 </div>
             ) : (
                 <>
-                    <div className="flex-between" style={{ alignItems: 'flex-start', marginBottom: '2rem' }}>
+                    <div className="sd-header">
                         <div>
-                            <h1 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                                {symbol}
-                                <span className={isZombie ? "glass-panel flex-center" : "glass-panel text-danger flex-center"}
-                                    style={{ color: isZombie ? '#9ca3af' : 'var(--danger)', fontSize: '1rem', padding: '4px 12px', borderRadius: '20px', gap: '4px' }}>
-                                    <TrendingDown size={14} /> {isZombie ? 'DEAD' : `${dipPercentage}% Dip`}
+                            <h1 className="sd-title">
+                                <span className="sd-symbol">{symbol}</span>
+                                <span className={`sd-pill sd-pill--${dipTone}`}>
+                                    <TrendingDown size={14} /> {dipPercentage === null ? 'Dip unavailable' : `${dipPercentage}% below 1M closing high`}
                                 </span>
-                                <span className="glass-panel flex-center" style={headerPillStyle(rsiColor)}>
+                                <span className={`sd-pill sd-pill--${rsiTone}`}>
                                     RSI {rsi !== null ? rsi.toFixed(0) : '—'}
                                 </span>
-                                <span className="glass-panel flex-center" style={headerPillStyle(trendColor)}>
+                                <span className={`sd-pill sd-pill--${trendTone}`}>
                                     {trendLabel}
                                 </span>
                             </h1>
-                            <p className="text-muted" style={{ fontSize: '1.1rem', marginTop: '0.5rem' }}>
-                                Current Price: <strong style={{ color: 'var(--text-main)' }}>${currentPrice.toFixed(2)}</strong>
-                                <span style={{ margin: '0 10px' }}>|</span>
-                                Peak: <strong style={{ color: 'var(--text-main)' }}>${peakPrice.toFixed(2)}</strong> on {peakDate}
-                                <span style={{ margin: '0 10px' }}>|</span>
-                                Baseline Norm: <strong style={{ color: 'var(--text-main)' }}>${normalizedHigh.toFixed(2)}</strong>
+                            <p className="sd-quote-line">
+                                <span>Latest Quote: <strong>{formatPrice(currentPrice)}</strong></span>
+                                <span className="sd-quote-sep" aria-hidden="true">|</span>
+                                <span>Peak: <strong>{formatPrice(peakPrice)}</strong> on {peakDate}</span>
+                                <span className="sd-quote-sep" aria-hidden="true">|</span>
+                                <span>Pre-peak average: <strong>{formatPrice(normalizedHigh)}</strong></span>
                             </p>
                         </div>
-                        <button className="btn btn-primary">
-                            Add to Watchlist
+                        <button type="button" className="btn btn-primary sd-refresh" onClick={() => setChartRetry(value => value + 1)} disabled={chartLoading}>
+                            <RefreshCw size={14} /> Refresh data
                         </button>
                     </div>
+
+                    <div className="data-source-line sd-source-line">
+                        <span>Yahoo Finance · Quote: {formatQuoteTime(technicalQuote?.quotedAt)} · Retrieved: {formatQuoteTime(technicalQuote?.fetchedAt)} · {technicalQuote?.delayMinutes == null ? 'Delay unknown' : `${technicalQuote.delayMinutes} minute delay`}</span>
+                        {technicalQuote && technicalRefreshing && <span className="sd-source-refreshing">· Refreshing; previous quote retained</span>}
+                        {technicalQuote && technicalStale && <span className="sd-source-stale">· Cached quote; refresh failed</span>}
+                    </div>
+                    {technicalError && <p className="data-notice" role="alert">{technicalError}</p>}
 
                     {/* Internal Resource Viewer */}
                     <InternalResourceViewer symbol={symbol} />
 
 
-                    <div className="glass-panel" style={{ padding: '2rem', height: '420px', marginBottom: '2rem' }}>
-                        <div className="flex-between" style={{ marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-                            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <div className="glass-panel sd-panel sd-chart-panel">
+                        <div className="sd-panel-head">
+                            <h3>
                                 Price Action ({rangeLabel})
-                                {chartLoading && <RefreshCw size={16} className="text-muted" style={{ animation: 'spin 1s linear infinite' }} />}
+                                {chartLoading && <RefreshCw size={16} className="sd-spin" />}
                             </h3>
-                            <div className="flex-center" style={{ gap: '0.4rem' }}>
+                            <div className="sd-segmented sd-range-switch" role="group" aria-label="Chart range">
                                 {RANGES.map(r => (
                                     <button
                                         key={r.value}
+                                        type="button"
+                                        className="sd-segment"
+                                        aria-pressed={range === r.value}
                                         onClick={() => setRange(r.value)}
-                                        className="btn"
-                                        style={{
-                                            padding: '0.25rem 0.75rem',
-                                            fontSize: '0.75rem',
-                                            borderRadius: '20px',
-                                            background: range === r.value ? 'var(--primary-gradient)' : 'rgba(255,255,255,0.04)',
-                                            color: range === r.value ? '#030409' : 'var(--text-muted)',
-                                            border: range === r.value ? 'none' : '1px solid rgba(255,255,255,0.1)',
-                                            fontWeight: range === r.value ? 700 : 400,
-                                            transition: 'all 0.2s ease',
-                                        }}
                                     >
                                         {r.label}
                                     </button>
                                 ))}
                             </div>
                         </div>
-                        {chartError ? (
-                            <div className="flex-center" style={{ height: 320, flexDirection: 'column', gap: '1rem' }}>
-                                <p className="text-muted" style={{ margin: 0 }}>
+                        {chartError && plotData.length > 0 && <p className="data-notice" role="alert">Chart refresh failed. Previously retrieved historical points are retained.</p>}
+                        {chartError && plotData.length === 0 ? (
+                            <div className="sd-chart-empty">
+                                <p>
                                     Failed to load {rangeText} chart data for {symbol}.
                                 </p>
-                                <button className="btn btn-outline" onClick={() => setChartRetry(n => n + 1)}>
+                                <button type="button" className="btn btn-outline" onClick={() => setChartRetry(n => n + 1)}>
                                     Retry
                                 </button>
                             </div>
                         ) : chartLoading && plotData.length === 0 ? (
-                            <div className="flex-center" style={{ height: 320 }}>
-                                <RefreshCw size={28} className="text-muted" style={{ animation: 'spin 1s linear infinite' }} />
+                            <div className="sd-chart-empty" role="status">
+                                <RefreshCw size={28} className="sd-spin" />
+                                <p>Loading {rangeText} chart data for {symbol}…</p>
                             </div>
                         ) : (
+                        <div className="sd-chart">
                         <ResponsiveContainer width="100%" height={320}>
-                            <ComposedChart data={plotData}>
+                            <ComposedChart data={plotData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                                 <defs>
-                                    <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="var(--danger)" stopOpacity={0.8} />
-                                        <stop offset="95%" stopColor="var(--danger)" stopOpacity={0} />
+                                    <linearGradient id="sdPriceFill" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="var(--secondary)" stopOpacity={0.46} />
+                                        <stop offset="95%" stopColor="var(--secondary)" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                                <XAxis dataKey="date" stroke="var(--text-muted)" tick={{ fill: 'var(--text-muted)' }} minTickGap={24} />
-                                <YAxis stroke="var(--text-muted)" domain={['dataMin - 5', 'dataMax + 5']} tick={{ fill: 'var(--text-muted)' }} />
+                                <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
+                                <XAxis dataKey="date" stroke="var(--line)" tick={CHART_TICK} tickLine={false} axisLine={CHART_AXIS_LINE} minTickGap={24} />
+                                <YAxis stroke="var(--line)" domain={['dataMin - 5', 'dataMax + 5']} tick={CHART_TICK} tickFormatter={formatPrice} tickLine={false} axisLine={false} width={72} />
                                 <Tooltip
-                                    contentStyle={{ backgroundColor: 'var(--bg-dark)', border: 'var(--glass-border)', borderRadius: '8px' }}
-                                    itemStyle={{ color: 'var(--text-main)' }}
+                                    cursor={CHART_TOOLTIP_CURSOR}
+                                    contentStyle={CHART_TOOLTIP_STYLE}
+                                    labelStyle={CHART_TOOLTIP_LABEL_STYLE}
+                                    itemStyle={CHART_TOOLTIP_ITEM_STYLE}
                                     formatter={(value, name) => [formatPrice(value), name]}
                                 />
-                                <Area type="monotone" dataKey="price" name="Price" stroke="var(--danger)" fillOpacity={1} fill="url(#colorPrice)" />
-                                <Line type="monotone" dataKey="sma" name="SMA 20" stroke="var(--warning)" strokeWidth={1.5} dot={false} connectNulls />
+                                <Area type="monotone" dataKey="price" name="Price" stroke="var(--secondary)" strokeWidth={2} fillOpacity={1} fill="url(#sdPriceFill)" dot={false} activeDot={{ r: 4, fill: 'var(--secondary)', stroke: 'var(--bg-dark)', strokeWidth: 2 }} isAnimationActive={false} />
+                                <Line type="monotone" dataKey="sma" name="SMA 20" stroke="var(--primary)" strokeWidth={1.5} dot={false} activeDot={{ r: 3, fill: 'var(--primary)', stroke: 'var(--bg-dark)', strokeWidth: 2 }} connectNulls isAnimationActive={false} />
                                 {peakPrice > 0 && (
                                     <ReferenceLine
                                         y={peakPrice}
-                                        stroke="var(--danger)"
+                                        stroke="var(--primary-x)"
                                         strokeDasharray="4 4"
-                                        label={{ value: 'Peak', position: 'insideTopRight', fill: 'var(--danger)', fontSize: 11 }}
+                                        label={{ value: '1M closing high', position: 'insideTopRight', fill: 'var(--primary-x)', fontSize: 11 }}
                                     />
                                 )}
                                 {recentLow !== null && (
                                     <ReferenceLine
                                         y={recentLow}
-                                        stroke="var(--success)"
+                                        stroke="var(--danger)"
                                         strokeDasharray="4 4"
-                                        label={{ value: 'Support', position: 'insideBottomRight', fill: 'var(--success)', fontSize: 11 }}
+                                        label={{ value: 'Post-peak closing low', position: 'insideBottomRight', fill: 'var(--danger)', fontSize: 11 }}
                                     />
                                 )}
                             </ComposedChart>
                         </ResponsiveContainer>
+                        </div>
                         )}
                     </div>
 
                     {/* Key Statistics (Finviz snapshot) */}
-                    <div className="glass-panel" style={{ padding: '2rem', marginBottom: '2rem' }}>
-                        <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <BarChart3 size={20} color="var(--primary)" />
+                    <div className="glass-panel sd-panel sd-stats-panel">
+                        <h3>
+                            <BarChart3 size={18} className="sd-icon--primary" />
                             Key Statistics (Finviz)
                         </h3>
+                        <p className="sd-meta">Finviz · delayed 1 minute · quote time unavailable · retrieved {formatQuoteTime(finvizFetchedAt)}</p>
+                        {finvizFetchedAt && finvizRefreshing && <p className="sd-meta sd-meta--refreshing">Refreshing · previous statistics and headlines retained.</p>}
+                        {finvizFetchedAt && finvizStale && <p className="data-notice">Cached statistics and headlines · original retrieval time retained.</p>}
+                        {finvizError && <p className="data-notice" role="alert">{finvizError}</p>}
                         {stats ? (
                             <>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.75rem' }}>
+                                <div className="sd-stats-grid">
                                     {STAT_DEFS.map(def => {
                                         const value = stats.get(def.label)
                                             ?? (def.fallback ? stats.get(def.fallback) : undefined)
                                             ?? '—';
                                         return (
-                                            <div key={def.label} style={{ padding: '0.75rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
-                                                <div className="text-muted" style={{ fontSize: '0.75rem', marginBottom: '0.25rem' }}>{def.label}</div>
-                                                <div style={{ fontWeight: 700 }}>{value}</div>
+                                            <div key={def.label} className="sd-stat">
+                                                <div className="sd-stat-label">{def.label}</div>
+                                                <div className="sd-stat-value">{value}</div>
                                             </div>
                                         );
                                     })}
                                 </div>
                                 {fiftyTwoWeekPct !== null && (
-                                    <div style={{ marginTop: '1.5rem' }}>
-                                        <div className="text-muted" style={{ fontSize: '0.75rem', marginBottom: '0.5rem' }}>52-Week Position</div>
-                                        <div className="flex-center" style={{ gap: '0.75rem' }}>
-                                            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--success)' }}>{formatPrice(fiftyTwoWeek.low)}</span>
-                                            <div style={{ flex: 1, position: 'relative', height: '8px', borderRadius: '4px', background: 'linear-gradient(90deg, rgba(255,82,82,0.5), rgba(255,234,0,0.5), rgba(0,230,118,0.5))' }}>
-                                                <div style={{
-                                                    position: 'absolute',
-                                                    left: `${fiftyTwoWeekPct}%`,
-                                                    top: '50%',
-                                                    transform: 'translate(-50%, -50%)',
-                                                    width: '14px',
-                                                    height: '14px',
-                                                    borderRadius: '50%',
-                                                    background: 'var(--text-main)',
-                                                    border: '2px solid var(--bg-dark)',
-                                                }} />
+                                    <div className="sd-range">
+                                        <div className="sd-range-label">52-Week Position</div>
+                                        <div className="sd-range-row">
+                                            <span className="sd-range-bound">{formatPrice(fiftyTwoWeek.low)}</span>
+                                            <div className="sd-range-track" aria-hidden="true">
+                                                <div className="sd-range-marker" style={{ left: `${fiftyTwoWeekPct}%` }} />
                                             </div>
-                                            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--danger)' }}>{formatPrice(fiftyTwoWeek.high)}</span>
+                                            <span className="sd-range-bound">{formatPrice(fiftyTwoWeek.high)}</span>
                                         </div>
-                                        <div className="text-muted" style={{ fontSize: '0.75rem', marginTop: '0.4rem', textAlign: 'center' }}>
+                                        <div className="sd-range-caption">
                                             Current {formatPrice(currentPrice)} — {fiftyTwoWeekPct.toFixed(0)}% of the 52-week range
                                         </div>
                                     </div>
                                 )}
                             </>
                         ) : (
-                            <p className="text-muted">Statistics unavailable</p>
+                            <p className="sd-empty">Statistics unavailable</p>
                         )}
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem' }}>
-                        <div className="glass-panel" style={{ padding: '2rem' }}>
-                            <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                <AlertTriangle size={20} color="var(--warning)" />
-                                AI Analysis
+                    <div className="sd-grid">
+                        <div className="glass-panel sd-panel sd-analysis-panel">
+                            <h3>
+                                <AlertTriangle size={18} className="sd-icon--warning" />
+                                Technical Analysis (1M)
                             </h3>
-                            <p className="text-muted" style={{ lineHeight: '1.7' }}>
+                            <p className="sd-analysis-text">
                                 {!analysis ? (
-                                    <>No {rangeText} chart data is available for {symbol}, so no score can be computed. The ticker may be delisted, halted, or temporarily unavailable from the data provider.</>
-                                ) : isZombie ? (
-                                    <>Based on the {rangeText} historical chart, {symbol} has flatlined into a <strong>ZOMBIE STOCK</strong>. It reached a high of ${peakPrice.toFixed(2)} on {peakDate} but has since crashed {dipPercentage}% with minimal-to-zero signs of recovery volatility. Our AI analysis highly suggests avoiding due to lack of buyer momentum.</>
+                                    <>No score is available. At least 15 valid daily closes and a provider quote are required.</>
                                 ) : (
-                                    <>Based on the {rangeText} historical chart, {symbol} reached a high of ${peakPrice.toFixed(2)} on {peakDate}, after normalizing around ${normalizedHigh.toFixed(2)} prior to that. It has since dropped {dipPercentage}% to its current price. This could indicate an oversold bounce opportunity if the underlying fundamentals remain strong despite the recent negative catalysts found in the news.</>
+                                    <>Over the fixed 1-month daily history, {symbol} is {dipPercentage}% below its closing high of {formatPrice(peakPrice)}. The score combines dip depth, bounce distance, EMA momentum, and simple RSI(14). It is a technical heuristic from price history, not a forecast or a recovery probability.</>
                                 )}
                             </p>
 
                             {/* Factor-by-factor score breakdown */}
                             {analysis && analysis.factors.length > 0 && (
-                                <div style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <div className="sd-factors">
                                     {analysis.factors.map((f, idx) => (
-                                        <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
-                                            <span style={factorBadgeStyle(f.points)}>
+                                        <div key={idx} className="sd-factor">
+                                            <span className={`sd-factor-points sd-factor-points--${factorTone(f.points)}`}>
                                                 {f.points > 0 ? `+${f.points}` : `${f.points}`}
                                             </span>
-                                            <div>
-                                                <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{f.label}</div>
-                                                <div className="text-muted" style={{ fontSize: '0.8rem', lineHeight: 1.5 }}>{f.detail}</div>
+                                            <div className="sd-factor-body">
+                                                <div className="sd-factor-label">{f.label}</div>
+                                                <div className="sd-factor-detail">{f.detail}</div>
                                             </div>
                                         </div>
                                     ))}
-                                    <p className="text-muted" style={{ fontSize: '0.75rem', margin: '0.25rem 0 0 0' }}>
+                                    <p className="sd-factor-note">
                                         Score starts at 50; factors sum and clamp to 0–100.
                                     </p>
                                 </div>
                             )}
 
                             {analysis && (
-                            <div className={scoreClass} style={{ marginTop: '1.5rem', padding: '1rem', background: scoreBg, borderRadius: '8px', border: `1px solid ${scoreColor}` }}>
-                                <strong className="flex-center" style={{ gap: '0.5rem', justifyContent: 'flex-start', color: scoreColor, flexWrap: 'wrap' }}>
-                                    <ArrowUpRight size={18} /> {isZombie ? `Zombie Classification Score: ${score}/100` : `Recovery Probability Rating: ${score}/100`}
-                                    {verdict && (
-                                        <span style={{ marginLeft: 'auto', color: verdict.color, fontSize: '0.8rem', border: `1px solid ${verdict.color}`, padding: '2px 10px', borderRadius: '12px' }}>
-                                            {verdict.label}
-                                        </span>
-                                    )}
-                                </strong>
+                            <div className={`sd-score sd-score--${boxTone}`}>
+                                <ArrowUpRight size={18} />
+                                <span className="sd-score-value">{`Technical Score: ${score}/100`}</span>
+                                {verdict && (
+                                    <span className={`sd-verdict sd-verdict--${chipTone}`}>
+                                        {verdict.label}
+                                    </span>
+                                )}
                             </div>
                             )}
                         </div>
 
-                        <div className="glass-panel" style={{ padding: '2rem' }}>
-                            <h3 style={{ marginTop: 0 }}>Latest News Explaining the Dip</h3>
+                        <div className="glass-panel sd-panel sd-news-panel">
+                            <h3>Recent Headlines (Finviz)</h3>
                             {news.length === 0 ? (
-                                <p className="text-muted">No recent news found.</p>
+                                <p className="sd-empty">{finvizError ? 'News unavailable from Finviz.' : 'No recent headlines returned.'}</p>
                             ) : (
-                                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                <ul className="sd-news-list">
                                     {news.map((item, idx) => (
-                                        <li key={idx} style={{ padding: '1rem', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px', background: 'rgba(255,255,255,0.02)' }}>
-                                            <div className="text-muted" style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>
-                                                {item.time}
+                                        <li key={idx} className="sd-news-item">
+                                            <div className="sd-news-meta">
+                                                <span className="sd-news-time">{item.time}</span>
                                                 {item.source && (
-                                                    <span style={{ fontSize: '0.75rem', opacity: 0.7, marginLeft: '0.5rem' }}>· {item.source}</span>
+                                                    <span className="sd-news-source">{item.source}</span>
                                                 )}
                                             </div>
-                                            <h4 style={{ margin: '0 0 0.5rem 0' }}>
-                                                <a href={item.link} target="_blank" rel="noreferrer" style={{ color: 'var(--text-main)', textDecoration: 'none' }}
-                                                    onMouseEnter={(e) => e.target.style.color = 'var(--primary)'}
-                                                    onMouseLeave={(e) => e.target.style.color = 'var(--text-main)'}>
+                                            <h4 className="sd-news-title">
+                                                <a href={item.link} target="_blank" rel="noreferrer">
                                                     {item.title}
                                                 </a>
                                             </h4>
@@ -700,9 +687,6 @@ const StockDetails = () => {
                     </div>
                 </>
             )}
-            <style>{`
-                @keyframes spin { 100% { transform: rotate(360deg); } }
-            `}</style>
         </div>
     );
 };

@@ -1,0 +1,428 @@
+/* Overview / Dashboard — Pierce/27 skin.
+ *
+ * Imported by src/pages/Dashboard.jsx. Layout (pulse strip, heading row,
+ * source line, stat-tile row, sortable data table with sparklines and the
+ * expandable score breakdown) is unchanged; only the style follows
+ * docs/design/pierce27-brief.md. Every rule is scoped to .dashboard so it
+ * outranks the legacy component rules in index.css without touching other
+ * surfaces, while theme overrides (body.theme-* …) keep their higher
+ * specificity and still win. Role tokens only — no literal colours, px glows
+ * or easings. Shades the token sheet does not ship are derived with the 27
+ * rule (alpha at 7 %, lightness·chroma × 0.46) from the active theme's roles.
+ */
+.dashboard {
+  --dash-gutter: 23px;
+  --dash-row-pad: calc(11px * var(--density));
+  --dash-warning-46: oklch(from var(--warning) calc(l * var(--m2)) calc(c * var(--m2)) h);
+}
+
+/* ── Market pulse strip ───────────────────────────────────────────────── */
+.dashboard .dashboard-pulse { margin-bottom: var(--gap); }
+
+/* ── Heading row: title, reference link, search + filter fields ───────── */
+.dashboard .flex-between.dash-head { margin-bottom: var(--gap); gap: var(--gap-sm); }
+.dashboard .dash-head h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-xs);
+  margin: 0 0 var(--gap-xs);
+  font-family: var(--font-heading);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+}
+.dashboard .dash-head p { margin: 0; color: var(--text-muted); }
+.dashboard .dash-head-aside { margin-right: auto; padding-left: var(--gap); }
+
+/* Spinner for the RefreshCw icon; the duration follows the motion tokens so
+   the OS and in-app reduced-motion settings stop it. */
+.dashboard .dash-spinner {
+  flex-shrink: 0;
+  color: var(--info);
+  animation: dashboard-spin calc(var(--t-slow) * 2) linear infinite;
+}
+@keyframes dashboard-spin { to { transform: rotate(360deg); } }
+
+/* ── Outline buttons (reference link, Refresh quotes) ──────────────────── */
+.dashboard .btn-outline {
+  position: relative;
+  gap: var(--gap-xs);
+  padding: 9px 17px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in oklch, var(--primary) 27%, var(--line));
+  background: var(--wash-p-07);
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  box-shadow: none;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+.dashboard .btn-outline::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: var(--glow-p);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
+}
+.dashboard .btn-outline:hover {
+  background: var(--wash-p-14);
+  border-color: var(--primary);
+  transform: none;
+  box-shadow: none;
+  filter: none;
+  opacity: 1;
+}
+.dashboard .btn-outline:hover::after { opacity: var(--glow-intensity); }
+/* The global .btn:active press-scale carries !important; silk has no jumps. */
+.dashboard .btn-outline:active { transform: none !important; }
+.dashboard .btn-outline:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+/* A refresh already in flight keeps the resting look (the global rule dims it). */
+.dashboard .btn-outline:disabled { cursor: wait; }
+.dashboard .btn-outline:disabled:hover {
+  background: var(--wash-p-07);
+  border-color: color-mix(in oklch, var(--primary) 27%, var(--line));
+}
+.dashboard .btn-outline:disabled:hover::after { opacity: 0; }
+.dashboard .btn-outline svg { color: var(--primary); flex-shrink: 0; }
+.dashboard .dash-reference { color: var(--primary); }
+
+/* ── Search and filter fields ─────────────────────────────────────────── */
+.dashboard .flex-center.dash-controls { gap: var(--gap-sm); }
+.dashboard .dash-field {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-xs);
+  padding: 8px 13px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--bg-dark);
+  color: var(--text-muted);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.dashboard .dash-field:hover { border-color: var(--line-strong); }
+.dashboard .dash-field:focus-within { border-color: var(--secondary); box-shadow: var(--focus-ring); }
+.dashboard .dash-field-icon { color: var(--primary); flex-shrink: 0; }
+.dashboard .dash-field input,
+.dashboard .dash-field select {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-main);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+.dashboard .dash-field input { width: 150px; }
+.dashboard .dash-field input::placeholder { color: var(--text-faint); }
+.dashboard .dash-field select { cursor: pointer; }
+/* The field carries the ring (focus-within); the inner control must not add
+   the legacy lift and glow from the global input:focus rule. */
+.dashboard .dash-field input:focus,
+.dashboard .dash-field select:focus,
+.dashboard .dash-field input:focus-visible,
+.dashboard .dash-field select:focus-visible {
+  outline: none;
+  box-shadow: none;
+  transform: none;
+}
+.dashboard .dash-field-select--divided {
+  padding-right: var(--gap-xs);
+  margin-right: var(--gap-xs);
+  border-right: 1px solid var(--line);
+}
+
+/* ── Source line and notices ──────────────────────────────────────────── */
+.dashboard .flex-between.dash-source-line {
+  flex-wrap: wrap;
+  gap: var(--gap-xs) var(--gap-sm);
+  margin-bottom: var(--gap-sm);
+  padding: var(--gap-sm) 17px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in oklch, var(--secondary) 27%, var(--line));
+  background: var(--wash-s-07);
+}
+.dashboard .dash-source-text {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-xs);
+  max-width: 96ch;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.dashboard .dash-source-text::before {
+  content: '';
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--info);
+}
+.dashboard > .data-notice {
+  margin: 0 0 var(--gap-sm);
+  padding: var(--gap-sm) 17px;
+  border-left: 2px solid var(--warning);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: color-mix(in oklch, var(--wash-warn-14) 50%, transparent);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* ── Summary stat tiles (silk panels, brief rule 1) ───────────────────── */
+.dashboard .dash-stats { display: flex; flex-wrap: wrap; gap: var(--gap-sm); margin-bottom: var(--gap); }
+.dashboard .dash-stat {
+  flex: 1 1 auto;
+  min-width: 120px;
+  padding: 13px 17px 12px;
+  background: var(--sheen);
+  border: var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
+  transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
+}
+.dashboard .dash-stat-label {
+  margin-bottom: 6px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+.dashboard .dash-stat-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  color: var(--text-main);
+}
+.dashboard .dash-stat--up .dash-stat-value { color: var(--success); }
+.dashboard .dash-stat--down .dash-stat-value { color: var(--danger); }
+.dashboard .dash-stat--muted .dash-stat-value { color: var(--text-muted); }
+
+/* ── Table panel ──────────────────────────────────────────────────────── */
+.dashboard .dash-table-panel {
+  padding: 0;
+  overflow-x: auto;
+  background: var(--sheen);
+  border: var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
+}
+.dashboard .dash-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+
+/* Sticky header: an opaque card-hover strip (no backdrop-filter) with a
+   hairline drawn as an inset shadow so it survives border-collapse. */
+.dashboard .dash-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 11px 8px;
+  background: var(--bg-card-hover);
+  box-shadow: inset 0 -1px var(--line);
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  user-select: none;
+  transition: color var(--transition-fast);
+}
+.dashboard .dash-table th:first-child,
+.dashboard .dash-table td:first-child { padding-left: var(--dash-gutter); }
+.dashboard .dash-table th:last-child,
+.dashboard .dash-table td:last-child { padding-right: var(--gap-sm); }
+.dashboard .dash-th--left { text-align: left; }
+.dashboard .dash-th--right { text-align: right; }
+.dashboard .dash-th--center { text-align: center; }
+.dashboard .dash-th.is-sortable { cursor: pointer; }
+.dashboard .dash-th.is-sortable:hover { color: var(--text-main); }
+.dashboard .dash-th.is-active { color: var(--primary); }
+/* Sortable headers are keyboard-reachable. A collapsed-border table clips a
+   cell's outer box-shadow, so the focus ring (brief rule 4) is drawn inside
+   the cell with the same secondary colour; the hairline stays. */
+.dashboard .dash-th.is-sortable:focus-visible {
+  outline: 2px solid var(--secondary);
+  outline-offset: -4px;
+  color: var(--text-main);
+}
+
+/* Rows: card-hover fill plus a hairline shift on hover; an expanded row is
+   the selected state — 14 % primary wash with a 2 px inset primary edge.
+   No transforms on rows. */
+.dashboard .dash-row { cursor: pointer; transition: background var(--transition-fast); }
+.dashboard .dash-row td {
+  padding: var(--dash-row-pad) 8px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  vertical-align: middle;
+  transition: border-color var(--transition-fast);
+}
+.dashboard .dash-row:hover { background: var(--bg-card-hover); }
+.dashboard .dash-row:hover td { border-bottom-color: var(--line-strong); }
+.dashboard .dash-row.is-expanded { background: var(--wash-p-14); }
+.dashboard .dash-row.is-expanded td { border-bottom-color: transparent; }
+.dashboard .dash-row.is-expanded td:first-child { box-shadow: inset 2px 0 var(--primary); }
+
+.dashboard .dash-table .numeric {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.dashboard .dash-table .centered { text-align: center; }
+.dashboard .is-up { color: var(--success); }
+.dashboard .is-down { color: var(--danger); }
+.dashboard .is-warn { color: var(--warning); }
+.dashboard .is-muted { color: var(--text-muted); }
+
+.dashboard .dash-symbol {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-main);
+}
+.dashboard .dash-company {
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.dashboard .dash-meta { font-size: 10px; line-height: 1.5; color: var(--text-faint); }
+.dashboard .dash-meta--stale { color: var(--warning); }
+.dashboard .dash-price { font-weight: 600; color: var(--text-main); }
+
+/* Up / down badges: role text on the matching 14 % wash. */
+.dashboard .dash-delta,
+.dashboard .dash-trend {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dashboard .dash-delta--up,
+.dashboard .dash-trend--up { color: var(--success); background: var(--wash-ok-14); }
+.dashboard .dash-delta--down,
+.dashboard .dash-trend--down { color: var(--danger); background: var(--wash-bad-14); }
+.dashboard .dash-trend { min-width: 22px; font-size: 10px; text-align: center; }
+
+/* 52-week position bar: the fill width is data and stays inline. */
+.dashboard .dash-range {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+  width: 70px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--line);
+}
+.dashboard .dash-range-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 3px; }
+.dashboard .dash-range-fill--ok { background: var(--success); }
+.dashboard .dash-range-fill--warn { background: var(--warning); }
+.dashboard .dash-range-fill--bad { background: var(--danger); }
+
+/* Sparkline: stroke follows the bar direction. */
+.dashboard .dash-spark { display: inline-block; vertical-align: middle; }
+.dashboard .dash-spark polyline { fill: none; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+.dashboard .dash-spark--up polyline { stroke: var(--success); }
+.dashboard .dash-spark--down polyline { stroke: var(--danger); }
+
+/* Verdict chip: tone follows the verdict label, never a colour string from
+   the scorer. Buy sits on the primary complement so it reads as the lighter
+   sibling of Strong Buy in every theme. */
+.dashboard .dash-verdict {
+  display: inline-block;
+  min-width: 100px;
+  padding: 3px 9px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  text-align: center;
+  white-space: nowrap;
+}
+.dashboard .dash-verdict--strong-buy { color: var(--success); background: var(--wash-ok-14); border-color: var(--success-46); }
+.dashboard .dash-verdict--buy { color: var(--primary-x-73); background: var(--wash-px-07); border-color: var(--primary-x-46); }
+.dashboard .dash-verdict--hold { color: var(--warning); background: var(--wash-warn-14); border-color: var(--dash-warning-46); }
+.dashboard .dash-verdict--sell { color: var(--danger-46); background: var(--wash-bad-14); border-color: var(--danger-46); }
+.dashboard .dash-verdict--strong-sell { color: var(--danger); background: var(--wash-bad-14); border-color: var(--danger); }
+
+/* Expand toggle for the score breakdown. */
+.dashboard .dash-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
+}
+.dashboard .dash-expand:hover { color: var(--text-main); background: var(--bg-raised); border-color: var(--line); }
+.dashboard .dash-expand:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.dashboard .dash-expand svg { transition: transform var(--transition-fast); }
+.dashboard .dash-expand[aria-expanded='true'] svg { transform: rotate(180deg); }
+
+/* Score breakdown row: the inset primary edge continues from the expanded row. */
+.dashboard .dash-row-detail td {
+  padding: var(--gap-xs) var(--dash-gutter) var(--gap-sm) calc(var(--dash-gutter) + 2px);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-dark);
+  box-shadow: inset 2px 0 var(--primary);
+}
+.dashboard .dash-detail-meta { margin: 0 0 var(--gap-xs); font-size: 10px; line-height: 1.5; color: var(--text-faint); }
+.dashboard .dash-factors { display: flex; flex-direction: column; gap: var(--gap-xs); }
+.dashboard .dash-factor { display: flex; align-items: center; gap: 10px; font-size: 11px; }
+.dashboard .dash-factor-points {
+  display: inline-block;
+  min-width: 38px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.dashboard .dash-factor-points--up { color: var(--success); background: var(--wash-ok-14); }
+.dashboard .dash-factor-points--down { color: var(--danger); background: var(--wash-bad-14); }
+.dashboard .dash-factor-points--flat { color: var(--text-muted); background: var(--bg-raised); }
+.dashboard .dash-factor-label { min-width: 130px; font-weight: 500; color: var(--text-main); }
+.dashboard .dash-factor-detail { color: var(--text-muted); }
+.dashboard .dash-factor-note { margin-top: var(--gap-xs); font-size: 10px; font-style: italic; color: var(--text-faint); }
+.dashboard .dash-detail-empty { font-size: 11px; color: var(--text-muted); }
+
+/* Placeholder rows while a scan is still filling in, and the empty state. */
+.dashboard .dash-row-loading td {
+  padding: var(--dash-row-pad) var(--dash-gutter);
+  border-bottom: 1px solid var(--line);
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.dashboard .dash-empty { padding: var(--gap) var(--dash-gutter); text-align: center; font-size: 12px; color: var(--text-muted); }
+
+@media (max-width: 600px) {
+  .dashboard { --dash-gutter: 15px; }
+}

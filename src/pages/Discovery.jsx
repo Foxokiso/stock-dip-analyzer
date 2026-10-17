@@ -1,208 +1,189 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Compass, BarChart2, Activity, Zap } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Compass, BarChart2, Activity, Zap, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { parseFinvizScreener } from '../utils/finviz';
+import { formatPrice, formatPct, formatCompact, formatQuoteTime } from '../utils/format';
+import { mountTradingViewWidget } from '../utils/tradingView';
+import { useSettings } from '../state/settingsContext.js';
+import '../styles/pages/etf-discovery.css';
 
-const Discovery = ({ excludedSectors, globalFilter = 'All' }) => {
+const normalizeSector = (sector) => sector.toLowerCase().replace(/[^a-z]/g, '');
+
+// TradingView paints its chart on a canvas inside its own iframe, so the brief's
+// chart roles cannot reach it through CSS. They are read from the live cascade
+// at mount time (never typed by hand) and handed over as plain colour strings.
+const CHART_ROLES = {
+    background: '--bg-card', grid: '--line', text: '--text-muted',
+    series: '--secondary', up: '--success', down: '--danger',
+};
+
+const cssColor = ([r, g, b, a]) => a === 255
+    ? `#${[r, g, b].map(channel => channel.toString(16).padStart(2, '0')).join('')}`
+    : `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(2)})`;
+
+// Resolves each role token to an sRGB string through a 1x1 canvas. Returns null
+// when anything cannot be resolved so the widget simply keeps its own defaults.
+function resolveChartPalette(container) {
+    const doc = container?.ownerDocument;
+    const view = doc?.defaultView;
+    if (!view?.getComputedStyle || typeof doc.createElement !== 'function') return null;
+    const canvas = doc.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext?.('2d', { willReadFrequently: true });
+    if (!context) return null;
+    const probe = doc.createElement('span');
+    probe.className = 'discovery-token-probe';
+    container.appendChild(probe);
+    try {
+        const palette = {};
+        for (const [role, token] of Object.entries(CHART_ROLES)) {
+            probe.style.color = `var(${token})`;
+            const color = view.getComputedStyle(probe).color;
+            context.fillStyle = 'transparent';
+            const unset = context.fillStyle;
+            context.fillStyle = color;
+            if (!color || context.fillStyle === unset) return null;
+            context.clearRect(0, 0, 1, 1);
+            context.fillRect(0, 0, 1, 1);
+            const pixel = context.getImageData(0, 0, 1, 1).data;
+            if (pixel[3] === 0) return null;
+            palette[role] = cssColor(pixel);
+        }
+        return palette;
+    } catch {
+        return null;
+    } finally {
+        probe.remove();
+    }
+}
+
+// Candles keep the up/down semantics; the line and area styles take the
+// --secondary stroke; grid, scales and ground follow --line / --text-muted / --bg-card.
+const chartPaletteOptions = (palette) => palette ? {
+    backgroundColor: palette.background,
+    gridColor: palette.grid,
+    overrides: {
+        'paneProperties.background': palette.background,
+        'paneProperties.backgroundType': 'solid',
+        'paneProperties.vertGridProperties.color': palette.grid,
+        'paneProperties.horzGridProperties.color': palette.grid,
+        'scalesProperties.textColor': palette.text,
+        'scalesProperties.lineColor': palette.grid,
+        'mainSeriesProperties.candleStyle.upColor': palette.up,
+        'mainSeriesProperties.candleStyle.downColor': palette.down,
+        'mainSeriesProperties.candleStyle.borderUpColor': palette.up,
+        'mainSeriesProperties.candleStyle.borderDownColor': palette.down,
+        'mainSeriesProperties.candleStyle.wickUpColor': palette.up,
+        'mainSeriesProperties.candleStyle.wickDownColor': palette.down,
+        'mainSeriesProperties.lineStyle.color': palette.series,
+        'mainSeriesProperties.areaStyle.linecolor': palette.series,
+    },
+} : {};
+
+const Discovery = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter = 'All' }) => {
+    const { settings } = useSettings();
+    const theme = settings.appearance.theme;
     const [loading, setLoading] = useState(true);
     const [discoveredStocks, setDiscoveredStocks] = useState([]);
+    const [fetchedAt, setFetchedAt] = useState(null);
+    const [error, setError] = useState('');
+    const [stale, setStale] = useState(false);
     const [activeWidgetSymbol, setActiveWidgetSymbol] = useState('SPY');
+    const [chartError, setChartError] = useState(null);
+    const [chartRetry, setChartRetry] = useState(0);
     const chartContainerRef = useRef(null);
 
     useEffect(() => {
-        if (!activeWidgetSymbol || !chartContainerRef.current) return;
-
-        chartContainerRef.current.innerHTML = '';
-        const script = document.createElement('script');
-        script.src = 'https://s3.tradingview.com/tv.js';
-        script.async = true;
-        script.onload = () => {
-            if (window.TradingView) {
-                new window.TradingView.widget({
-                    autosize: true,
-                    symbol: activeWidgetSymbol,
-                    interval: "D",
-                    timezone: "Etc/UTC",
-                    theme: "dark",
-                    style: "1",
-                    locale: "en",
-                    enable_publishing: false,
-                    container_id: "tv_discovery_chart"
-                });
-            }
-        };
-        chartContainerRef.current.appendChild(script);
-    }, [activeWidgetSymbol]);
+        const container = chartContainerRef.current;
+        if (!activeWidgetSymbol || !container) return;
+        let unmount = null;
+        // App.jsx writes `theme` to <body> in its own, later effect: mounting on the
+        // next task lets the palette be read from a cascade that already reflects it.
+        const timer = setTimeout(() => {
+            unmount = mountTradingViewWidget(container, {
+                autosize: true, symbol: activeWidgetSymbol, interval: 'D', timezone: 'Etc/UTC',
+                theme: 'dark', style: '1', locale: 'en', enable_publishing: false,
+                container_id: 'tv_discovery_chart',
+                ...chartPaletteOptions(resolveChartPalette(container)),
+            }, {
+                onReady: () => setChartError(null),
+                onError: error => setChartError({ symbol: activeWidgetSymbol, message: error.message }),
+            });
+        }, 0);
+        return () => { clearTimeout(timer); unmount?.(); };
+    }, [activeWidgetSymbol, chartRetry, theme]);
 
     useEffect(() => {
+        let cancelled = false, inFlight = false;
         const fetchDiscoveryList = async () => {
+            if (inFlight) return;
+            inFlight = true;
+            await Promise.resolve();
+            if (cancelled) return;
             setLoading(true);
+            if (typeof window.require !== 'function') {
+                setError('Discovery quotes require the desktop app connection.');
+                setLoading(false);
+                inFlight = false;
+                return;
+            }
             try {
-                if (typeof window.require === 'function') {
-                    const electron = window.require('electron');
-                    // Fetch stocks with Unusual Volume & High Volatility to find active new tickers
-                    const url = `https://finviz.com/screener.ashx?v=111&f=ta_unusualvolume,ta_volatility_mo5&o=-volume`;
-                    const html = await electron.ipcRenderer.invoke('fetch-url', url);
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    const rows = doc.querySelectorAll('tr');
-                    let results = [];
-
-                    rows.forEach(row => {
-                        if (results.length >= 20) return;
-                        const cells = row.querySelectorAll('td');
-                        if (cells.length >= 10) {
-                            const tickerLink = cells[1].querySelector('a[href^="quote.ashx"]');
-                            if (tickerLink) {
-                                const ticker = tickerLink.textContent.trim();
-                                const sectorStr = cells[3]?.textContent.trim().toLowerCase().replace(/ /g, '') || '';
-
-                                // Respect the App-wide Global exclusions!
-                                if (excludedSectors.includes(sectorStr)) {
-                                    return;
-                                }
-
-                                if (!results.find(s => s.symbol === ticker)) {
-                                    results.push({
-                                        symbol: ticker,
-                                        name: cells[2].textContent.trim(),
-                                        sector: cells[3].textContent.trim(),
-                                        price: parseFloat(cells[8].textContent.trim()) || 0,
-                                        change: parseFloat(cells[9].textContent.replace('%', '')) || 0,
-                                        volume: cells[10] ? cells[10].textContent.trim() : ''
-                                    });
-                                }
-                            }
-                        }
-                    });
-
+                const html = await window.require('electron').ipcRenderer.invoke('fetch-url', 'https://finviz.com/screener.ashx?v=111&f=ta_unusualvolume,ta_volatility_mo5&o=-volume');
+                const fetched = new Date().toISOString();
+                const results = parseFinvizScreener(html, { fetchedAt: fetched }).slice(0, 20);
+                if (!cancelled) {
                     setDiscoveredStocks(results);
-                    if (results.length > 0) {
-                        setActiveWidgetSymbol(results[0].symbol);
-                    }
-                } else {
-                    console.warn("Electron environment not detected. Loading mock discovery data.");
-                    setDiscoveredStocks([
-                        { symbol: 'PLTR', name: 'Palantir Technologies', sector: 'Technology', price: 24.50, change: 8.5, volume: '85M' },
-                        { symbol: 'SMCI', name: 'Super Micro Computer', sector: 'Technology', price: 850.20, change: 12.4, volume: '12M' },
-                        { symbol: 'COIN', name: 'Coinbase Global', sector: 'Financial', price: 210.30, change: 5.2, volume: '15M' }
-                    ]);
-                    setActiveWidgetSymbol('PLTR');
+                    setFetchedAt(fetched);
+                    setStale(false);
+                    setError('');
                 }
             } catch (err) {
-                console.error("Error fetching Discovery list:", err);
+                if (!cancelled) { setError(err.message || 'Finviz Discovery data is unavailable.'); setStale(true); }
             } finally {
-                setLoading(false);
+                inFlight = false;
+                if (!cancelled) setLoading(false);
             }
         };
-
         fetchDiscoveryList();
-    }, [excludedSectors]);
+        const timer = autoRefreshInterval > 0 ? setInterval(fetchDiscoveryList, autoRefreshInterval * 60 * 1000) : null;
+        return () => { cancelled = true; if (timer) clearInterval(timer); };
+    }, [autoRefreshInterval]);
 
+    const hasRatingFilter = !['All', 'Bullish', 'Bearish'].includes(globalFilter);
+    const stocks = discoveredStocks.filter(stock => !excludedSectors.includes(normalizeSector(stock.sector)) && !hasRatingFilter && (globalFilter === 'All' || (globalFilter === 'Bullish' ? stock.change > 0 : stock.change < 0)));
     return (
         <div className="discovery-page">
-            <div className="flex-between" style={{ marginBottom: '2rem' }}>
-                <div>
-                    <h2 className="text-gradient flex-center" style={{ justifyContent: 'flex-start', gap: '0.5rem' }}>
-                        <Compass size={24} color="var(--primary)" />
-                        Alternative Resource Discovery
-                    </h2>
-                    <p className="text-muted">Uncommon metrics, unusual volume, and advanced TradingView charting.</p>
-                </div>
-                
-                <div>
-                    <a href="https://www.stockfetcher.com/" target="_blank" rel="noopener noreferrer" className="btn btn-outline flex-center" style={{ gap: '0.5rem', textDecoration: 'none', borderColor: 'var(--primary)', color: 'var(--primary)', padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
-                        <Compass size={14} /> StockFetcher Reference
-                    </a>
-                </div>
+            <div className="page-heading flex-between">
+                <div><p className="eyebrow">Market exploration</p><h2><Compass size={24} /> Discovery</h2><p className="text-muted">Unusual volume and monthly volatility, with TradingView chart research.</p></div>
+                <a href="https://www.stockfetcher.com/" target="_blank" rel="noopener noreferrer" className="btn btn-outline"><Compass size={14} /> StockFetcher</a>
             </div>
-
-            <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
-                {/* TradingView Advanced Chart Integration */}
-                <div className="glass-panel" style={{ flex: '2 1 600px', padding: '1.5rem', minHeight: '500px', display: 'flex', flexDirection: 'column' }}>
-                    <h3 className="flex-center" style={{ justifyContent: 'flex-start', gap: '0.5rem', marginBottom: '1rem', color: 'var(--text-main)' }}>
-                        <BarChart2 size={20} color="var(--secondary)" />
-                        TradingView Advanced Chart
-                    </h3>
-                    <div id="tv_discovery_chart" ref={chartContainerRef} style={{ flex: 1, borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
-                        {/* TradingView script will inject here, replacing the deprecated widgetembed iframe */}
-                    </div>
-                </div>
-
-                {/* Discovery Scan Results */}
-                <div className="glass-panel" style={{ flex: '1 1 350px', padding: '1.5rem', maxHeight: '600px', overflowY: 'auto' }}>
-                    <h3 className="flex-center" style={{ justifyContent: 'flex-start', gap: '0.5rem', marginBottom: '1.5rem', color: 'var(--warning)' }}>
-                        <Zap size={20} />
-                        Unusual Volume Scanner
-                    </h3>
-                    <p className="text-muted" style={{ fontSize: '0.85rem', marginBottom: '1rem' }}>
-                        Currently tracking hyper-active tickers outside of your omitted sectors. Click any row to load it into TradingView.
-                    </p>
-
-                    {loading ? (
-                        <div className="text-center text-muted" style={{ padding: '2rem 0' }}>Scanning the market...</div>
-                    ) : discoveredStocks.length === 0 ? (
-                        <div className="text-center text-muted">No active tickers found matching criteria.</div>
-                    ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                            {discoveredStocks
-                                .filter(stock => {
-                                    if (globalFilter === 'All') return true;
-                                    if (globalFilter === 'Bullish' || globalFilter === 'Strong Buy' || globalFilter === 'Buy') return stock.change > 0;
-                                    if (globalFilter === 'Bearish' || globalFilter === 'Sell/Strong Sell' || globalFilter === 'Hold' || globalFilter === 'Sell') return stock.change < 0;
-                                    return true;
-                                })
-                                .map((stock, idx) => (
-                                <div
-                                    key={`${stock.symbol}-${idx}`}
-                                    onClick={() => setActiveWidgetSymbol(stock.symbol)}
-                                    style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        padding: '0.75rem 1rem',
-                                        background: activeWidgetSymbol === stock.symbol ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.2)',
-                                        borderRadius: '8px',
-                                        cursor: 'pointer',
-                                        transition: 'background 0.2s'
-                                    }}
-                                    onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
-                                    onMouseOut={(e) => {
-                                        if (activeWidgetSymbol !== stock.symbol) {
-                                            e.currentTarget.style.background = 'rgba(0,0,0,0.2)';
-                                        } else {
-                                            e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
-                                        }
-                                    }}
-                                >
-                                    <div>
-                                        <div style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                            <Link 
-                                                to={`/stock/${stock.symbol}`} 
-                                                title="View Dip Analysis" 
-                                                onClick={(e) => e.stopPropagation()}
-                                                style={{ color: 'inherit', textDecoration: 'underline', cursor: 'pointer' }}
-                                            >
-                                                {stock.symbol}
-                                            </Link>
-                                            <Link to={`/stock/${stock.symbol}`} title="View Dip Analysis" onClick={(e) => e.stopPropagation()}>
-                                                <Activity size={14} color="var(--primary)" />
-                                            </Link>
-                                        </div>
-                                        <div className="text-muted" style={{ fontSize: '0.75rem' }}>{stock.sector}</div>
-                                    </div>
-                                    <div style={{ textAlign: 'right' }}>
-                                        <div style={{ fontWeight: '500' }}>Vol: {stock.volume}</div>
-                                        <div style={{ fontSize: '0.8rem', color: stock.change >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                                            {stock.change > 0 ? '+' : ''}{stock.change.toFixed(2)}%
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
+            <div className="source-banner"><span>Finviz · US equities delayed 1 minute · Quote timestamp not supplied</span><span className="discovery-banner-time">{fetchedAt ? `Fetched ${formatQuoteTime(fetchedAt)}${stale ? ' · Stale' : ''}` : 'No verified quotes loaded'}</span></div>
+            {error && <p className="data-notice" role="status">{error}{stale && discoveredStocks.length > 0 ? ' Showing the last successful scan.' : ''}</p>}
+            {hasRatingFilter && <p className="data-notice">Discovery results do not carry recovery ratings. Select All Ratings, Bullish, or Bearish to view the scan.</p>}
+            <div className="discovery-grid">
+                <section className="glass-panel discovery-chart-panel">
+                    <h3><BarChart2 size={18} /> TradingView · {activeWidgetSymbol}</h3>
+                    <p className="source-meta">Chart data and quote delay are supplied by TradingView.</p>
+                    {chartError?.symbol === activeWidgetSymbol && <div className="data-notice" role="status"><span>{chartError.message}</span><button type="button" className="btn btn-outline" onClick={() => setChartRetry(previous => previous + 1)}>Retry chart</button></div>}
+                    <div id="tv_discovery_chart" ref={chartContainerRef} className="discovery-chart" />
+                </section>
+                <section className={`glass-panel discovery-results-panel${stale ? ' data-stale' : ''}`}>
+                    <h3><Zap size={18} /> Unusual volume {loading && <RefreshCw size={13} className="spin" />}</h3>
+                    <p className="text-muted">Select a ticker to inspect its chart.</p>
+                    {stocks.length === 0 && <div className="desk-empty">{loading ? 'Scanning the market…' : error && !fetchedAt ? 'Scanner unavailable.' : 'No tickers match the current filters.'}</div>}
+                    {stocks.map(stock => {
+                        const isSelected = activeWidgetSymbol === stock.symbol;
+                        return (
+                            <div key={stock.symbol} className={`discovery-stock-row${isSelected ? ' is-selected' : ''}`}>
+                                <button type="button" onClick={() => setActiveWidgetSymbol(stock.symbol)} className="discovery-ticker-button" aria-pressed={isSelected}><strong>{stock.symbol}</strong><span className="quote-meta">{stock.sector}</span></button>
+                                <div className="discovery-stock-values"><span>{formatPrice(stock.price)}</span><span className={stock.change == null ? 'text-muted' : stock.change >= 0 ? 'text-success' : 'text-danger'}>{formatPct(stock.change)}</span><span className="quote-meta">Vol {formatCompact(stock.volume)}</span></div>
+                                <Link to={`/stock/${stock.symbol}`} className="discovery-analysis-link" title={`View ${stock.symbol} analysis`} aria-label={`View ${stock.symbol} analysis`}><Activity size={16} /></Link>
+                            </div>
+                        );
+                    })}
+                </section>
             </div>
         </div>
     );
 };
-
 export default Discovery;

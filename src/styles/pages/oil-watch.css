@@ -1,0 +1,408 @@
+/* Oil Watch — Pierce/27 skin.
+ *
+ * Imported by src/pages/OilWatch.jsx. Layout (energy pulse strip, heading,
+ * boards column, intelligence feed column) is unchanged; only the style lives
+ * here. Panels take their silk from the shared .glass-panel rule, the heading
+ * uses the shared .page-heading recipe and the boards use the same table
+ * recipe as the futures board. Rules that restyle shared components (pulse
+ * cards, source banner, data notice, quote meta) are scoped under
+ * .oil-watch-page so they apply on this page only. Role tokens only — no
+ * literal colours, px glows or easings — so every theme keeps working. Shades
+ * the token sheet does not ship are derived with the 27 rule (alpha at 7 %,
+ * lightness·chroma × 0.46, or 27 % of a pierce colour mixed into --line),
+ * never picked by eye.
+ */
+.oil-watch-page {
+  /* The boards' tables scroll inside their panels; the page root must never pass that
+     min-content width up to the shell, or a narrow viewport gets a horizontal scrollbar. */
+  min-width: 0;
+  --oil-wash-ok-07: color-mix(in oklch, var(--success) 7%, transparent);
+  --oil-wash-bad-07: color-mix(in oklch, var(--danger) 7%, transparent);
+  --oil-wash-warn-07: color-mix(in oklch, var(--warning) 7%, transparent);
+  --oil-warning-46: oklch(from var(--warning) calc(l * var(--m2)) calc(c * var(--m2)) h);
+  --oil-line-p: color-mix(in oklch, var(--primary) 27%, var(--line));
+  --oil-line-s: color-mix(in oklch, var(--secondary) 27%, var(--line));
+  --oil-line-warn: color-mix(in oklch, var(--warning) 27%, var(--line));
+  --oil-gutter: 23px;
+  --oil-cell-y: calc(8px * var(--density, 1));
+}
+
+/* ── Energy pulse strip (MarketPulse, restyled from here; its cards are .glass-panel) ── */
+.oil-watch-page .market-pulse { margin-bottom: var(--gap); }
+.oil-watch-page .pulse-heading { margin-bottom: var(--gap-sm); }
+.oil-watch-page .section-kicker { gap: var(--gap-xs); font-size: 10px; letter-spacing: 0.1em; color: var(--text-muted); }
+/* The strip's live state is carried by MarketPulse's own .pulse-live dot; the kicker icon only takes the primary tone. */
+.oil-watch-page .section-kicker svg { color: var(--primary); }
+.oil-watch-page .pulse-grid { gap: var(--gap-sm); }
+.oil-watch-page .pulse-card { position: relative; min-width: 0; padding: var(--gap-sm) 15px; }
+/* Hover glow lives on a pseudo-element so it can scale with the glow setting. */
+.oil-watch-page .pulse-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: var(--glow-p);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
+}
+.oil-watch-page .pulse-card:hover { border-color: var(--line-strong); }
+.oil-watch-page .pulse-card:hover::after { opacity: var(--glow-intensity); }
+.oil-watch-page .pulse-card-label { margin-bottom: var(--gap-sm); font-size: 10px; letter-spacing: 0.02em; color: var(--text-muted); }
+.oil-watch-page .pulse-card-label > span:last-child { font-family: var(--font-mono); color: var(--text-faint); }
+.oil-watch-page .pulse-price {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  color: var(--text-main);
+}
+.oil-watch-page .pulse-change { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 10px; }
+/* Stale: the warning sits on the hairline and the meta lines, so the price keeps its up/down tone. */
+.oil-watch-page .pulse-card.data-stale { color: var(--text-main); border-color: var(--oil-line-warn); }
+.oil-watch-page .pulse-card.data-stale .quote-meta { color: var(--warning); }
+
+.oil-watch-page .quote-meta,
+.oil-watch-page .source-meta {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--text-faint);
+}
+.oil-watch-page .quote-meta { line-height: 1.7; letter-spacing: 0; }
+
+/* ── Page heading: the shared .page-heading recipe; only the lede width is tuned here ── */
+.oil-heading > div > p:last-child { margin: 0; max-width: 62ch; }
+
+/* ── Source banner and notices (token overrides of the shared rules) ── */
+.oil-watch-page .source-banner {
+  margin-bottom: var(--gap-sm);
+  padding: var(--gap-sm) 17px;
+  border: 1px solid var(--oil-line-s);
+  border-radius: var(--radius);
+  background: var(--wash-s-07);
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.01em;
+}
+/* The info dot is the live indicator: it breathes while a basket refresh is in flight. */
+.oil-watch-page .source-banner > span:first-child::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--gap-xs);
+  border-radius: 50%;
+  background: var(--info);
+  vertical-align: 1px;
+}
+.oil-watch-page .source-banner.is-live > span:first-child::before { animation: pierce-pulse var(--t-pulse) ease-in-out infinite; }
+.oil-watch-page .source-banner > span:last-child:not(:first-child) {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.oil-watch-page .data-notice {
+  margin: var(--gap-sm) 0;
+  padding: var(--gap-sm) 17px;
+  border-left: 2px solid var(--warning);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--oil-wash-warn-07);
+  color: var(--text-muted);
+  font-size: 12px;
+  align-items: center;
+}
+.oil-watch-page .data-notice svg { color: var(--warning); flex-shrink: 0; }
+
+/* ── Two-column body: boards left, intelligence feed right (unchanged) ── */
+.oil-layout { display: flex; gap: var(--gap); flex-wrap: wrap; align-items: flex-start; }
+.oil-boards { flex: 2 1 640px; min-width: 0; display: flex; flex-direction: column; gap: var(--gap); }
+.oil-boards-row { display: flex; gap: var(--gap); flex-wrap: wrap; }
+/* Panels are positioned so anything absolutely placed inside them (the visually hidden
+   column label sits in the last header cell of a table that scrolls inside the panel)
+   takes the panel as its containing block and is clipped with it instead of widening
+   the page on a narrow viewport. */
+.oil-board, .oil-news-panel { position: relative; }
+.oil-board { flex: 1 1 420px; min-width: 0; padding: 0; overflow: hidden; }
+.oil-board--wide { flex-basis: 560px; }
+/* A board placed directly in the column must size to its rows: the 420 px basis is a width, not a height. */
+.oil-boards > .oil-board { flex: 0 0 auto; }
+
+.oil-board-head {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-xs);
+  padding: var(--gap-sm) var(--oil-gutter) var(--gap-xs);
+}
+.oil-board-head h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-xs);
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--text-main);
+}
+.oil-board-icon { display: inline-flex; flex-shrink: 0; }
+.oil-board--primary .oil-board-icon { color: var(--primary); }
+.oil-board--warning .oil-board-icon { color: var(--warning); }
+.oil-board--success .oil-board-icon { color: var(--success); }
+.oil-board--secondary .oil-board-icon { color: var(--secondary); }
+.oil-board-spinner { flex-shrink: 0; color: var(--info); }
+/* Refresh spinner: rotation follows the motion tokens (so the OS and in-app
+   reduced-motion settings stop it) and breathes like every live indicator. */
+.oil-spin {
+  animation:
+    oil-spin calc(var(--t-slow) * 2) linear infinite,
+    pierce-pulse var(--t-pulse) ease-in-out infinite;
+}
+@keyframes oil-spin { to { transform: rotate(360deg); } }
+
+/* ── Shared table look (same recipe as the futures board) ── */
+.oil-table-scroll { overflow-x: auto; }
+.oil-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-family: var(--font-body);
+  font-size: 12px;
+  text-align: left;
+  color: var(--text-main);
+}
+.oil-table th {
+  padding: 11px 14px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--bg-card-hover);
+  color: var(--text-faint);
+  font-family: var(--font-heading);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.oil-table td {
+  padding: var(--oil-cell-y) 14px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-body);
+  vertical-align: top;
+  transition: border-color var(--transition-fast);
+}
+.oil-table tbody > tr:last-child > td { border-bottom-color: transparent; }
+.oil-table th:first-child, .oil-table td:first-child { padding-left: var(--oil-gutter); }
+.oil-table .numeric { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.oil-table .centered { text-align: center; }
+.oil-table .oil-expand-cell { padding-left: 4px; padding-right: 10px; }
+
+/* Hover: card-hover fill plus a hairline shift. Expanded (selected): the 14 % primary
+   wash with a 2 px inset primary edge. No transforms on rows. */
+.oil-row { transition: background var(--transition-fast); }
+.oil-row:hover { background: var(--bg-card-hover); }
+.oil-row:hover td { border-bottom-color: var(--line-strong); }
+.oil-row.is-expanded, .oil-row.is-expanded:hover { background: var(--wash-p-14); }
+.oil-row.is-expanded td { border-bottom-color: transparent; }
+.oil-row.is-expanded td:first-child { box-shadow: inset 2px 0 var(--primary); }
+
+.oil-symbol {
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-main);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+  transition: color var(--transition-fast), text-decoration-color var(--transition-fast);
+}
+.oil-symbol:hover { color: var(--primary); text-decoration-color: var(--primary); }
+.oil-symbol:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.oil-symbol-note {
+  max-width: 160px;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.oil-price { font-weight: 600; color: var(--text-main); }
+.oil-watch-page .oil-stale { color: var(--warning); }
+
+.oil-up { color: var(--success); }
+.oil-down { color: var(--danger); }
+.oil-flat { color: var(--text-muted); }
+
+/* Technical rating chip: tone follows the verdict label, never a colour string from the scorer. */
+.oil-rating {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.oil-rating--strong-buy { color: var(--success); background: var(--wash-ok-14); border-color: var(--success-46); }
+.oil-rating--buy { color: var(--success); background: var(--oil-wash-ok-07); border-color: var(--success-46); }
+.oil-rating--hold { color: var(--warning); background: var(--wash-warn-14); border-color: var(--oil-warning-46); }
+.oil-rating--sell { color: var(--danger); background: var(--oil-wash-bad-07); border-color: var(--danger-46); }
+.oil-rating--strong-sell { color: var(--danger); background: var(--wash-bad-14); border-color: var(--danger-46); }
+.oil-rating--muted { color: var(--text-muted); background: var(--bg-raised); border-color: var(--line-strong); }
+
+/* Breakdown toggle: lit with the primary glow (scaled by the glow setting) while its row is open. */
+.oil-expand {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
+}
+.oil-expand::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: var(--glow-p);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
+}
+.oil-expand:hover { color: var(--text-main); background: var(--bg-raised); border-color: var(--line); }
+.oil-expand:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.oil-expand svg { transition: transform var(--transition-fast); }
+.oil-expand[aria-expanded='true'] { color: var(--primary); background: var(--wash-p-07); border-color: var(--oil-line-p); }
+.oil-expand[aria-expanded='true'] svg { transform: rotate(180deg); }
+.oil-expand[aria-expanded='true']::after { opacity: var(--glow-intensity); }
+
+/* Score breakdown row continues the selected row's primary edge on the ink ground. */
+.oil-row-detail td {
+  padding: var(--gap-sm) var(--oil-gutter);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-dark);
+  box-shadow: inset 2px 0 var(--primary);
+}
+.oil-factors { display: flex; flex-direction: column; gap: var(--gap-xs); }
+.oil-factor { display: flex; gap: 10px; align-items: baseline; font-size: 11px; }
+.oil-factor strong { font-weight: 500; color: var(--text-main); }
+.oil-factor-detail { font-size: 11px; color: var(--text-muted); }
+.oil-factor-points {
+  min-width: 34px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.oil-factor-points--up { color: var(--success); background: var(--wash-ok-14); }
+.oil-factor-points--down { color: var(--danger); background: var(--wash-bad-14); }
+.oil-factor-points--flat { color: var(--text-muted); background: var(--bg-raised); }
+.oil-factor-note { font-size: 10px; font-style: italic; color: var(--text-faint); }
+.oil-board-empty { padding: var(--gap-sm) var(--oil-gutter); text-align: center; font-size: 11px; color: var(--text-faint); }
+
+/* ── Middle East intelligence feed ── */
+.oil-news-panel { flex: 1 1 340px; min-width: 0; padding: var(--gap-sm) var(--oil-gutter); max-height: 900px; overflow-y: auto; }
+.oil-news-head { padding: 0; margin-bottom: var(--gap-xs); }
+.oil-news-intro { margin: 0 0 var(--gap-xs); font-size: 11px; line-height: 1.5; color: var(--text-muted); }
+.oil-news-panel .source-meta { display: block; margin: 0 0 var(--gap-sm); }
+.oil-news-stale { margin: 0 0 var(--gap-sm); font-size: 10px; color: var(--warning); }
+.oil-news-empty {
+  padding: var(--gap) 0;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.oil-news-list { display: flex; flex-direction: column; gap: var(--gap-xs); }
+.oil-news-item {
+  position: relative;
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-card-hover);
+  color: var(--text-main);
+  text-decoration: none;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.oil-news-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: var(--glow-s);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
+}
+.oil-news-item:hover { background: var(--bg-raised); border-color: var(--line-strong); }
+.oil-news-item:hover::after { opacity: var(--glow-intensity); }
+.oil-news-item:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+/* Keyword-flagged headlines: danger wash and hairline; they carry no cyan glow. */
+.oil-news-item--high { background: var(--oil-wash-bad-07); border-color: var(--danger-46); }
+.oil-news-item--high::after { box-shadow: none; }
+.oil-news-item--high:hover { background: var(--wash-bad-14); border-color: var(--danger); }
+/* The parser floats flagged headlines to the top; mark the boundary to the rest once. */
+.oil-news-item--high + .oil-news-item:not(.oil-news-item--high) { margin-top: var(--gap-xs); }
+.oil-news-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px var(--gap-xs);
+  margin-bottom: 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.oil-news-meta > span:first-child { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-faint); }
+.oil-news-title { font-size: 12px; line-height: 1.45; color: var(--text-main); }
+
+/* HIGH IMPACT badge: danger text on the 14 % danger wash with a hairline danger-46 border. */
+.oil-badge-impact {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--danger-46);
+  border-radius: var(--radius-sm);
+  background: var(--wash-bad-14);
+  color: var(--danger);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Visually hidden column label for the breakdown toggle column. */
+.oil-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 600px) {
+  .oil-watch-page { --oil-gutter: 15px; }
+}
