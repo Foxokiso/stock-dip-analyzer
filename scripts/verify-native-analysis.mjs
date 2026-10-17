@@ -35,7 +35,8 @@ const encode = value => value === null ? 'null' : Number.isNaN(value) ? 'nan' : 
 const input = cases.map(({ closes, quote }) => [quote, ...closes].map(encode).join(' ')).join('\n') + '\n';
 const run = spawnSync(executable, [], { input, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
 assert.equal(run.status, 0, run.error?.message || run.stderr);
-const rows = run.stdout.trim().split('\n');
+// Windows text-mode stdout ends lines with CRLF; compare line content, not line endings.
+const rows = run.stdout.trim().split(/\r?\n/);
 assert.equal(rows.length, cases.length);
 const numericFields = ['score', 'currentPrice', 'peakPrice', 'peakIndex', 'dipPercentage', 'recentLow', 'recentHigh', 'rsi', 'ema5', 'ema10'];
 const indexes = [0, 3, 4, 5, 6, 7, 8, 9, 10, 11];
