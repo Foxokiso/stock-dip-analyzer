@@ -4,18 +4,30 @@
  * Rules are scoped to the component roots (.alert-*, .market-pulse, .stock-card)
  * so they outrank the legacy single-class rules in index.css (.glass-panel,
  * .pulse-card, .data-stale …) while theme overrides (body.theme-*, .theme-majestic …)
- * keep their higher specificity and still win. Layout is unchanged; only the
- * style follows docs/design/pierce27-brief.md. Role tokens only — no hex, no
+ * and the page skins (.dashboard …, .oil-watch-page …, loaded after this file)
+ * keep winning. Layout is unchanged; only the style follows
+ * docs/design/pierce27-brief.md. Role tokens only — no literal colours, no
  * hand-picked glows, no bespoke easings.
  *
- * Glows: every semantic glow is derived the way tokens.css derives --glow-p
- * (a 27 px blur of the tone's 27 % wash). It lives on a ::after whose opacity is
- * --glow-intensity, so the Appearance → Glow setting scales the halo and never
- * the panel. Small 7–8 px indicators use the same glow multiplied by m2 (0.46):
- * 13 px blur at 46 % alpha.
+ * Glows: a component's semantic tone is a role token on --tone. Its halo is
+ * derived exactly the way tokens.css derives --glow-p (a 27 px blur of the
+ * tone's 27 % wash) and lives on a ::after whose opacity is --glow-intensity,
+ * so Settings → Appearance → Glow scales the halo and never the panel.
+ * Small 7–8 px indicators use the glow multiplied by m2 (0.46): a 13 px blur
+ * of the tone's 46 % wash. Motion: every duration is a --t-* token, so the OS
+ * preference and the in-app Motion setting (index.css) zero it; nothing here
+ * depends on an animation having run.
  */
 
 /* ── shared: tone-driven glow layer ───────────────────────────────────── */
+.alert-toast,
+.alert-history-toggle,
+.pulse-live,
+.stock-card-dot,
+.stock-card {
+  --glow-tone: 0 0 27px color-mix(in oklch, var(--tone) 27%, transparent);
+  --glow-dot: 0 0 13px color-mix(in oklch, var(--tone) 46%, transparent);
+}
 .alert-toast::after,
 .alert-history-toggle::after,
 .pulse-live::after,
@@ -30,16 +42,18 @@
   opacity: var(--glow-intensity);
   transition: opacity var(--transition-fast);
 }
-.pulse-live,
-.stock-card-dot {
-  --glow-dot: 0 0 13px color-mix(in oklch, var(--tone) 46%, transparent);
-}
 
-/* ── shared: clickable symbol inside an alert ─────────────────────────── */
+/* ── shared: clickable symbol inside an alert (a real button) ─────────── */
 .alert-symbol {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  margin: 0;
+  padding: 0 1px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -53,6 +67,7 @@
   transition: color var(--transition-fast), text-decoration-color var(--transition-fast);
 }
 .alert-symbol:hover { color: var(--tone); text-decoration-color: var(--tone); }
+.alert-symbol:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .alert-symbol svg { color: var(--tone); flex: none; }
 
 /* ── LiveAlerts: floating toasts ──────────────────────────────────────── */
@@ -85,7 +100,7 @@
   transform-origin: bottom right;
   animation: alert-toast-in var(--t-slow) var(--ease-silk);
 }
-.alert-toast::after { box-shadow: 0 0 27px color-mix(in oklch, var(--tone) 27%, transparent); }
+.alert-toast::after { box-shadow: var(--glow-tone); }
 .alert-toast--success { --tone: var(--success); }
 .alert-toast--danger  { --tone: var(--danger); }
 .alert-toast--warning { --tone: var(--warning); }
@@ -119,6 +134,7 @@
 
 /* ── LiveAlerts: history toggle (the floating button) ─────────────────── */
 .alert-history-toggle {
+  --tone: var(--primary);
   position: fixed;
   right: var(--gap);
   bottom: var(--gap);
@@ -131,23 +147,19 @@
   justify-content: center;
   padding: 0;
   border-radius: 50%;
-  border: 1px solid color-mix(in oklch, var(--primary) 46%, var(--line));
-  background: var(--primary);
+  border: 1px solid color-mix(in oklch, var(--tone) 46%, var(--line));
+  background: var(--tone);
   color: var(--ink);
   cursor: pointer;
   box-shadow: var(--glass-shadow);
   transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 .alert-history-toggle::after { box-shadow: var(--glow-p); }
-.alert-history-toggle:hover { border-color: color-mix(in oklch, var(--primary) 73%, var(--line)); }
+.alert-history-toggle:hover { border-color: color-mix(in oklch, var(--tone) 73%, var(--line)); }
 .alert-history-toggle:hover::after { opacity: 1; }
 .alert-history-toggle:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.alert-history-toggle--warning {
-  background: var(--warning);
-  border-color: color-mix(in oklch, var(--warning) 46%, var(--line));
-}
-.alert-history-toggle--warning:hover { border-color: color-mix(in oklch, var(--warning) 73%, var(--line)); }
-.alert-history-toggle--warning::after { box-shadow: 0 0 27px color-mix(in oklch, var(--warning) 27%, transparent); }
+.alert-history-toggle--warning { --tone: var(--warning); }
+.alert-history-toggle--warning::after { box-shadow: var(--glow-tone); }
 .alert-history-badge {
   position: absolute;
   top: -5px;
@@ -177,6 +189,7 @@
   z-index: 10000;
   display: flex;
   flex-direction: column;
+  margin: 0;
   background: var(--sheen);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
@@ -285,19 +298,27 @@
 .market-pulse .section-kicker { font-family: var(--font-heading); color: var(--text-muted); }
 .market-pulse .section-kicker svg { color: var(--primary); }
 .market-pulse .source-meta {
+  display: inline-flex;
+  align-items: center;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--text-faint);
 }
+/* The live dot: faint and still until quotes arrive, then breathing in the
+   tone of the last fetch (cyan fetching, green live, amber partial). */
 .pulse-live {
   --tone: var(--text-faint);
   position: relative;
   isolation: isolate;
+  display: inline-block;
   flex: none;
   width: 7px;
   height: 7px;
+  margin-right: var(--gap-xs);
   border-radius: 50%;
+  vertical-align: middle;
   background: var(--tone);
+  transition: background var(--transition-fast);
 }
 .pulse-live::after { box-shadow: var(--glow-dot); }
 .pulse-live--fetching { --tone: var(--info); }
@@ -354,6 +375,7 @@
 }
 .market-pulse .pulse-change--up   { color: var(--success); background: var(--wash-ok-14); }
 .market-pulse .pulse-change--down { color: var(--danger); background: var(--wash-bad-14); }
+/* Sparkline stroke is currentColor, so the direction class sets the colour. */
 .market-pulse .pulse-sparkline { color: var(--text-muted); }
 .market-pulse .pulse-sparkline--up   { color: var(--success); }
 .market-pulse .pulse-sparkline--down { color: var(--danger); }
@@ -368,7 +390,7 @@
 
 /* ── StockCard ────────────────────────────────────────────────────────── */
 .stock-card {
-  --tone: var(--text-muted);
+  --tone: var(--secondary);
   position: relative;
   isolation: isolate;
   display: block;
@@ -385,7 +407,7 @@
 .stock-card:hover { background: var(--bg-card-hover); border-color: var(--line-strong); }
 .stock-card:hover::after { opacity: var(--glow-intensity); }
 .stock-card:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.stock-card--zombie { opacity: 0.46; filter: grayscale(1); }
+.stock-card--zombie { opacity: var(--m2); filter: grayscale(1); }
 .stock-card-head { margin-bottom: var(--gap-sm); gap: var(--gap-sm); }
 .stock-card-symbol {
   margin: 0;
@@ -426,7 +448,7 @@
   background: var(--wash-s-07);
   color: var(--text-faint);
 }
-.stock-card-chart svg { opacity: 0.46; }
+.stock-card-chart svg { opacity: var(--m2); }
 .stock-card-foot {
   font-size: 0.85rem;
   padding-top: var(--gap-sm);
@@ -440,6 +462,7 @@
   font-weight: 500;
   color: var(--tone);
 }
+/* Verdict tones. "Buy" is success × m1; "Sell" sits at 54 % (2 × 27) between danger and warning. */
 .stock-card-score--strong-buy  { --tone: var(--success); }
 .stock-card-score--buy         { --tone: oklch(from var(--success) calc(l * var(--m1)) calc(c * var(--m1)) h); }
 .stock-card-score--hold        { --tone: var(--warning); }
@@ -458,12 +481,6 @@
 }
 .stock-card-dot::after { box-shadow: var(--glow-dot); }
 .stock-card-dot--pulse { animation: pierce-pulse var(--t-pulse) ease-in-out infinite; }
-
-/* ── motion: the in-app setting and the OS preference both stop these ─── */
-html[data-motion='reduced'] .alert-toast,
-html[data-motion='reduced'] .alert-drawer,
-html[data-motion='reduced'] .pulse-live,
-html[data-motion='reduced'] .stock-card-dot { animation: none; }
 
 /* ── narrow viewports ─────────────────────────────────────────────────── */
 @media (max-width: 600px) {

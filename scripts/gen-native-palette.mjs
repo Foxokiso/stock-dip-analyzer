@@ -24,7 +24,9 @@
 //
 // Hue-grid index: k is the grid slot with (27*k) mod 360 == hue, searched over
 // the 40 distinct slots (gcd(27, 360) = 9), or -1 when the hue is off-grid.
-// This matches the `k = ...` comments in tokens.css (e.g. 144 deg is k = 32).
+// This is the brief's H(k) = 27*k mod 360 and matches the `k = ...` comments
+// in tokens.css (144 deg is k = 32, 9 deg is k = 27); a literal hue/27 would
+// mark every complement off-grid, so the wrapped search is used instead.
 //
 // Usage: node scripts/gen-native-palette.mjs [--out <path>] [--check]
 //   --out    write the header somewhere else (the verifier uses a temp path)
@@ -126,9 +128,13 @@ function parseMilliseconds(text, name) {
 }
 
 // --------------------------------------------------------------- color math
+// Euclidean remainder in [0, modulus). JS yields -0 for e.g. -40 % 40; that is
+// normalised to +0 because assert/strict compares with Object.is, which would
+// reject the native driver's "0" against a -0 reference (hueDegrees(-40)).
 export function floorMod(value, modulus) {
   const remainder = value % modulus;
-  return remainder < 0 ? remainder + modulus : remainder;
+  if (remainder < 0) return remainder + modulus;
+  return Object.is(remainder, -0) ? 0 : remainder;
 }
 
 function gcd(a, b) { return b === 0 ? a : gcd(b, a % b); }

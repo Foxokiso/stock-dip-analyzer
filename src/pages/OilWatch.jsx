@@ -107,7 +107,7 @@ const BoardRow = ({ row, expanded, onToggle }) => {
                         aria-label={`Score breakdown for ${row.sym}`}
                         aria-expanded={expanded}
                     >
-                        <ChevronDown size={14} />
+                        <ChevronDown size={14} aria-hidden="true" />
                     </button>
                 </td>
             </tr>
@@ -299,11 +299,11 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                 tickers={ENERGY_TICKERS}
             />
 
-            <div className="flex-between oil-heading">
+            <div className="page-heading flex-between oil-heading">
                 <div>
-                    <p className="eyebrow">Energy complex</p>
+                    <p className="eyebrow"><span className="eyebrow-line" aria-hidden="true" />Energy complex</p>
                     <h2 className="text-gradient">
-                        <Droplet size={24} className="oil-title-icon" />
+                        <Droplet size={24} aria-hidden="true" />
                         Oil Watch — Tankers, Refiners &amp; Middle East Flow
                     </h2>
                     <p className="text-muted">
@@ -319,7 +319,7 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                 <div className="oil-boards">
                     <TickerBoard
                         title="Wet Freight — Tanker Fleet"
-                        icon={<Ship size={18} />}
+                        icon={<Ship size={18} aria-hidden="true" />}
                         tone="primary"
                         rows={boardRows(TANKERS)}
                         loading={loading}
@@ -329,7 +329,7 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                     <div className="oil-boards-row">
                         <TickerBoard
                             title="Refiners"
-                            icon={<Factory size={18} />}
+                            icon={<Factory size={18} aria-hidden="true" />}
                             tone="warning"
                             rows={boardRows(REFINERS)}
                             loading={loading}
@@ -339,7 +339,7 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                         />
                         <TickerBoard
                             title="Energy ETFs"
-                            icon={<Layers size={18} />}
+                            icon={<Layers size={18} aria-hidden="true" />}
                             tone="success"
                             rows={boardRows(OIL_ETFS)}
                             loading={loading}
@@ -353,7 +353,7 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                 {/* News column */}
                 <section className="glass-panel oil-news-panel oil-board--secondary" aria-label="Middle East Oil Intelligence" aria-busy={newsLoading}>
                     <div className="oil-board-head oil-news-head">
-                        <h3><span className="oil-board-icon"><Newspaper size={18} /></span>Middle East Oil Intelligence</h3>
+                        <h3><span className="oil-board-icon"><Newspaper size={18} aria-hidden="true" /></span>Middle East Oil Intelligence</h3>
                         {newsLoading && <RefreshCw size={14} className="oil-board-spinner oil-spin" role="img" aria-label="Refreshing headlines" />}
                     </div>
                     <p className="oil-news-intro">

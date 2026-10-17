@@ -26,14 +26,18 @@ double transfer(double linear) {
     return linear <= 0.0031308 ? 12.92 * linear : 1.055 * std::pow(linear, 1.0 / 2.4) - 0.055;
 }
 
+// Rounds half-up to 8 bits. Clamped before the integer cast so +/-infinity are
+// well-defined (255 / 0, as Math.min/Math.max give in JS); NaN maps to 0.
 int channelByte(double gamma) {
-    return std::clamp(static_cast<int>(std::floor(gamma * 255.0 + 0.5)), 0, 255);
+    if (std::isnan(gamma)) return 0;
+    return static_cast<int>(std::clamp(std::floor(gamma * 255.0 + 0.5), 0.0, 255.0));
 }
 }  // namespace
 
 int hueDegrees(int k) { return floorMod(kHueStep * floorMod(k, kGridSlots), 360); }
 
-int complementIndex(int k) { return floorMod(k + kComplementOffset, kGridSlots); }
+// k is reduced to its slot first so k + kComplementOffset cannot overflow.
+int complementIndex(int k) { return floorMod(floorMod(k, kGridSlots) + kComplementOffset, kGridSlots); }
 
 int complement(int k) { return hueDegrees(complementIndex(k)); }
 

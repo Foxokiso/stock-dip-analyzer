@@ -1,15 +1,21 @@
 /* Oil Watch — Pierce/27 skin.
  *
- * Imported by src/pages/OilWatch.jsx. Layout (energy pulse strip, boards
- * column, intelligence feed column) is unchanged; only the style lives here.
- * Rules that restyle shared components (pulse cards, source banner, data
- * notice, quote meta) are scoped under .oil-watch-page so they outrank the
- * legacy rules in index.css on this page only. Role tokens only — no literal
- * colours, px glows or easings — so every theme keeps working. Shades the
- * token sheet does not ship are derived with the 27 rule (alpha at 7 %, or
- * lightness·chroma × 0.46, or 27 % of a pierce colour mixed into --line).
+ * Imported by src/pages/OilWatch.jsx. Layout (energy pulse strip, heading,
+ * boards column, intelligence feed column) is unchanged; only the style lives
+ * here. Panels take their silk from the shared .glass-panel rule, the heading
+ * uses the shared .page-heading recipe and the boards use the same table
+ * recipe as the futures board. Rules that restyle shared components (pulse
+ * cards, source banner, data notice, quote meta) are scoped under
+ * .oil-watch-page so they apply on this page only. Role tokens only — no
+ * literal colours, px glows or easings — so every theme keeps working. Shades
+ * the token sheet does not ship are derived with the 27 rule (alpha at 7 %,
+ * lightness·chroma × 0.46, or 27 % of a pierce colour mixed into --line),
+ * never picked by eye.
  */
 .oil-watch-page {
+  /* The boards' tables scroll inside their panels; the page root must never pass that
+     min-content width up to the shell, or a narrow viewport gets a horizontal scrollbar. */
+  min-width: 0;
   --oil-wash-ok-07: color-mix(in oklch, var(--success) 7%, transparent);
   --oil-wash-bad-07: color-mix(in oklch, var(--danger) 7%, transparent);
   --oil-wash-warn-07: color-mix(in oklch, var(--warning) 7%, transparent);
@@ -18,29 +24,18 @@
   --oil-line-s: color-mix(in oklch, var(--secondary) 27%, var(--line));
   --oil-line-warn: color-mix(in oklch, var(--warning) 27%, var(--line));
   --oil-gutter: 23px;
-  --oil-cell-y: calc(9px * var(--density, 1));
+  --oil-cell-y: calc(8px * var(--density, 1));
 }
 
-/* ── Silk panels (brief rule 1): boards, the feed and the pulse cards ── */
-.oil-watch-page .oil-board,
-.oil-watch-page .oil-news-panel,
-.oil-watch-page .pulse-card {
-  position: relative;
-  min-width: 0;
-  background: var(--sheen);
-  border: var(--glass-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--glass-shadow);
-  transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
-}
-
-/* ── Energy pulse strip (MarketPulse, restyled from here) ── */
+/* ── Energy pulse strip (MarketPulse, restyled from here; its cards are .glass-panel) ── */
 .oil-watch-page .market-pulse { margin-bottom: var(--gap); }
 .oil-watch-page .pulse-heading { margin-bottom: var(--gap-sm); }
 .oil-watch-page .section-kicker { gap: var(--gap-xs); font-size: 10px; letter-spacing: 0.1em; color: var(--text-muted); }
-.oil-watch-page .section-kicker svg { color: var(--primary); animation: pierce-pulse var(--t-pulse) ease-in-out infinite; }
+/* The strip's live state is carried by MarketPulse's own .pulse-live dot; the kicker icon only takes the primary tone. */
+.oil-watch-page .section-kicker svg { color: var(--primary); }
 .oil-watch-page .pulse-grid { gap: var(--gap-sm); }
-.oil-watch-page .pulse-card { padding: var(--gap-sm) 15px; }
+.oil-watch-page .pulse-card { position: relative; min-width: 0; padding: var(--gap-sm) 15px; }
+/* Hover glow lives on a pseudo-element so it can scale with the glow setting. */
 .oil-watch-page .pulse-card::after {
   content: '';
   position: absolute;
@@ -77,24 +72,10 @@
 }
 .oil-watch-page .quote-meta { line-height: 1.7; letter-spacing: 0; }
 
-/* ── Page heading ── */
-.oil-heading { gap: var(--gap-sm); margin-bottom: var(--gap); flex-wrap: wrap; }
-.oil-heading .eyebrow { margin-bottom: var(--gap-xs); }
-.oil-heading .eyebrow::before { content: ''; width: 18px; height: 1px; background: var(--pierce-gradient); }
-.oil-heading h2 {
-  display: flex;
-  align-items: center;
-  gap: var(--gap-xs);
-  margin: 0 0 var(--gap-xs);
-  font-family: var(--font-heading);
-  font-size: 29px;
-  font-weight: 500;
-  letter-spacing: -0.02em;
-}
-.oil-heading p { margin: 0; max-width: 62ch; font-size: 12px; line-height: 1.5; color: var(--text-muted); }
-.oil-title-icon { flex-shrink: 0; color: var(--primary); }
+/* ── Page heading: the shared .page-heading recipe; only the lede width is tuned here ── */
+.oil-heading > div > p:last-child { margin: 0; max-width: 62ch; }
 
-/* ── Source banner and notices (token overrides of the legacy index.css rules) ── */
+/* ── Source banner and notices (token overrides of the shared rules) ── */
 .oil-watch-page .source-banner {
   margin-bottom: var(--gap-sm);
   padding: var(--gap-sm) 17px;
@@ -139,7 +120,12 @@
 .oil-layout { display: flex; gap: var(--gap); flex-wrap: wrap; align-items: flex-start; }
 .oil-boards { flex: 2 1 640px; min-width: 0; display: flex; flex-direction: column; gap: var(--gap); }
 .oil-boards-row { display: flex; gap: var(--gap); flex-wrap: wrap; }
-.oil-board { flex: 1 1 420px; padding: 0; overflow: hidden; }
+/* Panels are positioned so anything absolutely placed inside them (the visually hidden
+   column label sits in the last header cell of a table that scrolls inside the panel)
+   takes the panel as its containing block and is clipped with it instead of widening
+   the page on a narrow viewport. */
+.oil-board, .oil-news-panel { position: relative; }
+.oil-board { flex: 1 1 420px; min-width: 0; padding: 0; overflow: hidden; }
 .oil-board--wide { flex-basis: 560px; }
 /* A board placed directly in the column must size to its rows: the 420 px basis is a width, not a height. */
 .oil-boards > .oil-board { flex: 0 0 auto; }
@@ -178,21 +164,36 @@
 
 /* ── Shared table look (same recipe as the futures board) ── */
 .oil-table-scroll { overflow-x: auto; }
-.oil-table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 12px; text-align: left; }
+.oil-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-family: var(--font-body);
+  font-size: 12px;
+  text-align: left;
+  color: var(--text-main);
+}
 .oil-table th {
   padding: 11px 14px;
   border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-strong);
   background: var(--bg-card-hover);
-  color: var(--text-muted);
+  color: var(--text-faint);
+  font-family: var(--font-heading);
   font-size: 9px;
   font-weight: 500;
-  letter-spacing: 0.7px;
+  letter-spacing: 0.08em;
   text-align: left;
   text-transform: uppercase;
   white-space: nowrap;
 }
-.oil-table td { padding: var(--oil-cell-y) 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.oil-table td {
+  padding: var(--oil-cell-y) 14px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-body);
+  vertical-align: top;
+  transition: border-color var(--transition-fast);
+}
 .oil-table tbody > tr:last-child > td { border-bottom-color: transparent; }
 .oil-table th:first-child, .oil-table td:first-child { padding-left: var(--oil-gutter); }
 .oil-table .numeric { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -202,7 +203,6 @@
 /* Hover: card-hover fill plus a hairline shift. Expanded (selected): the 14 % primary
    wash with a 2 px inset primary edge. No transforms on rows. */
 .oil-row { transition: background var(--transition-fast); }
-.oil-row td { transition: border-color var(--transition-fast); }
 .oil-row:hover { background: var(--bg-card-hover); }
 .oil-row:hover td { border-bottom-color: var(--line-strong); }
 .oil-row.is-expanded, .oil-row.is-expanded:hover { background: var(--wash-p-14); }
@@ -220,7 +220,7 @@
   text-underline-offset: 3px;
   transition: color var(--transition-fast), text-decoration-color var(--transition-fast);
 }
-.oil-symbol:hover { color: var(--primary); text-decoration-color: var(--primary); filter: none; opacity: 1; }
+.oil-symbol:hover { color: var(--primary); text-decoration-color: var(--primary); }
 .oil-symbol:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .oil-symbol-note {
   max-width: 160px;
@@ -316,7 +316,7 @@
 .oil-board-empty { padding: var(--gap-sm) var(--oil-gutter); text-align: center; font-size: 11px; color: var(--text-faint); }
 
 /* ── Middle East intelligence feed ── */
-.oil-news-panel { flex: 1 1 340px; padding: var(--gap-sm) var(--oil-gutter); max-height: 900px; overflow-y: auto; }
+.oil-news-panel { flex: 1 1 340px; min-width: 0; padding: var(--gap-sm) var(--oil-gutter); max-height: 900px; overflow-y: auto; }
 .oil-news-head { padding: 0; margin-bottom: var(--gap-xs); }
 .oil-news-intro { margin: 0 0 var(--gap-xs); font-size: 11px; line-height: 1.5; color: var(--text-muted); }
 .oil-news-panel .source-meta { display: block; margin: 0 0 var(--gap-sm); }
@@ -351,7 +351,7 @@
   pointer-events: none;
   transition: opacity var(--transition-fast);
 }
-.oil-news-item:hover { background: var(--bg-raised); border-color: var(--line-strong); filter: none; opacity: 1; }
+.oil-news-item:hover { background: var(--bg-raised); border-color: var(--line-strong); }
 .oil-news-item:hover::after { opacity: var(--glow-intensity); }
 .oil-news-item:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 /* Keyword-flagged headlines: danger wash and hairline; they carry no cyan glow. */
@@ -405,5 +405,4 @@
 
 @media (max-width: 600px) {
   .oil-watch-page { --oil-gutter: 15px; }
-  .oil-heading h2 { font-size: 23px; }
 }

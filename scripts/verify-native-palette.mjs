@@ -55,6 +55,13 @@ assert.equal(toHex(oklchToSrgb({ l: 0.8664396115356694, c: 0.2948272403370167, h
 assert.equal(toHex(oklchToSrgb({ l: 0.4520137183853429, c: 0.31321437166460125, h: 264.052020638055 })), '#0000ff');
 assert.equal(toHex(oklchToSrgb({ l: 1, c: 0, h: 0 })), '#ffffff');
 assert.equal(toHex(oklchToSrgb({ l: 0, c: 0, h: 0 })), '#000000');
+// Grid wrap for negative k must be +0, not -0: assert/strict uses Object.is, and the
+// native driver prints "0" (regression: hueDegrees(-40) used to compare unequal).
+for (const k of [-80, -40, 0, 40, 80]) {
+  assert.equal(hueDegrees(k), 0, `hueDegrees(${k})`);
+  assert.equal(complement(k - 20), 0, `complement(${k - 20})`);
+}
+assert.equal(hueDegrees(-1), 27 * 39 % 360, 'hueDegrees(-1) wraps to slot 39');
 
 // ── 3. Build the driver cases. ──
 const palette = buildPalette(fs.readFileSync(TOKENS_CSS, 'utf8'));

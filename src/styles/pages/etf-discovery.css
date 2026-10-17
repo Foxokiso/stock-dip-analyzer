@@ -74,10 +74,6 @@
 }
 .etf-awards-page .btn-outline:hover::after,
 .discovery-page .btn-outline:hover::after { opacity: var(--glow-intensity); }
-/* The legacy .btn:active press-scale is declared !important, so silencing the
-   transform (brief rule 2: no jumps or scale motion) has to be as well. */
-.etf-awards-page .btn:active,
-.discovery-page .btn:active { transform: none !important; }
 .etf-awards-page .btn-outline:focus-visible,
 .discovery-page .btn-outline:focus-visible {
   outline: none;
@@ -129,7 +125,7 @@
   padding: var(--gap-sm) 17px;
   border-left: 2px solid var(--warning);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  background: color-mix(in oklch, var(--wash-warn-14) 50%, transparent);
+  background: color-mix(in oklch, var(--warning) 7%, transparent);
   color: var(--text-muted);
   font-size: 12px;
   align-items: center;
@@ -281,6 +277,9 @@
   line-height: 1.7;
   color: var(--text-faint);
 }
+/* The performance and dividend screener views carry no company name, so the
+   price caption would otherwise sit inline right after the symbol link. */
+.etf-awards-page .etf-leader-ident .quote-meta { display: block; }
 .etf-awards-page .etf-leader-metric {
   display: flex;
   flex-direction: column;
@@ -356,6 +355,7 @@
    the 14 % primary wash with a 2 px inset primary edge. No transforms. */
 .discovery-page .discovery-stock-row {
   position: relative;
+  isolation: isolate;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -381,6 +381,7 @@
   content: '';
   position: absolute;
   inset: 0;
+  z-index: -1;
   border-radius: inherit;
   box-shadow: var(--glow-p);
   opacity: var(--glow-intensity);

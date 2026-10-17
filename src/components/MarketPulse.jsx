@@ -2,6 +2,7 @@ import { useState, useEffect, memo } from 'react';
 import { Radio, AlertTriangle } from 'lucide-react';
 import { formatPrice, formatPct, formatQuoteTime } from '../utils/format';
 import { getYahooQuote } from '../utils/marketData';
+import '../styles/components.css';
 
 const electron = typeof window.require === 'function' ? window.require('electron') : null;
 const TRACKED = [
@@ -12,12 +13,19 @@ const TRACKED = [
     { sym: '^VIX', label: 'Volatility index', unit: 'points' },
 ];
 
-const Sparkline = memo(({ closes, color }) => {
+// '' when there is no verified change; the semantic colour lives in components.css.
+const directionOf = (changePct) => (changePct == null ? '' : changePct >= 0 ? 'up' : 'down');
+
+const Sparkline = memo(({ closes, direction }) => {
     const width = 120, height = 26, pad = 2;
     if (!closes || closes.length < 2) return <div className="pulse-sparkline-empty" aria-hidden="true" />;
     const min = Math.min(...closes), span = Math.max(...closes) - min || 1;
     const points = closes.map((value, index) => `${(pad + index / (closes.length - 1) * (width - pad * 2)).toFixed(1)},${(pad + (1 - (value - min) / span) * (height - pad * 2)).toFixed(1)}`).join(' ');
-    return <svg className="pulse-sparkline" viewBox={`0 0 ${width} ${height}`} aria-hidden="true"><polyline points={points} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" /></svg>;
+    return (
+        <svg className={`pulse-sparkline${direction ? ` pulse-sparkline--${direction}` : ''}`} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+            <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+        </svg>
+    );
 });
 
 const MarketPulse = ({ autoRefreshInterval = 0, title = 'Market Pulse', tickers = TRACKED }) => {
@@ -61,23 +69,33 @@ const MarketPulse = ({ autoRefreshInterval = 0, title = 'Market Pulse', tickers 
         return () => { cancelled = true; if (timer) clearInterval(timer); };
     }, [autoRefreshInterval, tickers]);
 
+    // Live dot: breathes while fetching and while verified quotes are on screen;
+    // amber when the last pass was partial; still and faint when nothing loaded.
+    const liveState = loading ? 'fetching' : fetchedAt ? (error ? 'partial' : 'live') : '';
+
     return (
         <section className="market-pulse" aria-label={title}>
             <div className="pulse-heading">
                 <span className="section-kicker"><Radio size={14} /> {title}</span>
-                <span className="source-meta">Yahoo Finance · {loading ? 'Fetching…' : fetchedAt ? `Fetched ${formatQuoteTime(fetchedAt)}` : 'No quotes loaded'}</span>
+                <span className="source-meta">
+                    <span className={`pulse-live${liveState ? ` pulse-live--${liveState}` : ''}`} aria-hidden="true" />
+                    Yahoo Finance · {loading ? 'Fetching…' : fetchedAt ? `Fetched ${formatQuoteTime(fetchedAt)}` : 'No quotes loaded'}
+                </span>
             </div>
             {error && <p className="data-notice data-status" role="status"><AlertTriangle size={13} />{error}</p>}
             <div className="pulse-grid">
                 {tickers.map(({ sym, label, unit }) => {
                     const quote = quotes[sym];
-                    const changeColor = quote?.changePct == null ? 'var(--text-muted)' : quote.changePct >= 0 ? 'var(--success)' : 'var(--danger)';
+                    const direction = directionOf(quote?.changePct);
                     const price = quote?.price == null ? '—' : unit === 'points' ? `${quote.price.toFixed(2)}` : quote.currency && quote.currency !== 'USD' ? `${quote.price.toFixed(2)} ${quote.currency}` : formatPrice(quote.price);
                     return (
                         <article key={sym} className={`pulse-card glass-panel${quote?.stale ? ' data-stale' : ''}`}>
                             <div className="pulse-card-label"><span>{label}</span><span>{sym}</span></div>
-                            <div className="pulse-values"><span className="pulse-price">{price}</span><span className="pulse-change" style={{ color: changeColor }}>{formatPct(quote?.changePct)}</span></div>
-                            <Sparkline closes={quote?.closes} color={changeColor} />
+                            <div className="pulse-values">
+                                <span className="pulse-price">{price}</span>
+                                <span className={`pulse-change${direction ? ` pulse-change--${direction}` : ''}`}>{formatPct(quote?.changePct)}</span>
+                            </div>
+                            <Sparkline closes={quote?.closes} direction={direction} />
                             <div className="quote-meta" title={quote ? `Quote: ${formatQuoteTime(quote.quotedAt)} · Fetched: ${formatQuoteTime(quote.fetchedAt)}` : 'No verified quote available'}>
                                 {unit && <span>{unit} · </span>}
                                 {quote?.stale ? 'Stale · ' : ''}{quote ? `Quote ${formatQuoteTime(quote.quotedAt)}` : loading ? 'Fetching quote…' : 'Unavailable'}
