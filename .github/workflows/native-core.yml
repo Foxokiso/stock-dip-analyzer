@@ -2,12 +2,18 @@ name: Native C++ core parity
 
 on:
   push:
-    branches: [feat/cpp-native-reengineering]
+    branches: [feat/cpp-native-reengineering, v2/pierce27]
   pull_request:
     paths:
       - 'native/**'
-      - 'scripts/verify-native-analysis.mjs'
+      - 'scripts/verify-native-*.mjs'
+      - 'scripts/gen-native-palette.mjs'
       - 'src/utils/scoring.js'
+      - 'src/utils/format.js'
+      - 'src/utils/marketData.js'
+      - 'src/utils/oilNews.js'
+      - 'src/services/futures.js'
+      - 'src/styles/tokens.css'
       - '.github/workflows/native-core.yml'
 
 permissions:

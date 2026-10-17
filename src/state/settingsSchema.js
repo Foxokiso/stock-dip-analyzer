@@ -76,7 +76,7 @@ export const DEFAULT_SETTINGS = deepFreeze({
   },
   data: {
     chartCacheSeconds: 45,    // mirrors main.cjs; informational unless wired over IPC
-    requestTimeoutSeconds: 15,
+    requestTimeoutSeconds: 12,    // mirrors AbortSignal.timeout(12000) in main.cjs
   },
 });
 
@@ -190,6 +190,8 @@ const migrateLegacy = (storage) => {
   if (Array.isArray(sectors)) patch.scanner.excludedSectors = sectors.filter(item => typeof item === 'string');
   const refresh = readJson(storage, 'autoRefreshInterval');
   if (typeof refresh === 'number' && Number.isFinite(refresh)) patch.scanner.refreshMinutes = refresh;
+  const depth = readJson(storage, 'dipAnalyzerChartCount');
+  if (Number.isInteger(depth) && depth > 0) patch.scanner.scanDepth = depth;
   return patch;
 };
 

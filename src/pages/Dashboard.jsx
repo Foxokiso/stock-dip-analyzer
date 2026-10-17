@@ -56,7 +56,8 @@ const dispatchAlertsFromAnalysis = (symbol, analysis, quote) => {
     }
 
     window.dispatchEvent(new CustomEvent('stock-alert', {
-        detail: { symbol, type: typeStr, color: alertColor, message, timestamp: Date.now(), quotedAt: quote.quotedAt, source: quote.source, delayMinutes: quote.delayMinutes }
+        detail: { symbol, type: typeStr, color: alertColor, message, timestamp: Date.now(), quotedAt: quote.quotedAt, source: quote.source, delayMinutes: quote.delayMinutes,
+            score: Number.isFinite(analysis.score) ? analysis.score : null }
     }));
 };
 

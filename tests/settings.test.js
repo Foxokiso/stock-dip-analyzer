@@ -37,13 +37,15 @@ test('legacy migration: old keys are folded into the v2 document once', () => {
     dipAnalyzerTheme: 'theme-anime',
     excludedSectors: JSON.stringify(['energy', 'utilities', 7, null]),
     autoRefreshInterval: '15',
+    dipAnalyzerChartCount: '250',
   });
   const settings = loadSettings(storage);
   assert.equal(settings.appearance.theme, 'theme-anime');
+  assert.equal(settings.scanner.scanDepth, 250);
   assert.deepEqual(settings.scanner.excludedSectors, ['energy', 'utilities']);
   assert.equal(settings.scanner.refreshMinutes, 15);
   // Everything the legacy keys did not cover keeps its default.
-  assert.equal(settings.scanner.scanDepth, DEFAULT_SETTINGS.scanner.scanDepth);
+  assert.equal(settings.scanner.sort, DEFAULT_SETTINGS.scanner.sort);
   assert.deepEqual(settings.alerts, DEFAULT_SETTINGS.alerts);
   assert.equal(settings.version, SETTINGS_VERSION);
 });
@@ -54,9 +56,11 @@ test('legacy migration: the V2 theme key wins over the original, malformed value
     dipAnalyzerThemeV2: 'theme-majestic',
     excludedSectors: '{not json',
     autoRefreshInterval: '"soon"',
+    dipAnalyzerChartCount: '"lots"',
   });
   const settings = loadSettings(storage);
   assert.equal(settings.appearance.theme, 'theme-majestic');
+  assert.equal(settings.scanner.scanDepth, DEFAULT_SETTINGS.scanner.scanDepth);
   assert.deepEqual(settings.scanner.excludedSectors, []);
   assert.equal(settings.scanner.refreshMinutes, 0);
 });

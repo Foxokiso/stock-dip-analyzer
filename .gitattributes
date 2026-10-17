@@ -1,0 +1,2 @@
+# The palette header is compared byte-for-byte against its generator output.
+native/modules/palette/include/dip/palette.hpp text eol=lf
