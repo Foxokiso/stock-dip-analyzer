@@ -2,7 +2,7 @@ import * as cheerio from 'cheerio';
 import fs from 'fs';
 
 async function scrapeFinviz() {
-    const html = fs.readFileSync('finviz_output.html', 'utf8');
+    const html = fs.readFileSync('tests/fixtures/finviz-overview-2026.html', 'utf8');
     const $ = cheerio.load(html);
 
     const stocks = [];

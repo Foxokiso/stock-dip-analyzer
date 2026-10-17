@@ -1,6 +1,6 @@
-/* Default workstation theme: solid surfaces keep large market boards fast. */
-.theme-majestic,
-:root {
+/* "Modern" workstation theme: solid surfaces keep large market boards fast.
+   The default theme (Pierce/27) and shared role tokens live in styles/tokens.css. */
+.theme-majestic {
   --bg-dark: #101419;
   --bg-card: #171d24;
   --bg-card-hover: #1c242d;

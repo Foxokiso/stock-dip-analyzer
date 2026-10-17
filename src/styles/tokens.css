@@ -1,0 +1,166 @@
+/* Pierce/27 — default design tokens.
+ *
+ * Hue grid: H(k) = 27·k mod 360 for integer k. Because 27·20 = 540 ≡ 180,
+ * the complement of grid hue k is grid hue k + 20, so every "pierce" pair
+ * below is two multiples of 27 that sit exactly opposite each other.
+ * Hues are OKLCH hue angles (perceptually even), not HSL.
+ *
+ * Tints, shades and washes are never hand-picked: they multiply a base
+ * color's lightness/chroma or alpha by the factors ×0.73, ×0.46, ×0.27
+ * (1 − 0.27, 1 − 2·0.27, 0.27). Timing uses the same scale (270 ms, 540 ms,
+ * 2.7 s). Loaded before index.css so component rules inherit these values.
+ */
+:root,
+.theme-pierce27 {
+  --k: 27;
+
+  /* ── hue grid: primary pair, secondary pair, tertiary pair, accent pair ── */
+  --h-p: 324;  /* k = 12  magenta */
+  --h-px: 144; /* k = 32  green   — complement of --h-p  */
+  --h-s: 189;  /* k = 7   cyan    */
+  --h-sx: 9;   /* k = 27  red     — complement of --h-s  */
+  --h-t: 270;  /* k = 10  violet  */
+  --h-tx: 90;  /* k = 30  yellow  — complement of --h-t  */
+  --h-a: 54;   /* k = 2   amber   */
+  --h-ax: 234; /* k = 22  blue    — complement of --h-a  */
+
+  /* ── multiplication factors ── */
+  --m1: 0.73;
+  --m2: 0.46;
+  --m3: 0.27;
+
+  /* ── pierce colors: high chroma, meant to cut through the ink ── */
+  --pierce-magenta: oklch(0.70 0.25 var(--h-p));
+  --pierce-green:   oklch(0.84 0.24 var(--h-px));
+  --pierce-cyan:    oklch(0.86 0.14 var(--h-s));
+  --pierce-red:     oklch(0.64 0.24 var(--h-sx));
+  --pierce-violet:  oklch(0.62 0.21 var(--h-t));
+  --pierce-yellow:  oklch(0.92 0.18 var(--h-tx));
+  --pierce-amber:   oklch(0.79 0.17 var(--h-a));
+  --pierce-blue:    oklch(0.60 0.19 var(--h-ax));
+
+  /* ── inverted ground: near-black ink carrying the violet grid hue ── */
+  --bg-dark:       oklch(0.13 0.018 var(--h-t));
+  --bg-card:       oklch(0.17 0.021 var(--h-t));
+  --bg-card-hover: oklch(0.205 0.025 var(--h-t));
+  --bg-raised:     oklch(0.235 0.028 var(--h-t));
+  --line:          oklch(0.30 0.035 var(--h-t));
+  --line-strong:   oklch(0.40 0.05 var(--h-t));
+  --text-main:     oklch(0.965 0.012 var(--h-tx));
+  --text-muted:    oklch(0.70 0.03 var(--h-t));
+  --text-faint:    oklch(0.52 0.03 var(--h-t));
+  --ink:           oklch(0.10 0.015 var(--h-t)); /* text on pierce fills */
+
+  /* ── semantic roles consumed by every component ── */
+  --primary:     var(--pierce-magenta);
+  --primary-x:   var(--pierce-green);   /* the primary's complement */
+  --secondary:   var(--pierce-cyan);
+  --secondary-x: var(--pierce-red);     /* the secondary's complement */
+  --tertiary:    var(--pierce-violet);
+  --tertiary-x:  var(--pierce-yellow);
+  --accent:      var(--pierce-amber);
+  --accent-x:    var(--pierce-blue);
+  --success:     var(--pierce-green);
+  --danger:      var(--pierce-red);
+  --warning:     var(--pierce-amber);
+  --info:        var(--pierce-cyan);
+  --primary-gradient:   linear-gradient(120deg, var(--pierce-magenta), var(--pierce-violet));
+  --secondary-gradient: linear-gradient(120deg, var(--pierce-cyan), var(--pierce-blue));
+  --pierce-gradient:    linear-gradient(90deg, var(--pierce-magenta), var(--pierce-cyan), var(--pierce-green));
+
+  /* ── multiplied tints (relative color syntax: l and c scaled together) ── */
+  --primary-73:   oklch(from var(--primary) calc(l * var(--m1)) calc(c * var(--m1)) h);
+  --primary-46:   oklch(from var(--primary) calc(l * var(--m2)) calc(c * var(--m2)) h);
+  --primary-27:   oklch(from var(--primary) calc(l * var(--m3)) calc(c * var(--m3)) h);
+  --primary-x-73: oklch(from var(--primary-x) calc(l * var(--m1)) calc(c * var(--m1)) h);
+  --primary-x-46: oklch(from var(--primary-x) calc(l * var(--m2)) calc(c * var(--m2)) h);
+  --secondary-73: oklch(from var(--secondary) calc(l * var(--m1)) calc(c * var(--m1)) h);
+  --secondary-46: oklch(from var(--secondary) calc(l * var(--m2)) calc(c * var(--m2)) h);
+  --success-46:   oklch(from var(--success) calc(l * var(--m2)) calc(c * var(--m2)) h);
+  --danger-46:    oklch(from var(--danger) calc(l * var(--m2)) calc(c * var(--m2)) h);
+
+  /* ── alpha washes at 27-multiples (for fills, hovers, selection) ── */
+  --wash-p-27: color-mix(in oklch, var(--primary) 27%, transparent);
+  --wash-p-14: color-mix(in oklch, var(--primary) 14%, transparent);
+  --wash-p-07: color-mix(in oklch, var(--primary) 7%, transparent);
+  --wash-px-27: color-mix(in oklch, var(--primary-x) 27%, transparent);
+  --wash-px-14: color-mix(in oklch, var(--primary-x) 14%, transparent);
+  --wash-px-07: color-mix(in oklch, var(--primary-x) 7%, transparent);
+  --wash-s-27: color-mix(in oklch, var(--secondary) 27%, transparent);
+  --wash-s-14: color-mix(in oklch, var(--secondary) 14%, transparent);
+  --wash-s-07: color-mix(in oklch, var(--secondary) 7%, transparent);
+  --wash-ok-14: color-mix(in oklch, var(--success) 14%, transparent);
+  --wash-bad-14: color-mix(in oklch, var(--danger) 14%, transparent);
+  --wash-warn-14: color-mix(in oklch, var(--warning) 14%, transparent);
+
+  /* ── surfaces: a silk sheen is a 2% lift at the top of every panel ── */
+  --sheen: linear-gradient(180deg, color-mix(in oklch, var(--bg-card) 98%, white) 0%, var(--bg-card) 27%);
+  --glass-border: 1px solid color-mix(in oklch, var(--primary) 27%, var(--line));
+  --glass-shadow: 0 0 0 1px color-mix(in oklch, var(--primary) 7%, transparent),
+                  0 27px 54px -27px oklch(0 0 0 / 0.73);
+  --glass-blur: none;
+  --glow-p: 0 0 27px var(--wash-p-27);
+  --glow-px: 0 0 27px var(--wash-px-27);
+  --glow-s: 0 0 27px var(--wash-s-27);
+  --focus-ring: 0 0 0 2px var(--bg-dark), 0 0 0 4px var(--secondary);
+
+  /* ── page ground: two complementary glows at opposite corners, 7% ── */
+  --bg-image:
+    radial-gradient(ellipse 54% 46% at 0% 0%, var(--wash-p-07), transparent 73%),
+    radial-gradient(ellipse 54% 46% at 100% 100%, var(--wash-px-07), transparent 73%);
+
+  /* ── type ── */
+  --font-heading: 'Inter', 'Segoe UI Variable Display', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Inter', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Code', 'Consolas', ui-monospace, 'SF Mono', monospace;
+
+  /* ── motion: silk easing, 27-based durations ── */
+  --ease-silk: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-pierce: cubic-bezier(0.7, 0, 0.3, 1);
+  --t-fast: 270ms;
+  --t-slow: 540ms;
+  --t-pulse: 2.7s;
+  --transition-fast: var(--t-fast) var(--ease-silk);
+  --transition-normal: var(--t-slow) var(--ease-silk);
+
+  /* ── geometry ── */
+  --radius: 9px;
+  --radius-sm: 6px;
+  --radius-lg: 13px;
+  --gap: 27px;
+  --gap-sm: 13px;
+  --gap-xs: 7px;
+
+  /* ── user-tunable (Settings → Appearance writes these on <html>) ── */
+  --glow-intensity: 0.54;
+  --density: 1;
+}
+
+/* Reduced motion: honour the OS and the in-app setting the same way. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast: 0ms; --t-slow: 0ms; --t-pulse: 0s; }
+}
+html[data-motion='reduced'] { --t-fast: 0ms; --t-slow: 0ms; --t-pulse: 0s; }
+html[data-motion='full'] { --t-fast: 270ms; --t-slow: 540ms; --t-pulse: 2.7s; }
+html[data-density='compact'] { --density: 0.73; --gap: 19px; --gap-sm: 9px; --gap-xs: 5px; }
+
+/* The 2.7 s pulse used by live indicators. */
+@keyframes pierce-pulse {
+  0%, 100% { opacity: 0.46; }
+  50% { opacity: 1; }
+}
+
+/* Alternate themes keep the same role names so every component still works. */
+.theme-majestic {
+  --h-p: 162; --h-px: 342; --h-s: 243; --h-sx: 63; --h-t: 243; --h-tx: 63; --h-a: 81; --h-ax: 261;
+  --pierce-magenta: #a8ddcb; --pierce-green: #d9a8ba; --pierce-cyan: #a6b6cc; --pierce-red: #ed979a;
+  --pierce-violet: #a6b6cc; --pierce-yellow: #d7b56f; --pierce-amber: #d7b56f; --pierce-blue: #8fa8d8;
+  --bg-dark: #101419; --bg-card: #171d24; --bg-card-hover: #1c242d; --bg-raised: #222b35;
+  --line: #2a333d; --line-strong: #3a4652; --text-main: #edf0e9; --text-muted: #96a1ad; --text-faint: #6b7680; --ink: #030409;
+  --primary-gradient: linear-gradient(120deg, #bce6d8, #a8ddcb);
+  --secondary-gradient: linear-gradient(120deg, #bdc9d9, #a6b6cc);
+  --pierce-gradient: linear-gradient(90deg, #a8ddcb, #a6b6cc);
+  --sheen: var(--bg-card);
+  --glass-border: 1px solid #2a333d; --glass-shadow: none; --glow-p: none; --glow-px: none; --glow-s: none;
+  --bg-image: none;
+}

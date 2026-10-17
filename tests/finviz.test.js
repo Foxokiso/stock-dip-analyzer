@@ -37,7 +37,7 @@ test('rejects numeric tickers and quote-link text mismatch', () => {
 });
 
 test('actual saved Finviz overview does not emit a layout row as symbol 1', () => {
-    const html = readFileSync(new URL('../finviz_output.html', import.meta.url), 'utf8');
+    const html = readFileSync(new URL('./fixtures/finviz-overview-2026.html', import.meta.url), 'utf8');
     const stocks = parseFinvizScreener(html, options);
     assert.ok(stocks.length > 0);
     assert.ok(stocks.every(stock => /^[A-Z][A-Z0-9.-]*$/.test(stock.symbol)));
