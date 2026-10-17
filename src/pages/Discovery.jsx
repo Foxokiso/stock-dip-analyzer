@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { parseFinvizScreener } from '../utils/finviz';
 import { formatPrice, formatPct, formatCompact, formatQuoteTime } from '../utils/format';
 import { mountTradingViewWidget } from '../utils/tradingView';
+import '../styles/pages/etf-discovery.css';
 
 const normalizeSector = (sector) => sector.toLowerCase().replace(/[^a-z]/g, '');
 
@@ -89,13 +90,16 @@ const Discovery = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                     <h3><Zap size={18} /> Unusual volume {loading && <RefreshCw size={13} className="spin" />}</h3>
                     <p className="text-muted">Select a ticker to inspect its chart.</p>
                     {stocks.length === 0 && <div className="desk-empty">{loading ? 'Scanning the market…' : error && !fetchedAt ? 'Scanner unavailable.' : 'No tickers match the current filters.'}</div>}
-                    {stocks.map(stock => (
-                        <div key={stock.symbol} className={`discovery-stock-row${activeWidgetSymbol === stock.symbol ? ' is-selected' : ''}`}>
-                            <button type="button" onClick={() => setActiveWidgetSymbol(stock.symbol)} className="discovery-ticker-button"><strong>{stock.symbol}</strong><span className="quote-meta">{stock.sector}</span></button>
-                            <div className="discovery-stock-values"><span>{formatPrice(stock.price)}</span><span className={stock.change == null ? 'text-muted' : stock.change >= 0 ? 'text-success' : 'text-danger'}>{formatPct(stock.change)}</span><span className="quote-meta">Vol {formatCompact(stock.volume)}</span></div>
-                            <Link to={`/stock/${stock.symbol}`} title={`View ${stock.symbol} analysis`} aria-label={`View ${stock.symbol} analysis`}><Activity size={16} /></Link>
-                        </div>
-                    ))}
+                    {stocks.map(stock => {
+                        const isSelected = activeWidgetSymbol === stock.symbol;
+                        return (
+                            <div key={stock.symbol} className={`discovery-stock-row${isSelected ? ' is-selected' : ''}`}>
+                                <button type="button" onClick={() => setActiveWidgetSymbol(stock.symbol)} className="discovery-ticker-button" aria-pressed={isSelected}><strong>{stock.symbol}</strong><span className="quote-meta">{stock.sector}</span></button>
+                                <div className="discovery-stock-values"><span>{formatPrice(stock.price)}</span><span className={stock.change == null ? 'text-muted' : stock.change >= 0 ? 'text-success' : 'text-danger'}>{formatPct(stock.change)}</span><span className="quote-meta">Vol {formatCompact(stock.volume)}</span></div>
+                                <Link to={`/stock/${stock.symbol}`} className="discovery-analysis-link" title={`View ${stock.symbol} analysis`} aria-label={`View ${stock.symbol} analysis`}><Activity size={16} /></Link>
+                            </div>
+                        );
+                    })}
                 </section>
             </div>
         </div>

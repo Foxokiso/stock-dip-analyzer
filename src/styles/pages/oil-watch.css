@@ -1,0 +1,176 @@
+/* Oil Watch — Pierce/27 skin.
+ * Layout (pulse strip, boards column, news column) is unchanged; only the
+ * style lives here. Role tokens only: no literal colours, px glows or easings.
+ * Shades that the token sheet does not ship are derived with the 27 rule
+ * (alpha at 7 %, lightness·chroma × 0.46) from the active theme's role tokens.
+ */
+.oil-watch-page {
+  --oil-wash-ok-07: color-mix(in oklch, var(--success) 7%, transparent);
+  --oil-wash-bad-07: color-mix(in oklch, var(--danger) 7%, transparent);
+  --oil-warning-46: oklch(from var(--warning) calc(l * var(--m2)) calc(c * var(--m2)) h);
+  --oil-gutter: 23px;
+}
+
+/* ── Page heading ── */
+.oil-heading { margin-bottom: var(--gap); gap: var(--gap-sm); flex-wrap: wrap; }
+.oil-heading h2 {
+  display: flex; align-items: center; gap: var(--gap-xs);
+  margin: 0 0 var(--gap-xs);
+  font-family: var(--font-heading); font-weight: 500; letter-spacing: -0.4px;
+}
+.oil-heading p { margin: 0; font-size: 12px; line-height: 1.5; }
+.oil-title-icon { color: var(--primary); flex-shrink: 0; }
+
+/* ── Two-column body: boards left, intelligence feed right ── */
+.oil-layout { display: flex; gap: var(--gap); flex-wrap: wrap; align-items: flex-start; }
+.oil-boards { flex: 2 1 640px; min-width: 0; display: flex; flex-direction: column; gap: var(--gap); }
+.oil-boards-row { display: flex; gap: var(--gap); flex-wrap: wrap; }
+
+/* ── Silk panels (brief rule 1) ── */
+.oil-watch-page .oil-board,
+.oil-watch-page .oil-news-panel {
+  background: var(--sheen);
+  border: var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
+  min-width: 0;
+}
+.oil-board { flex: 1 1 420px; padding: 0; overflow: hidden; }
+.oil-board--wide { flex-basis: 560px; }
+/* A board placed directly in the column must size to its rows: the 420 px basis is a width, not a height. */
+.oil-boards > .oil-board { flex: 0 0 auto; }
+
+.oil-board-head {
+  display: flex; align-items: center; gap: var(--gap-xs);
+  padding: var(--gap-sm) var(--oil-gutter) var(--gap-xs);
+}
+.oil-board-head h3 {
+  display: flex; align-items: center; gap: var(--gap-xs);
+  margin: 0; color: var(--text-main);
+  font-family: var(--font-heading); font-size: 15px; font-weight: 500; letter-spacing: -0.2px;
+}
+.oil-board-icon { display: inline-flex; flex-shrink: 0; }
+.oil-board--primary .oil-board-icon { color: var(--primary); }
+.oil-board--warning .oil-board-icon { color: var(--warning); }
+.oil-board--success .oil-board-icon { color: var(--success); }
+.oil-board--secondary .oil-board-icon { color: var(--secondary); }
+.oil-board-spinner { color: var(--text-muted); flex-shrink: 0; }
+
+/* ── Shared table look (same recipe as the futures board) ── */
+.oil-table-scroll { overflow-x: auto; }
+.oil-table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 12px; text-align: left; }
+.oil-table th {
+  text-align: left; background: var(--bg-card-hover); color: var(--text-muted);
+  font-size: 9px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.7px;
+  padding: 11px 14px; white-space: nowrap;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+.oil-table td { padding: 8px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.oil-table th:first-child, .oil-table td:first-child { padding-left: var(--oil-gutter); }
+.oil-table .numeric { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.oil-table .centered { text-align: center; }
+.oil-table .oil-expand-cell { padding-left: 4px; padding-right: 10px; }
+
+/* Hover: card-hover fill plus a hairline shift; expanded: 14 % wash with a 2 px inset edge. No transforms on rows. */
+.oil-row { transition: background var(--transition-fast); }
+.oil-row td { transition: border-color var(--transition-fast); }
+.oil-row:hover { background: var(--bg-card-hover); }
+.oil-row:hover td { border-bottom-color: var(--line-strong); }
+.oil-row.is-expanded { background: var(--wash-p-14); }
+.oil-row.is-expanded td { border-bottom-color: transparent; }
+.oil-row.is-expanded td:first-child { box-shadow: inset 2px 0 var(--primary); }
+
+.oil-symbol {
+  font-family: var(--font-mono); font-weight: 600; color: var(--text-main);
+  text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast), text-decoration-color var(--transition-fast);
+}
+.oil-symbol:hover { color: var(--primary); text-decoration-color: var(--primary); filter: none; opacity: 1; }
+.oil-symbol:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.oil-symbol-note {
+  max-width: 160px; margin-top: 2px; font-size: 10px; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.oil-price { font-weight: 600; color: var(--text-main); }
+.oil-stale { color: var(--warning); }
+
+.oil-up { color: var(--success); }
+.oil-down { color: var(--danger); }
+.oil-flat { color: var(--text-muted); }
+
+/* Technical rating chip: tone follows the verdict label, never a colour string from the scorer. */
+.oil-rating {
+  display: inline-block; padding: 2px 8px; border-radius: var(--radius);
+  font-size: 10px; font-weight: 600; letter-spacing: 0.3px; white-space: nowrap;
+  color: var(--text-muted); background: var(--bg-raised); border: 1px solid var(--line-strong);
+}
+.oil-rating--strong-buy { color: var(--success); background: var(--wash-ok-14); border-color: var(--success-46); }
+.oil-rating--buy { color: var(--success); background: var(--oil-wash-ok-07); border-color: var(--success-46); }
+.oil-rating--hold { color: var(--warning); background: var(--wash-warn-14); border-color: var(--oil-warning-46); }
+.oil-rating--sell { color: var(--danger); background: var(--oil-wash-bad-07); border-color: var(--danger-46); }
+.oil-rating--strong-sell { color: var(--danger); background: var(--wash-bad-14); border-color: var(--danger-46); }
+.oil-rating--muted { color: var(--text-muted); background: var(--bg-raised); border-color: var(--line-strong); }
+
+.oil-expand {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 3px; border-radius: var(--radius-sm);
+  background: transparent; border: 1px solid transparent; color: var(--text-muted); cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
+}
+.oil-expand:hover { color: var(--text-main); background: var(--bg-raised); border-color: var(--line); }
+.oil-expand:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.oil-expand svg { transition: transform var(--transition-fast); }
+.oil-expand[aria-expanded='true'] svg { transform: rotate(180deg); }
+
+/* Score breakdown row */
+.oil-row-detail td { padding: var(--gap-sm) var(--oil-gutter); background: var(--bg-dark); }
+.oil-factors { display: flex; flex-direction: column; gap: var(--gap-xs); }
+.oil-factor { display: flex; gap: 10px; align-items: baseline; font-size: 11px; }
+.oil-factor strong { font-weight: 500; color: var(--text-main); }
+.oil-factor-detail { font-size: 11px; color: var(--text-muted); }
+.oil-factor-points {
+  min-width: 34px; padding: 1px 6px; border-radius: var(--radius-sm); text-align: center;
+  font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.oil-factor-points--up { color: var(--success); background: var(--wash-ok-14); }
+.oil-factor-points--down { color: var(--danger); background: var(--wash-bad-14); }
+.oil-factor-points--flat { color: var(--text-muted); background: var(--bg-raised); }
+.oil-factor-note { font-size: 10px; font-style: italic; color: var(--text-faint); }
+.oil-board-empty { padding: var(--gap-sm) var(--oil-gutter); text-align: center; font-size: 11px; color: var(--text-muted); }
+
+/* ── Middle East intelligence feed ── */
+.oil-news-panel { flex: 1 1 340px; padding: var(--gap-sm) var(--oil-gutter); max-height: 900px; overflow-y: auto; }
+.oil-news-head { padding: 0; margin-bottom: var(--gap-xs); }
+.oil-news-intro { margin: 0 0 var(--gap-xs); font-size: 11px; line-height: 1.5; color: var(--text-muted); }
+.oil-news-panel .source-meta { display: block; margin: 0 0 var(--gap-sm); }
+.oil-news-stale { margin: 0 0 var(--gap-sm); font-size: 10px; color: var(--warning); }
+.oil-news-empty { padding: var(--gap) 0; text-align: center; font-size: 11px; color: var(--text-muted); }
+.oil-news-list { display: flex; flex-direction: column; gap: var(--gap-xs); }
+.oil-news-item {
+  display: block; padding: 10px 12px; border-radius: var(--radius);
+  color: var(--text-main); text-decoration: none;
+  background: var(--bg-card-hover); border: 1px solid var(--line);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.oil-news-item:hover { background: var(--bg-raised); border-color: var(--line-strong); filter: none; opacity: 1; }
+.oil-news-item:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.oil-news-item--high { background: var(--oil-wash-bad-07); border-color: var(--danger-46); }
+.oil-news-item--high:hover { background: var(--wash-bad-14); border-color: var(--danger); }
+.oil-news-meta {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--gap-xs);
+  margin-bottom: 4px; font-size: 10px; color: var(--text-muted);
+}
+.oil-news-title { font-size: 12px; line-height: 1.45; color: var(--text-main); }
+
+/* HIGH IMPACT badge: danger text on the 14 % danger wash with a hairline danger-46 border. */
+.oil-badge-impact {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 7px; border-radius: var(--radius-sm);
+  font-size: 9px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; white-space: nowrap;
+  color: var(--danger); background: var(--wash-bad-14); border: 1px solid var(--danger-46);
+}
+
+@media (max-width: 600px) {
+  .oil-watch-page { --oil-gutter: 15px; }
+}

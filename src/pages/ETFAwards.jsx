@@ -3,6 +3,7 @@ import { Trophy, TrendingUp, DollarSign, Percent, ExternalLink, RefreshCw } from
 import { Link } from 'react-router-dom';
 import { parseFinvizScreener } from '../utils/finviz';
 import { formatPrice, formatPct, formatCompact, formatQuoteTime } from '../utils/format';
+import '../styles/pages/etf-discovery.css';
 
 const CATEGORIES = [
     { key: 'performance', title: 'One month leaders', field: 'perfMonth', metric: '1 month return', view: '141', order: '-perf4w', icon: TrendingUp },
@@ -57,7 +58,7 @@ const ETFAwards = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                 <div><p className="eyebrow">Fund research</p><h2><Trophy size={24} /> ETF leaders</h2><p className="text-muted">Finviz rankings with the corresponding return or dividend yield displayed.</p></div>
                 <a href="https://etfdb.com/" target="_blank" rel="noopener noreferrer" className="btn btn-outline"><ExternalLink size={16} /> ETF Database</a>
             </div>
-            <div className="source-banner"><span>Finviz · US equities delayed 1 minute · Quote timestamp not supplied</span>{loading && <span className="flex-center" style={{ gap: '0.4rem' }}><RefreshCw size={13} className="spin" /> Fetching rankings…</span>}</div>
+            <div className="source-banner"><span>Finviz · US equities delayed 1 minute · Quote timestamp not supplied</span>{loading && <span className="etf-fetch-status" role="status"><RefreshCw size={13} className="spin" /> Fetching rankings…</span>}</div>
             {hasRatingFilter && <p className="data-notice">ETF rankings do not carry recovery ratings. Select All Ratings, Bullish, or Bearish to view these lists.</p>}
             <div className="etf-leaders-grid">
                 {CATEGORIES.map(category => {
@@ -70,12 +71,16 @@ const ETFAwards = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                             <p className="source-meta">{list.fetchedAt ? `Fetched ${formatQuoteTime(list.fetchedAt)}` : 'No verified data loaded'}{list.stale ? ' · Stale' : ''}</p>
                             {list.error && <p className="data-notice" role="status">{list.error}{list.stale ? ' Showing the last successful list.' : ''}</p>}
                             {rows.length === 0 && <div className="desk-empty">{loading && !list.fetchedAt ? 'Fetching rankings…' : list.error && !list.fetchedAt ? 'Rankings unavailable.' : 'No funds match the current filter.'}</div>}
-                            {rows.map((etf, index) => (
-                                <div key={etf.symbol} className="etf-leader-row">
-                                    <div className="etf-leader-symbol"><span className="text-muted">{list.rows.indexOf(etf) + 1 || index + 1}</span><div><Link to={`/stock/${etf.symbol}`}>{etf.symbol}</Link>{etf.name !== etf.symbol && <p className="text-muted">{etf.name}</p>}<span className="quote-meta">Price {formatPrice(etf.price)} · Day {formatPct(etf.change)}</span></div></div>
-                                    <div className="etf-leader-metric"><strong className={etf[field] == null ? 'text-muted' : etf[field] >= 0 ? 'text-success' : 'text-danger'}>{field === 'dividendYield' && etf[field] != null ? `${etf[field].toFixed(2)}%` : formatPct(etf[field])}</strong><span className="quote-meta">{metric}</span><span className="quote-meta">Vol {formatCompact(etf.volume)}</span></div>
-                                </div>
-                            ))}
+                            {rows.map((etf, index) => {
+                                const rank = list.rows.indexOf(etf) + 1 || index + 1;
+                                const tone = etf[field] == null ? 'text-muted' : etf[field] >= 0 ? 'text-success' : 'text-danger';
+                                return (
+                                    <div key={etf.symbol} className="etf-leader-row">
+                                        <div className="etf-leader-symbol"><span className={`etf-leader-rank${rank <= 3 ? ' is-top' : ''}`}>{rank}</span><div className="etf-leader-ident"><Link to={`/stock/${etf.symbol}`}>{etf.symbol}</Link>{etf.name !== etf.symbol && <p className="etf-leader-name" title={etf.name}>{etf.name}</p>}<span className="quote-meta">Price {formatPrice(etf.price)} · Day {formatPct(etf.change)}</span></div></div>
+                                        <div className="etf-leader-metric"><strong className={`etf-leader-value ${tone}`}>{field === 'dividendYield' && etf[field] != null ? `${etf[field].toFixed(2)}%` : formatPct(etf[field])}</strong><span className="quote-meta">{metric}</span><span className="quote-meta">Vol {formatCompact(etf.volume)}</span></div>
+                                    </div>
+                                );
+                            })}
                         </section>
                     );
                 })}
