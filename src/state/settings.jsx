@@ -18,14 +18,13 @@ export function SettingsProvider({ children }) {
     }
   }, [settings]);
 
-  // Appearance → document attributes consumed by tokens.css. The theme class
-  // goes on <html> as well as <body>: the derived tokens (washes, tints, sheen,
-  // glows) are declared on :root, so they only re-resolve against a theme's
-  // role tokens when that theme is applied at the root.
+  // Apply the theme at the root so derived tokens re-resolve against its roles.
+  // Legacy themes also have body selectors. Pierce inherits from the root:
+  // repeating its token block on body would reset density, glow and motion.
   useEffect(() => {
     const root = document.documentElement;
     root.className = settings.appearance.theme;
-    document.body.className = settings.appearance.theme;
+    document.body.className = settings.appearance.theme === 'theme-pierce27' ? '' : settings.appearance.theme;
     root.dataset.motion = settings.appearance.motion;
     root.dataset.density = settings.appearance.density;
     root.style.setProperty('--glow-intensity', String(settings.appearance.glow));

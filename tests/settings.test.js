@@ -187,3 +187,56 @@ test('setPath returns a new document and never mutates the input', () => {
   assert.notEqual(next.alerts, base.alerts);
   assert.equal(next.scanner, base.scanner, 'untouched sections keep their identity');
 });
+
+test('defaults: denied storage reads do not prevent startup', () => {
+  const loaded = loadSettings({ getItem() { throw new Error('storage denied'); } });
+  assert.deepEqual(loaded, DEFAULT_SETTINGS);
+  assert.notEqual(loaded, DEFAULT_SETTINGS);
+  loaded.scanner.excludedSectors.push('energy');
+  assert.deepEqual(DEFAULT_SETTINGS.scanner.excludedSectors, []);
+});
+
+test('defaults: a denied global storage getter does not prevent startup', () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    get() { throw new Error('storage denied'); },
+  });
+  try {
+    assert.deepEqual(loadSettings(), DEFAULT_SETTINGS);
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, 'localStorage', descriptor);
+    else delete globalThis.localStorage;
+  }
+});
+
+test('parseSettingsImport rejects malformed known sections without resetting preferences', () => {
+  const sections = Object.keys(DEFAULT_SETTINGS).filter(key => key !== 'version');
+  for (const section of sections) {
+    for (const value of [null, [], false, 42, 'invalid']) {
+      assert.throws(
+        () => parseSettingsImport(JSON.stringify({ [section]: value })),
+        new RegExp(section + ' must be an object'),
+      );
+    }
+  }
+  // Unknown sections remain forward-compatible and optional sections keep defaults.
+  assert.deepEqual(parseSettingsImport('{"unknown": null}'), DEFAULT_SETTINGS);
+  assert.deepEqual(parseSettingsImport('{}'), DEFAULT_SETTINGS);
+});
+
+test('read-only source facts always reflect the current app, including old exports', () => {
+  const oldExport = {
+    version: SETTINGS_VERSION,
+    appearance: { theme: 'theme-majestic' },
+    data: { chartCacheSeconds: 45, requestTimeoutSeconds: 600 },
+  };
+  const imported = parseSettingsImport(JSON.stringify(oldExport));
+  const loaded = loadSettings(fakeStorage({ [SETTINGS_KEY]: JSON.stringify(oldExport) }));
+  for (const settings of [imported, loaded]) {
+    assert.equal(settings.appearance.theme, 'theme-majestic');
+    assert.deepEqual(settings.data, { chartCacheSeconds: 0, requestTimeoutSeconds: 12 });
+    assert.notEqual(settings.data, DEFAULT_SETTINGS.data);
+  }
+  assert.throws(() => parseSettingsImport('{"data":{"requestTimeoutSeconds":"forever"}}'), /data\.requestTimeoutSeconds/);
+});

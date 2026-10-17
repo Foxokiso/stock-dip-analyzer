@@ -225,7 +225,7 @@ export default function SettingsPage() {
       const next = parseSettingsImport(importText);
       replace(next);
       setImportError(null);
-      setImportNote('Settings applied. Unknown keys were ignored; everything else replaced the current document.');
+      setImportNote('Settings applied. Preferences replaced the current document; source facts use the current app defaults. Unknown keys were ignored.');
     } catch (error) {
       setImportError(error.message);
     }
@@ -372,7 +372,7 @@ export default function SettingsPage() {
           {/* 5 ── Data & sources */}
           <Section id="data" title="Data & sources" blurb={SECTIONS[4].blurb} headingRef={bindHeading('data')}>
             <dl className="settings-facts">
-              <div><dt>Chart cache</dt><dd>{data.chartCacheSeconds} s</dd></div>
+              <div><dt>Chart cache</dt><dd>{data.chartCacheSeconds === 0 ? 'Disabled' : `${data.chartCacheSeconds} s`}</dd></div>
               <div><dt>Request timeout</dt><dd>{data.requestTimeoutSeconds} s</dd></div>
               <div><dt>Finviz screener delay</dt><dd>1 min</dd></div>
               <div><dt>Finviz futures delay</dt><dd>{FUTURES_DELAY_MINUTES} min</dd></div>

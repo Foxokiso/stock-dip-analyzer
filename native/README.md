@@ -18,7 +18,11 @@ strings stay presentation work in the renderer.
 
 ## Build and compare
 
+The verifiers use Node.js and the locked development dependencies (including
+`linkedom` for the oil-news reference). From the repository root:
+
 ```bash
+npm ci --include=dev --ignore-scripts --no-audit --no-fund
 cmake -S native -B artifacts/native-build
 cmake --build artifacts/native-build --config Release
 ctest --test-dir artifacts/native-build -C Release --output-on-failure

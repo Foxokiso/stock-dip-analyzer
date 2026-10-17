@@ -75,7 +75,7 @@ export const DEFAULT_SETTINGS = deepFreeze({
     historyLimit: 50,
   },
   data: {
-    chartCacheSeconds: 45,    // mirrors main.cjs; informational unless wired over IPC
+    chartCacheSeconds: 0,     // main.cjs fetches each chart with cache: 'no-store'
     requestTimeoutSeconds: 12,    // mirrors AbortSignal.timeout(12000) in main.cjs
   },
 });
@@ -159,6 +159,9 @@ export const normalizeSettings = (document) => {
       settings = setPath(settings, path.split('.'), readPath(DEFAULT_SETTINGS, path));
     }
   }
+  // Source facts describe the running app, not user-editable preferences.
+  // Older exports may contain stale facts; refresh them after validation.
+  settings.data = mergeKnown(DEFAULT_SETTINGS.data, {});
   settings.version = SETTINGS_VERSION;
   return { settings, problems };
 };
@@ -195,11 +198,17 @@ const migrateLegacy = (storage) => {
   return patch;
 };
 
-export const loadSettings = (storage = globalThis.localStorage) => {
-  if (!storage) return mergeKnown(DEFAULT_SETTINGS, {});
-  const stored = readJson(storage, SETTINGS_KEY);
-  const base = stored && stored.version === SETTINGS_VERSION ? stored : migrateLegacy(storage);
-  return normalizeSettings(base).settings;
+export const loadSettings = (storage) => {
+  try {
+    if (storage === undefined) storage = globalThis.localStorage;
+    if (!storage) return mergeKnown(DEFAULT_SETTINGS, {});
+    const stored = readJson(storage, SETTINGS_KEY);
+    const base = stored && stored.version === SETTINGS_VERSION ? stored : migrateLegacy(storage);
+    return normalizeSettings(base).settings;
+  } catch {
+    // Both the storage getter and legacy reads can fail in restricted contexts.
+    return mergeKnown(DEFAULT_SETTINGS, {});
+  }
 };
 
 export const serializeSettings = (settings) => JSON.stringify({ ...persistableSettings(settings), version: SETTINGS_VERSION }, null, 2);
@@ -214,6 +223,11 @@ export const parseSettingsImport = (text) => {
     throw new Error(`Not valid JSON: ${error.message}`);
   }
   if (!isRecord(parsed)) throw new Error('Settings file must contain a JSON object.');
+  for (const [section, defaults] of Object.entries(DEFAULT_SETTINGS)) {
+    if (isRecord(defaults) && Object.hasOwn(parsed, section) && !isRecord(parsed[section])) {
+      throw new Error(`Invalid settings: ${section} must be an object.`);
+    }
+  }
   const { settings, problems } = normalizeSettings(parsed);
   if (problems.length) throw new Error(`Invalid settings: ${problems.join('; ')}.`);
   return settings;
