@@ -1,0 +1,356 @@
+/* Futures desk — Pierce/27 skin.
+ *
+ * Imported by src/pages/Futures.jsx. Layout (overview cards, board with
+ * group filter + search + table + footer, focus column with chart, quote
+ * facts and source link) is unchanged; only the style follows
+ * docs/design/pierce27-brief.md. Every rule is scoped to .futures-page or
+ * .futures-workspace so it outranks the legacy .futures-* rules in index.css
+ * by specificity without editing that file, while the theme overrides
+ * (body.theme-* …) keep their higher specificity and still win.
+ * Role tokens only: no literal colours, px glows or easings. Properties the
+ * index.css breakpoints adjust (grid columns, gaps, card and toolbar padding,
+ * chart heights) are deliberately left alone so the responsive layout holds.
+ * Shades the token sheet does not ship are derived with the 27 rule.
+ */
+.futures-page {
+  --futures-warning-46: oklch(from var(--warning) calc(l * var(--m2)) calc(c * var(--m2)) h);
+  --futures-wash-warn-07: color-mix(in oklch, var(--warning) 7%, transparent);
+  --futures-line-p: color-mix(in oklch, var(--primary) 27%, var(--line));
+  --futures-line-s: color-mix(in oklch, var(--secondary) 27%, var(--line));
+}
+
+/* ── Focus: the shared ring, never removed (brief rule 4) ── */
+.futures-page button:focus-visible,
+.futures-page a:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ── Desk heading ── */
+.futures-page .eyebrow { color: var(--text-muted); }
+.futures-page .eyebrow-line { background: var(--pierce-gradient); }
+.futures-page .desk-heading h1 { font-family: var(--font-heading); color: var(--text-main); }
+.futures-page .desk-heading h1 .text-muted { color: var(--text-muted); font-weight: 400; }
+.futures-page .desk-heading p { color: var(--text-muted); }
+
+/* ── Outline buttons: refresh and the source link. Glow on a pseudo-element so it scales with --glow-intensity. ── */
+.futures-page .btn-outline {
+  position: relative;
+  padding: 9px 17px;
+  border-radius: var(--radius);
+  border: 1px solid var(--futures-line-p);
+  background: var(--wash-p-07);
+  color: var(--text-main);
+  font-family: var(--font-heading);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  box-shadow: none;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast);
+}
+.futures-page .btn-outline::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: var(--glow-p);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
+}
+.futures-page .btn-outline:hover {
+  background: var(--wash-p-14);
+  border-color: var(--primary);
+  transform: none;
+  box-shadow: none;
+}
+.futures-page .btn-outline:hover::after { opacity: var(--glow-intensity); }
+.futures-page .btn-outline:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.futures-page .btn-outline svg { color: var(--primary); }
+.futures-page .btn-outline:disabled { cursor: progress; opacity: 0.73; }
+.futures-page .btn-outline:disabled:hover { background: var(--wash-p-07); border-color: var(--futures-line-p); }
+.futures-page .btn-outline:disabled:hover::after { opacity: 0; }
+
+/* ── Source banner: informational cyan; cached state turns the hairline dashed amber. ── */
+.futures-page .source-banner {
+  border-radius: var(--radius);
+  border: 1px solid var(--futures-line-s);
+  background: var(--wash-s-07);
+  color: var(--text-muted);
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+.futures-page .source-banner-main { color: var(--info); }
+.futures-page .source-banner-main > svg { flex-shrink: 0; }
+.futures-page .source-banner-main strong { color: var(--text-main); font-weight: 500; }
+/* The shield breathes while a retrieval is in flight (the only live indicator on this desk). */
+.futures-page .source-banner.is-loading .source-banner-main > svg { animation: pierce-pulse var(--t-pulse) ease-in-out infinite; }
+.futures-page .source-banner-time {
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.futures-page .source-banner-cached {
+  border-style: dashed;
+  border-color: var(--futures-warning-46);
+  background: var(--futures-wash-warn-07);
+}
+.futures-page .delay-chip {
+  color: var(--warning);
+  background: var(--wash-warn-14);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+.futures-page .source-explanation { color: var(--text-faint); }
+.futures-page .data-notice {
+  border-left: 2px solid var(--warning);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: color-mix(in oklch, var(--wash-warn-14) 50%, transparent);
+  color: var(--text-muted);
+}
+.futures-page .data-notice strong { color: var(--warning); }
+
+/* ── Overview cards: silk panels; the selected one carries the primary glow. ── */
+.futures-page .overview-card {
+  position: relative;
+  background: var(--sheen);
+  border: var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
+  color: var(--text-main);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.futures-page .overview-card::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  box-shadow: var(--glow-p);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-normal);
+}
+.futures-page .overview-card:hover { background: var(--bg-card-hover); border-color: var(--line-strong); }
+.futures-page .overview-card.selected {
+  border-color: var(--primary);
+  background: linear-gradient(180deg, var(--wash-p-14), transparent 46%), var(--sheen);
+}
+.futures-page .overview-card.selected::after { opacity: var(--glow-intensity); }
+.futures-page .overview-card:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.futures-page .overview-label { color: var(--text-muted); }
+.futures-page .overview-price {
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+.futures-page .overview-foot { color: var(--text-faint); letter-spacing: 0.02em; }
+
+/* ── Ticker tags: secondary cyan at a 7 % wash. ── */
+.futures-page .ticker-tag {
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  color: var(--secondary);
+  background: var(--wash-s-07);
+  border: 1px solid var(--futures-line-s);
+  border-radius: var(--radius-sm);
+}
+
+/* ── Direction: up = success, down = danger, no reading = muted. Sparklines and the chart stroke currentColor. ── */
+.futures-page .futures-change { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.futures-page .futures-change.is-up,
+.futures-page .futures-spark.is-up,
+.futures-page .futures-chart.is-up { color: var(--success); }
+.futures-page .futures-change.is-down,
+.futures-page .futures-spark.is-down,
+.futures-page .futures-chart.is-down { color: var(--danger); }
+.futures-page .futures-change.is-flat,
+.futures-page .futures-spark.is-flat,
+.futures-page .futures-chart.is-flat { color: var(--text-muted); }
+.futures-page .futures-chart-grid { stroke: var(--line); }
+.futures-page .futures-chart-area { fill: currentColor; opacity: 0.14; }
+.futures-page .futures-chart-line { fill: none; stroke: currentColor; }
+.futures-page .spark-empty { color: var(--text-faint); }
+.futures-page .chart-empty {
+  color: var(--text-faint);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--wash-p-07);
+}
+
+/* ── Status chips: delayed = warning on its 14 % wash, cached = warning with a dashed hairline, unavailable = faint. ── */
+.futures-page .quote-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
+}
+.futures-page .quote-status::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.futures-page .quote-status.delayed { color: var(--warning); background: var(--wash-warn-14); }
+.futures-page .quote-status.cached {
+  color: var(--warning);
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--futures-warning-46);
+}
+.futures-page .quote-status.unavailable { color: var(--text-faint); background: transparent; border-color: var(--line); }
+
+/* ── Workspace panels (brief silk rule 1) ── */
+.futures-workspace .futures-board,
+.futures-workspace .futures-detail {
+  background: var(--sheen);
+  border: var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
+  transition: border-color var(--transition-normal);
+}
+
+/* ── Board heading and toolbar ── */
+.futures-workspace .board-heading h2 {
+  font-family: var(--font-heading);
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  color: var(--text-main);
+}
+.futures-workspace .board-count {
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.futures-workspace .board-count > span { color: var(--text-faint); }
+.futures-workspace .futures-toolbar { gap: var(--gap-sm); }
+
+/* Group filter chips: 14 % primary wash and primary text when pressed. */
+.futures-workspace .category-filter { gap: var(--gap-xs); }
+.futures-workspace .category-filter button {
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+.futures-workspace .category-filter button:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--line);
+  color: var(--text-main);
+}
+.futures-workspace .category-filter button[aria-pressed='true'] {
+  background: var(--wash-p-14);
+  border-color: var(--futures-line-p);
+  color: var(--primary);
+}
+.futures-workspace .category-filter button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.futures-workspace .desk-search {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-dark);
+  color: var(--text-faint);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), color var(--transition-fast);
+}
+.futures-workspace .desk-search:hover { border-color: var(--line-strong); }
+.futures-workspace .desk-search:focus-within {
+  border-color: var(--line-strong);
+  box-shadow: var(--focus-ring);
+  color: var(--secondary);
+}
+.futures-workspace .desk-search input { color: var(--text-main); font-family: var(--font-body); transition: none; }
+.futures-workspace .desk-search input::placeholder { color: var(--text-faint); }
+.futures-workspace .desk-search input:focus-visible { outline: none; box-shadow: none; }
+
+/* ── Board table: hairlines, mono numerals, hover = card-hover fill plus a hairline shift, no transforms. ── */
+.futures-workspace .futures-table { color: var(--text-main); font-family: var(--font-body); }
+.futures-workspace .futures-table th {
+  background: var(--bg-card-hover);
+  color: var(--text-faint);
+  letter-spacing: 0.08em;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line-strong);
+}
+.futures-workspace .futures-table td {
+  padding-top: calc(8px * var(--density));
+  padding-bottom: calc(8px * var(--density));
+  border-bottom: 1px solid var(--line);
+  transition: border-color var(--transition-fast);
+}
+.futures-workspace .futures-table .numeric { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.futures-workspace .futures-table tbody tr { transition: background var(--transition-fast); }
+.futures-workspace .futures-table tbody tr:hover { background: var(--bg-card-hover); }
+.futures-workspace .futures-table tbody tr:hover td { border-bottom-color: var(--line-strong); }
+/* Selected row: 14 % primary wash with a 2 px inset primary edge (brief semantics). */
+.futures-workspace .futures-table .selected-row { background: var(--wash-p-14); }
+.futures-workspace .futures-table .selected-row td:first-child { box-shadow: inset 2px 0 var(--primary); }
+
+.futures-workspace .instrument-button { color: var(--text-main); border-radius: var(--radius-sm); }
+.futures-workspace .instrument-symbol {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  transition: color var(--transition-fast);
+}
+.futures-workspace .instrument-button:hover .instrument-symbol,
+.futures-workspace .instrument-button[aria-pressed='true'] .instrument-symbol { color: var(--primary); }
+.futures-workspace .instrument-name { color: var(--text-muted); }
+
+.futures-workspace .board-footer {
+  border-top: 1px solid var(--line);
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+}
+.futures-workspace .direction-dot.up { background: var(--success); }
+.futures-workspace .direction-dot.down { background: var(--danger); }
+
+/* ── Empty state ── */
+.futures-workspace .desk-empty { color: var(--text-muted); }
+.futures-workspace .desk-empty > svg { color: var(--primary); opacity: 0.73; }
+.futures-workspace .desk-empty h3 { font-family: var(--font-heading); color: var(--text-main); }
+.futures-workspace .desk-empty a {
+  color: var(--secondary);
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast);
+}
+.futures-workspace .desk-empty a:hover { color: var(--primary); filter: none; opacity: 1; }
+
+/* ── Focus column ── */
+.futures-workspace .focus-title h2 { font-family: var(--font-heading); font-weight: 500; color: var(--text-main); }
+.futures-workspace .focus-price {
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+.futures-workspace .chart-caption { align-items: center; color: var(--text-faint); border-bottom: 1px solid var(--line); }
+.futures-workspace .quote-facts { gap: var(--gap-sm); }
+.futures-workspace .quote-facts > div { padding-bottom: var(--gap-xs); border-bottom: 1px solid var(--line); }
+.futures-workspace .quote-facts > div:last-child { padding-bottom: 0; border-bottom: 0; }
+.futures-workspace .quote-facts dt { color: var(--text-muted); }
+.futures-workspace .quote-facts dd {
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.futures-workspace .focus-note { color: var(--text-faint); }
+
+/* ── Desk footer ── */
+.futures-page .desk-bottom { color: var(--text-faint); letter-spacing: 0.08em; }

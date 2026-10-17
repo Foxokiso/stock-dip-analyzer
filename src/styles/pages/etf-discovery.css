@@ -5,7 +5,8 @@
  * component rules in index.css without touching other surfaces, while theme
  * overrides (body.theme-* …) keep their higher specificity and still win.
  * Layout (grid columns, panel order, row structure) is unchanged; only the
- * style follows docs/design/pierce27-brief.md. Role tokens only — no hex.
+ * style follows docs/design/pierce27-brief.md. Role tokens only — no literal
+ * colours, px glows or easings; derived shades use the 27 rule.
  */
 
 /* ── page heading ─────────────────────────────────────────────────────── */
@@ -68,9 +69,15 @@
   border-color: var(--primary);
   transform: none;
   box-shadow: none;
+  filter: none;
+  opacity: 1;
 }
 .etf-awards-page .btn-outline:hover::after,
 .discovery-page .btn-outline:hover::after { opacity: var(--glow-intensity); }
+/* The legacy .btn:active press-scale is declared !important, so silencing the
+   transform (brief rule 2: no jumps or scale motion) has to be as well. */
+.etf-awards-page .btn:active,
+.discovery-page .btn:active { transform: none !important; }
 .etf-awards-page .btn-outline:focus-visible,
 .discovery-page .btn-outline:focus-visible {
   outline: none;
@@ -101,19 +108,18 @@
   background: var(--info);
   vertical-align: 1px;
 }
-.etf-awards-page .source-banner > span:last-child:not(:first-child),
-.discovery-page .source-banner > span:last-child:not(:first-child) {
+.discovery-page .discovery-banner-time {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 10px;
   color: var(--text-faint);
 }
+/* Live fetch indicator: breathes on the 2.7 s pulse (zeroed with reduced motion). */
 .etf-awards-page .etf-fetch-status {
   display: inline-flex;
   align-items: center;
   gap: var(--gap-xs);
   color: var(--info);
-  font-family: var(--font-body);
   font-size: 11px;
   animation: pierce-pulse var(--t-pulse) ease-in-out infinite;
 }
@@ -130,11 +136,11 @@
 }
 .discovery-page .data-notice .btn-outline { padding: 6px 13px; font-size: 11px; }
 
-/* ── silk panels ──────────────────────────────────────────────────────── */
+/* ── silk panels (brief rule 1) ───────────────────────────────────────── */
 .etf-awards-page .etf-leader-panel,
 .discovery-page .discovery-chart-panel,
 .discovery-page .discovery-results-panel {
-  padding: 23px 21px;
+  padding: calc(23px * var(--density)) calc(21px * var(--density));
   min-width: 0;
   background: var(--sheen);
   border: var(--glass-border);
@@ -205,7 +211,7 @@
 .etf-awards-page .etf-leaders-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--gap-sm);
+  gap: var(--gap);
   margin-top: var(--gap);
 }
 .etf-awards-page .etf-leader-row {
@@ -297,12 +303,15 @@
 .discovery-page .discovery-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
-  gap: var(--gap-sm);
+  gap: var(--gap);
   margin-top: var(--gap);
 }
-/* The chart container is filled by the TradingView iframe; while it is
-   empty (loading, retry) it shows a quiet --line grid on the ink ground. */
+/* The chart container is filled by the TradingView iframe, whose own canvas
+   takes the same roles (ground --bg-card, grid --line, scale text --text-muted,
+   series --secondary) resolved from the cascade in Discovery.jsx. While it is
+   empty (loading, retry) the container shows a quiet --line grid on the ink. */
 .discovery-page .discovery-chart {
+  position: relative;
   height: 550px;
   margin-top: var(--gap-sm);
   border: 1px solid var(--line);
@@ -323,6 +332,15 @@
   height: 100%;
   border: 0;
 }
+/* Token probe used by Discovery.jsx to read the chart roles; never painted. */
+.discovery-page .discovery-token-probe {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
 /* Any SVG chart rendered inside the panel (recharts or hand-drawn) takes the
    brief's chart roles: --secondary series, --line grid, --text-muted ticks. */
 .discovery-page .discovery-chart-panel svg .recharts-cartesian-grid line,
@@ -334,6 +352,8 @@
 .discovery-page .discovery-chart-panel svg .recharts-cartesian-axis-tick text,
 .discovery-page .discovery-chart-panel svg .recharts-text { fill: var(--text-muted); }
 
+/* Rows: hover is the card-hover fill plus a hairline shift; the selected row is
+   the 14 % primary wash with a 2 px inset primary edge. No transforms. */
 .discovery-page .discovery-stock-row {
   position: relative;
   display: flex;

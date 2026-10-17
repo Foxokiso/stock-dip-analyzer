@@ -142,14 +142,16 @@ const TickerBoard = ({ title, icon, tone, rows, loading, expandedRows, onToggle,
     <section className={`glass-panel oil-board oil-board--${tone}${wide ? ' oil-board--wide' : ''}`} aria-label={title} aria-busy={loading}>
         <div className="oil-board-head">
             <h3><span className="oil-board-icon">{icon}</span>{title}</h3>
-            {loading && <RefreshCw size={14} className="oil-board-spinner is-spinning" aria-label="Refreshing quotes" />}
+            {loading && <RefreshCw size={14} className="oil-board-spinner oil-spin" role="img" aria-label="Refreshing quotes" />}
         </div>
         <div className="oil-table-scroll">
             <table className="oil-table">
                 <thead>
                     <tr>
                         {BOARD_COLUMNS.map((column, i) => (
-                            <th key={i} scope="col" className={column.className}>{column.label}</th>
+                            <th key={i} scope="col" className={column.className}>
+                                {column.label || <span className="oil-sr-only">Score breakdown</span>}
+                            </th>
                         ))}
                     </tr>
                 </thead>
@@ -299,6 +301,7 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
 
             <div className="flex-between oil-heading">
                 <div>
+                    <p className="eyebrow">Energy complex</p>
                     <h2 className="text-gradient">
                         <Droplet size={24} className="oil-title-icon" />
                         Oil Watch — Tankers, Refiners &amp; Middle East Flow
@@ -309,7 +312,7 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                 </div>
             </div>
 
-            <div className="source-banner"><span>Yahoo Finance · Quote times and source delay shown per ticker</span><span>{basketFetchedAt ? `Fetched ${formatQuoteTime(basketFetchedAt)}` : 'No verified basket quotes loaded'}</span></div>
+            <div className={`source-banner${loading ? ' is-live' : ''}`}><span>Yahoo Finance · Quote times and source delay shown per ticker</span><span>{basketFetchedAt ? `Fetched ${formatQuoteTime(basketFetchedAt)}` : 'No verified basket quotes loaded'}</span></div>
             {basketError && <p className="data-notice" role="status">{basketError}</p>}
             <div className="oil-layout">
                 {/* Boards column */}
@@ -351,7 +354,7 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                 <section className="glass-panel oil-news-panel oil-board--secondary" aria-label="Middle East Oil Intelligence" aria-busy={newsLoading}>
                     <div className="oil-board-head oil-news-head">
                         <h3><span className="oil-board-icon"><Newspaper size={18} /></span>Middle East Oil Intelligence</h3>
-                        {newsLoading && <RefreshCw size={14} className="oil-board-spinner is-spinning" aria-label="Refreshing headlines" />}
+                        {newsLoading && <RefreshCw size={14} className="oil-board-spinner oil-spin" role="img" aria-label="Refreshing headlines" />}
                     </div>
                     <p className="oil-news-intro">
                         Last-24h headlines on Middle East oil, the Strait of Hormuz, OPEC, tankers, and refineries.

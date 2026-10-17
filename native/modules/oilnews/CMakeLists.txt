@@ -1,0 +1,10 @@
+# Oil-news headline classification (string rules only; RSS parsing stays in JS/DOM).
+add_library(dip_oilnews src/oilnews.cpp)
+target_include_directories(dip_oilnews PUBLIC include)
+dip_set_policy(dip_oilnews)
+if(BUILD_TESTING)
+  add_executable(oilnews_driver tests/oilnews_driver.cpp)
+  target_link_libraries(oilnews_driver PRIVATE dip_oilnews)
+  dip_set_policy(oilnews_driver)
+  dip_add_parity_test(oilnews_reference_parity oilnews_driver verify-native-oilnews.mjs)
+endif()
