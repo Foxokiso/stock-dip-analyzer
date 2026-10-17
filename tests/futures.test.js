@@ -217,3 +217,29 @@ test('rejects unsupported timeframes without making an external request', async 
     assert.equal(snapshot.status, 'unavailable');
     assert.match(snapshot.error, /timeframe/i);
 });
+
+for (const timeframe of ['i5', 'w']) {
+    test(`page fallback discards unverified chart samples for ${timeframe} while preserving quotes`, async () => {
+        const calls = [];
+        const pageQuote = { ...actual.ES, sparklineDateChanges: { 0: 'Oct-16', 5: 'Oct-17' } };
+        const ipcRenderer = { async invoke(channel, url) {
+            assert.equal(channel, 'fetch-url');
+            calls.push(url);
+            if (url === `https://finviz.com/api/futures_all?timeframe=${timeframe}`) throw new Error('HTTP 403');
+            assert.equal(url, 'https://finviz.com/futures.ashx');
+            return html({ ES: pageQuote });
+        } };
+        const snapshot = await fetchFinvizFutures(ipcRenderer, { now: fetchedAt, timeframe });
+        const quote = row(snapshot, 'ES');
+        assert.deepEqual(calls, [`https://finviz.com/api/futures_all?timeframe=${timeframe}`, 'https://finviz.com/futures.ashx']);
+        assert.equal(snapshot.timeframe, timeframe);
+        assert.equal(quote.status, 'delayed');
+        assert.equal(quote.fetchedAt, fetchedAt);
+        for (const [field, source] of Object.entries({ price: 'last', changePct: 'change', change: 'changeUsd', prevClose: 'prevClose', high: 'high', low: 'low' })) {
+            assert.equal(quote[field], pageQuote[source]);
+        }
+        assert.deepEqual(quote.sparkline, []);
+        assert.deepEqual(quote.chartLabels, {});
+        assert.match(snapshot.error, /without unverified chart samples/i);
+    });
+}

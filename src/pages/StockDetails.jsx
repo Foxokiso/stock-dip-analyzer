@@ -5,6 +5,7 @@ import { ComposedChart, Area, Line, ReferenceLine, XAxis, YAxis, CartesianGrid, 
 import { analyzeStock, computeSMASeries } from '../utils/scoring';
 import { formatPrice, formatQuoteTime } from '../utils/format';
 import { getYahooQuote, getYahooChartPoints } from '../utils/marketData';
+import { resolveFinvizNewsUrl } from '../utils/finviz';
 import { mountTradingViewWidget } from '../utils/tradingView';
 import '../styles/pages/stock-details.css';
 
@@ -328,16 +329,13 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
 
                         const linkEl = cells[1].querySelector('a');
                         if (linkEl) {
-                            let source = '';
-                            try {
-                                source = new URL(linkEl.href).hostname.replace(/^www\./, '');
-                            } catch {
-                                source = '';
-                            }
+                            const link = resolveFinvizNewsUrl(linkEl.getAttribute('href'));
+                            if (!link) continue;
+                            const source = new URL(link).hostname.replace(/^www\./, '');
                             extractedNews.push({
                                 time,
                                 title: linkEl.textContent.trim(),
-                                link: linkEl.href,
+                                link,
                                 source,
                             });
                         }
@@ -537,7 +535,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
                                 </defs>
                                 <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
                                 <XAxis dataKey="date" stroke="var(--line)" tick={CHART_TICK} tickLine={false} axisLine={CHART_AXIS_LINE} minTickGap={24} />
-                                <YAxis stroke="var(--line)" domain={['dataMin - 5', 'dataMax + 5']} tick={CHART_TICK} tickLine={false} axisLine={false} width={52} />
+                                <YAxis stroke="var(--line)" domain={['dataMin - 5', 'dataMax + 5']} tick={CHART_TICK} tickFormatter={formatPrice} tickLine={false} axisLine={false} width={72} />
                                 <Tooltip
                                     cursor={CHART_TOOLTIP_CURSOR}
                                     contentStyle={CHART_TOOLTIP_STYLE}
