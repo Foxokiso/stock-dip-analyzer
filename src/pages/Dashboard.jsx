@@ -419,9 +419,14 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                 }));
                 if (isStale()) return;
                 const batch = new Map(analyses);
+                // The 52-week range only exists in the Yahoo chart metadata that
+                // arrives with the score, so it is filled here rather than at scan time.
+                const positive = value => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null);
                 setStocks(previous => previous.map(row => batch.has(row.symbol)
                     ? { ...row, recoveryProbability: batch.get(row.symbol)?.score ?? null,
                         isZombie: batch.get(row.symbol)?.isZombie ?? false,
+                        fiftyTwoWeekLow: positive(batch.get(row.symbol)?.quote?.meta?.fiftyTwoWeekLow) ?? row.fiftyTwoWeekLow,
+                        fiftyTwoWeekHigh: positive(batch.get(row.symbol)?.quote?.meta?.fiftyTwoWeekHigh) ?? row.fiftyTwoWeekHigh,
                         analysis: batch.get(row.symbol), analysisUnavailable: !batch.get(row.symbol) }
                     : row));
                 analyses.forEach(([symbol, analysis]) => {
