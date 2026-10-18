@@ -24,7 +24,7 @@ const SECTIONS = [
 
 const RATING_LABELS = { All: 'All ratings', 'Sell/Strong Sell': 'Sell / Strong Sell' };
 const BRIEF_PATH = 'docs/design/pierce27-brief.md';
-const BRIEF_URL = `https://github.com/Foxokiso/stock-dip-analyzer/blob/v2/pierce27/${BRIEF_PATH}`;
+const BRIEF_URL = `https://github.com/Foxokiso/stock-dip-analyzer/blob/master/${BRIEF_PATH}`;
 const CHART_TIMEFRAMES = FUTURES_TIMEFRAMES.filter(item => FUTURES_TIMEFRAME_IDS.includes(item.id));
 
 const trim = (value) => Number(value.toFixed(2)).toString();
