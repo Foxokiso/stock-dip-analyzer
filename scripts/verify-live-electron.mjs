@@ -14,9 +14,13 @@ await mkdir(outDir, { recursive: true });
 const report = { startedAt: new Date().toISOString(), routes: [], consoleErrors: [], pageErrors: [] };
 const now = () => performance.now();
 
+// ELECTRON_EXE=<path to a packaged "DDS response.exe"> checks the built app
+// (file:// renderer, no dev server) instead of the dev build.
+const packagedExe = process.env.ELECTRON_EXE || null;
 const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-const vite = spawn(npx, ['vite', '--host', '127.0.0.1', '--port', '5174'], { cwd: root, stdio: 'ignore', shell: process.platform === 'win32' });
+const vite = packagedExe ? null : spawn(npx, ['vite', '--host', '127.0.0.1', '--port', '5174'], { cwd: root, stdio: 'ignore', shell: process.platform === 'win32' });
 const waitForServer = async () => {
+  if (packagedExe) return;
   for (let i = 0; i < 60; i++) {
     try { const r = await fetch('http://127.0.0.1:5174/'); if (r.ok) return; } catch { /* not yet */ }
     await new Promise(r => setTimeout(r, 500));
@@ -27,15 +31,19 @@ const waitForServer = async () => {
 let app;
 try {
   await waitForServer();
-  app = await electron.launch({ args: [path.join(root, 'main.cjs')], cwd: root, timeout: 60000 });
+  app = packagedExe
+    ? await electron.launch({ executablePath: packagedExe, args: [], timeout: 60000 })
+    : await electron.launch({ args: [path.join(root, 'main.cjs')], cwd: root, timeout: 60000 });
   // Dev mode opens DevTools, which Playwright also reports as a window; pick the
   // renderer by URL, then close DevTools because it stalls screenshots.
-  const isRenderer = (w) => w.url().startsWith('http://127.0.0.1:5174');
+  const isRenderer = (w) => (packagedExe ? w.url().startsWith('file:') : w.url().startsWith('http://127.0.0.1:5174'));
   await app.firstWindow();
   let page = app.windows().find(isRenderer);
   if (!page) page = await app.waitForEvent('window', { predicate: isRenderer, timeout: 30000 });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach(w => w.webContents.closeDevTools()));
   await page.waitForLoadState('domcontentloaded');
+  const baseUrl = packagedExe ? page.url().split('#')[0] : 'http://127.0.0.1:5174/';
+  report.target = packagedExe ? `packaged ${packagedExe}` : 'dev server';
   page.on('console', msg => { if (msg.type() === 'error') report.consoleErrors.push(msg.text().slice(0, 300)); });
   page.on('pageerror', err => report.pageErrors.push(String(err).slice(0, 300)));
   await page.setViewportSize({ width: 1440, height: 1050 });
@@ -51,7 +59,7 @@ try {
   async function route(name, hash, readySelector, extra) {
     const t0 = now();
     const entry = { name, hash, ms: {} };
-    await page.goto(`http://127.0.0.1:5174/#${hash}`);
+    await page.goto(`${baseUrl}#${hash}`);
     entry.ms.navigate = Math.round(now() - t0);
     try {
       await page.locator(readySelector).first().waitFor({ timeout: 45000 });
@@ -101,6 +109,6 @@ try {
   await writeFile(path.join(outDir, 'report.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify({ routes: report.routes.length, consoleErrors: report.consoleErrors.length, pageErrors: report.pageErrors.length, fatal: report.fatal || null, out: outDir }));
   try { await app?.close(); } catch { /* already gone */ }
-  vite.kill();
+  vite?.kill();
   process.exit(report.fatal ? 1 : 0);
 }
