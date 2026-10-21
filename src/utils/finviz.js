@@ -2,7 +2,13 @@ const fields = {
     ticker: 'symbol', company: 'name', sector: 'sector', price: 'price', change: 'change',
     volume: 'volume', 'market cap': 'marketCap', 'perf month': 'perfMonth', 'perf year': 'perfYear', dividend: 'dividendYield',
 };
-const headerLabel = (cell) => cell.textContent.trim().toLowerCase().replace(/^change\s*%$/, 'change');
+// The current grid appends a short label ("Mkt Cap") and a sort indicator to a
+// header cell's text, so the full name is taken from aria-label or the label
+// span when present; the legacy <th> keeps its plain text.
+const headerLabel = (cell) => {
+    const explicit = cell.getAttribute?.('aria-label') || cell.querySelector?.('.fv-table_header-label')?.textContent;
+    return (explicit || cell.textContent).trim().toLowerCase().replace(/\s+/g, ' ').replace(/^change\s*%$/, 'change');
+};
 
 export function resolveFinvizNewsUrl(href) {
     if (typeof href !== 'string' || !href.trim()) return null;
@@ -29,7 +35,8 @@ const numeric = (text) => {
     const match = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+))([KMBT])?$/i.exec(normalized);
     if (!match) return null;
     const scale = { K: 1e3, M: 1e6, B: 1e9, T: 1e12 }[match[2]?.toUpperCase()] || 1;
-    const value = Number(match[1]) * scale;
+    // toPrecision(15) removes binary float noise such as 33.24 × 1e6 = 33240000.000000004.
+    const value = Number((Number(match[1]) * scale).toPrecision(15));
     return Number.isFinite(value) ? value : null;
 };
 
