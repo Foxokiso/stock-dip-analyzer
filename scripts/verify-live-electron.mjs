@@ -43,7 +43,7 @@ const ROUTES = [
   { name: 'stock-AAPL', hash: '/stock/AAPL', root: '.stock-details', data: { sel: '.stock-details strong', text: '\\$\\d' }, extra: { chart: { sel: '.recharts-surface' } } },
   { name: 'etfs', hash: '/etfs', root: '.etf-awards-page', data: { sel: '.etf-leader-row' } },
   { name: 'oil', hash: '/oil', root: '.oil-watch-page', data: { sel: '.oil-row', text: '\\$\\d' } },
-  { name: 'discovery', hash: '/discovery', root: '.discovery-page', data: { sel: '.stock-card', text: '\\$\\d' } },
+  { name: 'discovery', hash: '/discovery', root: '.discovery-page', data: { sel: '.discovery-stock-row', text: '\\$\\d' } },
   { name: 'settings', hash: '/settings', root: '.settings-page', data: { sel: '.settings-section' } },
 ];
 const OVERVIEW = { name: 'overview', hash: '/', root: '.dashboard', data: { sel: '.dash-row .dash-symbol' }, extra: { score: { sel: '.dash-verdict', text: '\\(\\d+\\)' } } };
@@ -162,7 +162,7 @@ try {
     }
     if (route.name === 'etfs') entry.rows = await count('.etf-leader-row');
     if (route.name === 'oil') entry.rows = await count('.oil-row');
-    if (route.name === 'discovery') entry.rows = await count('.stock-card');
+    if (route.name === 'discovery') entry.rows = await count('.discovery-stock-row');
     if (route.name === 'stock-AAPL') entry.priceText = (await textOf('.stock-details strong')).trim().slice(0, 24);
     entry.mockMarkers = (await count('text=Zombie Corp')) + (await count('text=Mock News'));
     console.log(JSON.stringify(entry));

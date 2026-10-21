@@ -6,7 +6,7 @@
 // desk import from here, and tests/settings.test.js exercises it under node:test.
 export const SETTINGS_KEY = 'dipAnalyzerSettingsV2';
 export const SETTINGS_VERSION = 2;
-export const APP_VERSION = '2.0.0';
+export const APP_VERSION = '2.1.0';
 
 export const THEMES = [
   { id: 'theme-pierce27', label: 'Pierce/27', blurb: 'Black ink, electric complements, silk surfaces. The default.' },
