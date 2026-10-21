@@ -2,11 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DOMParser } from 'linkedom';
-import { parseFinvizScreener } from '../src/utils/finviz.js';
+import { parseFinvizScreener, resolveFinvizNewsUrl } from '../src/utils/finviz.js';
 
 const overview = (rows) => `<table><tr><th>No.</th><th>Ticker</th><th>Company</th><th>Sector</th><th>Industry</th><th>Country</th><th>Market Cap</th><th>P/E</th><th>Price</th><th>Change</th><th>Volume</th></tr>${rows}</table>`;
 const row = (symbol, price = '123.45', change = '-2.31%') => `<tr><td>1</td><td><a href="quote.ashx?t=${symbol}">${symbol}</a></td><td>Example Corp</td><td>Technology</td><td>Software</td><td>USA</td><td>1.5B</td><td>20.5</td><td>${price}</td><td>${change}</td><td>1,234,567</td></tr>`;
 const options = { DOMParser, fetchedAt: '2026-10-10T12:00:00.000Z' };
+const currentGrid = readFileSync(new URL('./fixtures/finviz-overview-grid-2026-10-17.html', import.meta.url), 'utf8');
 
 test('overview accepts direct ticker rows and ignores wrapping layout tables', () => {
     const html = `<table><tr><td>${overview(row('AAPL'))}</td><td><a href="quote.ashx?t=1">1</a></td></tr></table>`;
@@ -37,7 +38,7 @@ test('rejects numeric tickers and quote-link text mismatch', () => {
 });
 
 test('actual saved Finviz overview does not emit a layout row as symbol 1', () => {
-    const html = readFileSync(new URL('../finviz_output.html', import.meta.url), 'utf8');
+    const html = readFileSync(new URL('./fixtures/finviz-overview-2026.html', import.meta.url), 'utf8');
     const stocks = parseFinvizScreener(html, options);
     assert.ok(stocks.length > 0);
     assert.ok(stocks.every(stock => /^[A-Z][A-Z0-9.-]*$/.test(stock.symbol)));
@@ -81,4 +82,52 @@ test('financial view reads dividend yield rather than day change', () => {
     const [stock] = parseFinvizScreener(html, { ...options, view: '161' });
     assert.equal(stock.dividendYield, 3.8);
     assert.equal(stock.change, 0.5);
+});
+
+test('live Finviz ARIA grid preserves quote fields and ignores logo initials in ticker links', () => {
+    const stocks = parseFinvizScreener(currentGrid, options);
+    assert.deepEqual(stocks.map(({ symbol, name, sector, price, change, volume, marketCap }) =>
+        ({ symbol, name, sector, price, change, volume, marketCap })), [
+        { symbol: 'MDXH', name: 'MDxHealth SA', sector: 'Healthcare', price: 0.21, change: -65.77, volume: 17311280, marketCap: 19710000 },
+        { symbol: 'GUTS', name: 'Fractyl Health Inc', sector: 'Healthcare', price: 1.55, change: -62.74, volume: 15098473, marketCap: 20560000 },
+    ]);
+    assert.ok(stocks.every(stock => stock.quotedAt === null && stock.fetchedAt === options.fetchedAt));
+});
+
+test('grid column indices preserve values when visual lane and cell order changes', () => {
+    const doc = new DOMParser().parseFromString(currentGrid, 'text/html');
+    for (const lane of doc.querySelectorAll('[data-lane]')) {
+        [...lane.children].reverse().forEach(cell => lane.appendChild(cell));
+    }
+    for (const row of doc.querySelectorAll('[role="row"]')) {
+        [...row.children].reverse().forEach(lane => row.appendChild(lane));
+    }
+    assert.deepEqual(parseFinvizScreener(doc.toString(), options), parseFinvizScreener(currentGrid, options));
+});
+
+test('grid missing or duplicated column indices fail instead of shifting quote values', () => {
+    for (const replacement of ['', 'aria-colindex="8"']) {
+        const html = currentGrid.replaceAll('aria-colindex="9"', replacement);
+        assert.throws(() => parseFinvizScreener(html, options), /unavailable|schema/i);
+    }
+});
+
+test('grid ticker links must match their visible ticker and Finviz host', () => {
+    for (const href of ['/quote?t=WRONG', 'https://example.com/quote?t=MDXH']) {
+        const doc = new DOMParser().parseFromString(currentGrid, 'text/html');
+        for (const row of [...doc.querySelectorAll('[role="row"]')].slice(1)) {
+            row.querySelector('[role="gridcell"][aria-colindex="2"] a').setAttribute('href', href);
+        }
+        assert.throws(() => parseFinvizScreener(doc.toString(), options), /unavailable|schema/i);
+    }
+});
+
+test('Finviz news resolves relative links against the source, preserving external publishers', () => {
+    assert.equal(resolveFinvizNewsUrl('/news/403721/taiwan-semiconductor-posts-record-q3-results-time-to-buy-the-dip'),
+        'https://finviz.com/news/403721/taiwan-semiconductor-posts-record-q3-results-time-to-buy-the-dip');
+    assert.equal(resolveFinvizNewsUrl('https://finance.yahoo.com/example'), 'https://finance.yahoo.com/example');
+    assert.equal(resolveFinvizNewsUrl('//finance.yahoo.com/example'), 'https://finance.yahoo.com/example');
+    for (const href of [null, '', ' ', 'javascript:alert(1)', 'data:text/html,test', 'file:///C:/example', 'http://[']) {
+        assert.equal(resolveFinvizNewsUrl(href), null);
+    }
 });

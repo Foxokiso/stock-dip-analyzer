@@ -1,0 +1,458 @@
+/* Pierce/27 — ETF leaders and Discovery pages.
+ *
+ * Imported by src/pages/ETFAwards.jsx and src/pages/Discovery.jsx. Every rule
+ * is scoped to .etf-awards-page / .discovery-page so it outranks the legacy
+ * component rules in index.css without touching other surfaces, while theme
+ * overrides (body.theme-* …) keep their higher specificity and still win.
+ * Layout (grid columns, panel order, row structure) is unchanged; only the
+ * style follows docs/design/pierce27-brief.md. Role tokens only — no literal
+ * colours, px glows or easings; derived shades use the 27 rule.
+ */
+
+/* ── page heading ─────────────────────────────────────────────────────── */
+.etf-awards-page .page-heading,
+.discovery-page .page-heading {
+  gap: var(--gap-sm);
+  margin-bottom: var(--gap);
+}
+.etf-awards-page .page-heading h2,
+.discovery-page .page-heading h2 {
+  font-family: var(--font-heading);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+}
+.etf-awards-page .page-heading h2 svg { color: var(--primary); }
+.discovery-page .page-heading h2 svg { color: var(--secondary); }
+.etf-awards-page .page-heading .eyebrow::before,
+.discovery-page .page-heading .eyebrow::before {
+  content: '';
+  width: 18px;
+  height: 1px;
+  background: var(--pierce-gradient);
+}
+.etf-awards-page .page-heading > div > .text-muted,
+.discovery-page .page-heading > div > .text-muted {
+  color: var(--text-muted);
+  max-width: 62ch;
+}
+
+/* ── outline buttons (external links, chart retry) ────────────────────── */
+.etf-awards-page .btn-outline,
+.discovery-page .btn-outline {
+  position: relative;
+  padding: 9px 17px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in oklch, var(--primary) 27%, var(--line));
+  background: var(--wash-p-07);
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  box-shadow: none;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+.etf-awards-page .btn-outline::after,
+.discovery-page .btn-outline::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: var(--glow-p);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
+}
+.etf-awards-page .btn-outline:hover,
+.discovery-page .btn-outline:hover {
+  background: var(--wash-p-14);
+  border-color: var(--primary);
+  transform: none;
+  box-shadow: none;
+  filter: none;
+  opacity: 1;
+}
+.etf-awards-page .btn-outline:hover::after,
+.discovery-page .btn-outline:hover::after { opacity: var(--glow-intensity); }
+.etf-awards-page .btn-outline:focus-visible,
+.discovery-page .btn-outline:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.etf-awards-page .btn-outline svg,
+.discovery-page .btn-outline svg { color: var(--primary); }
+
+/* ── source banner and notices ────────────────────────────────────────── */
+.etf-awards-page .source-banner,
+.discovery-page .source-banner {
+  padding: var(--gap-sm) 17px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in oklch, var(--secondary) 27%, var(--line));
+  background: var(--wash-s-07);
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.01em;
+}
+.etf-awards-page .source-banner > span:first-child::before,
+.discovery-page .source-banner > span:first-child::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--gap-xs);
+  border-radius: 50%;
+  background: var(--info);
+  vertical-align: 1px;
+}
+.discovery-page .discovery-banner-time {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+/* Live fetch indicator: breathes on the 2.7 s pulse (zeroed with reduced motion). */
+.etf-awards-page .etf-fetch-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-xs);
+  color: var(--info);
+  font-size: 11px;
+  animation: pierce-pulse var(--t-pulse) ease-in-out infinite;
+}
+.etf-awards-page .data-notice,
+.discovery-page .data-notice {
+  margin: var(--gap-sm) 0;
+  padding: var(--gap-sm) 17px;
+  border-left: 2px solid var(--warning);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: color-mix(in oklch, var(--warning) 7%, transparent);
+  color: var(--text-muted);
+  font-size: 12px;
+  align-items: center;
+}
+.discovery-page .data-notice .btn-outline { padding: 6px 13px; font-size: 11px; }
+
+/* ── silk panels (brief rule 1) ───────────────────────────────────────── */
+.etf-awards-page .etf-leader-panel,
+.discovery-page .discovery-chart-panel,
+.discovery-page .discovery-results-panel {
+  padding: calc(23px * var(--density)) calc(21px * var(--density));
+  min-width: 0;
+  background: var(--sheen);
+  border: var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
+  transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
+}
+.etf-awards-page .etf-leader-panel h3,
+.discovery-page .discovery-chart-panel h3,
+.discovery-page .discovery-results-panel h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-xs);
+  margin-bottom: var(--gap-xs);
+  font-family: var(--font-heading);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--text-main);
+}
+.etf-awards-page .etf-leader-panel h3 svg,
+.discovery-page .discovery-results-panel h3 svg { color: var(--primary); }
+.discovery-page .discovery-chart-panel h3 svg { color: var(--secondary); }
+.discovery-page .discovery-results-panel h3 .spin { color: var(--info); }
+
+.etf-awards-page .source-meta,
+.discovery-page .source-meta {
+  margin-bottom: var(--gap-sm);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--text-faint);
+}
+.discovery-page .discovery-results-panel > .text-muted {
+  margin-bottom: var(--gap-sm);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* Stale data: the warning lives on the hairline and the meta line only, so
+   the figures themselves keep their up/down semantics. */
+.etf-awards-page .etf-leader-panel.data-stale,
+.discovery-page .discovery-results-panel.data-stale {
+  color: var(--text-main);
+  border-color: color-mix(in oklch, var(--warning) 27%, var(--line));
+}
+.etf-awards-page .etf-leader-panel.data-stale .source-meta { color: var(--warning); }
+
+.etf-awards-page .desk-empty,
+.discovery-page .desk-empty {
+  min-height: 210px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+/* Spinner for the RefreshCw icon; duration follows the motion tokens so the
+   OS and in-app reduced-motion settings stop it. */
+.etf-awards-page .spin,
+.discovery-page .spin {
+  animation: etf-discovery-spin calc(var(--t-slow) * 2) linear infinite;
+}
+@keyframes etf-discovery-spin { to { transform: rotate(360deg); } }
+
+/* ── ETF leaders: three-panel grid ────────────────────────────────────── */
+.etf-awards-page .etf-leaders-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gap);
+  margin-top: var(--gap);
+}
+.etf-awards-page .etf-leader-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--gap-sm);
+  margin: 0 calc(-1 * var(--gap-xs));
+  padding: var(--gap-sm) var(--gap-xs);
+  border-bottom: 1px solid var(--line);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.etf-awards-page .etf-leader-row:last-child { border-bottom-color: transparent; }
+.etf-awards-page .etf-leader-row:hover {
+  background: var(--bg-card-hover);
+  border-bottom-color: var(--line-strong);
+}
+.etf-awards-page .etf-leader-symbol {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gap-sm);
+  min-width: 0;
+  font-size: 12px;
+}
+.etf-awards-page .etf-leader-rank {
+  flex: 0 0 auto;
+  min-width: 1.6em;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.etf-awards-page .etf-leader-rank.is-top { color: var(--primary); }
+.etf-awards-page .etf-leader-ident { min-width: 0; }
+.etf-awards-page .etf-leader-ident a {
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-main);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+.etf-awards-page .etf-leader-ident a:hover {
+  color: var(--primary);
+  filter: none;
+  opacity: 1;
+}
+.etf-awards-page .etf-leader-ident a:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+.etf-awards-page .etf-leader-name {
+  margin: 3px 0 4px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.etf-awards-page .quote-meta,
+.discovery-page .quote-meta {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  line-height: 1.7;
+  color: var(--text-faint);
+}
+/* The performance and dividend screener views carry no company name, so the
+   price caption would otherwise sit inline right after the symbol link. */
+.etf-awards-page .etf-leader-ident .quote-meta { display: block; }
+.etf-awards-page .etf-leader-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  white-space: nowrap;
+}
+.etf-awards-page .etf-leader-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.etf-awards-page .etf-leader-value.text-success { color: var(--success); }
+.etf-awards-page .etf-leader-value.text-danger { color: var(--danger); }
+.etf-awards-page .etf-leader-value.text-muted { color: var(--text-muted); }
+
+/* ── Discovery: chart panel + results panel ───────────────────────────── */
+.discovery-page .discovery-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  gap: var(--gap);
+  margin-top: var(--gap);
+}
+/* The chart container is filled by the TradingView iframe, whose own canvas
+   takes the same roles (ground --bg-card, grid --line, scale text --text-muted,
+   series --secondary) resolved from the cascade in Discovery.jsx. While it is
+   empty (loading, retry) the container shows a quiet --line grid on the ink. */
+.discovery-page .discovery-chart {
+  position: relative;
+  height: 550px;
+  margin-top: var(--gap-sm);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background-color: var(--bg-dark);
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 54px 54px;
+  background-position: center;
+  transition: border-color var(--transition-normal);
+}
+.discovery-page .discovery-chart-panel:hover .discovery-chart { border-color: var(--line-strong); }
+.discovery-page .discovery-chart iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+/* Token probe used by Discovery.jsx to read the chart roles; never painted. */
+.discovery-page .discovery-token-probe {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+/* Any SVG chart rendered inside the panel (recharts or hand-drawn) takes the
+   brief's chart roles: --secondary series, --line grid, --text-muted ticks. */
+.discovery-page .discovery-chart-panel svg .recharts-cartesian-grid line,
+.discovery-page .discovery-chart-panel svg .recharts-cartesian-axis-line,
+.discovery-page .discovery-chart-panel svg .recharts-cartesian-axis-tick-line { stroke: var(--line); }
+.discovery-page .discovery-chart-panel svg .recharts-line .recharts-curve,
+.discovery-page .discovery-chart-panel svg .recharts-area .recharts-curve { stroke: var(--secondary); }
+.discovery-page .discovery-chart-panel svg .recharts-area .recharts-area-area { fill: var(--wash-s-14); }
+.discovery-page .discovery-chart-panel svg .recharts-cartesian-axis-tick text,
+.discovery-page .discovery-chart-panel svg .recharts-text { fill: var(--text-muted); }
+
+/* Rows: hover is the card-hover fill plus a hairline shift; the selected row is
+   the 14 % primary wash with a 2 px inset primary edge. No transforms. */
+.discovery-page .discovery-stock-row {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--gap-sm);
+  margin: 0 calc(-1 * var(--gap-xs));
+  padding: var(--gap-sm) var(--gap-xs);
+  border-bottom: 1px solid var(--line);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.discovery-page .discovery-stock-row:last-child { border-bottom-color: transparent; }
+.discovery-page .discovery-stock-row:hover {
+  background: var(--bg-card-hover);
+  border-bottom-color: var(--line-strong);
+}
+.discovery-page .discovery-stock-row.is-selected,
+.discovery-page .discovery-stock-row.is-selected:hover {
+  background: var(--wash-p-14);
+  border-bottom-color: color-mix(in oklch, var(--primary) 27%, var(--line));
+  box-shadow: inset 2px 0 0 var(--primary);
+}
+.discovery-page .discovery-stock-row.is-selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  box-shadow: var(--glow-p);
+  opacity: var(--glow-intensity);
+  pointer-events: none;
+}
+.discovery-page .discovery-ticker-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 2px 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-main);
+  font-family: var(--font-heading);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+.discovery-page .discovery-ticker-button strong {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.discovery-page .discovery-ticker-button:hover strong,
+.discovery-page .is-selected .discovery-ticker-button strong { color: var(--primary); }
+.discovery-page .discovery-ticker-button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.discovery-page .discovery-stock-values {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  text-align: right;
+}
+.discovery-page .discovery-stock-values > span:first-child { color: var(--text-main); }
+.discovery-page .discovery-analysis-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--text-muted);
+  transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
+}
+.discovery-page .discovery-analysis-link:hover {
+  color: var(--secondary);
+  border-color: var(--secondary);
+  background: var(--wash-s-14);
+  filter: none;
+  opacity: 1;
+}
+.discovery-page .discovery-analysis-link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Same breakpoint as the legacy rules; restated because the scoped selectors
+   above would otherwise outrank the global single-column collapse. */
+@media (max-width: 950px) {
+  .etf-awards-page .etf-leaders-grid { grid-template-columns: minmax(0, 1fr); }
+  .discovery-page .discovery-grid { grid-template-columns: minmax(0, 1fr); }
+}

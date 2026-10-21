@@ -6,6 +6,7 @@ import { analyzeStock, getVerdict } from '../utils/scoring';
 import { formatPrice, formatPct, formatQuoteTime } from '../utils/format';
 import { getYahooQuote } from '../utils/marketData';
 import { parseOilNews } from '../utils/oilNews';
+import '../styles/pages/oil-watch.css';
 
 const electron = typeof window !== 'undefined' && typeof window.require === 'function'
     ? window.require('electron')
@@ -49,91 +50,85 @@ const OIL_ETFS = [
 
 const NEWS_QUERY = '"Middle East" oil OR "Strait of Hormuz" OR OPEC OR "oil tanker" OR refinery when:24h';
 
+// ─── Presentation helpers (tone classes; colours live in oil-watch.css) ──────
+const BOARD_COLUMNS = [
+    { label: 'Symbol', className: '' },
+    { label: 'Price', className: 'numeric' },
+    { label: 'Day Δ%', className: 'numeric' },
+    { label: 'Off 1M close high', className: 'numeric' },
+    { label: 'RSI', className: 'numeric' },
+    { label: 'Trend', className: 'centered' },
+    { label: 'Technical rating', className: 'centered' },
+    { label: '', className: 'centered' },
+];
+
+const RATING_TONE = { 'Strong Buy': 'strong-buy', Buy: 'buy', Hold: 'hold', Sell: 'sell', 'Strong Sell': 'strong-sell' };
+
+const signTone = (value) => value == null ? 'oil-flat' : value >= 0 ? 'oil-up' : 'oil-down';
+
 // ─── One row of a ticker board ───────────────────────────────────────────────
 const BoardRow = ({ row, expanded, onToggle }) => {
-    const verdict = row.analysis ? getVerdict(row.analysis.score, row.analysis.isZombie) : null;
     const a = row.analysis;
-    const rsiColor = a?.rsi == null ? 'var(--text-muted)' : a.rsi <= 30 ? 'var(--success)' : a.rsi >= 70 ? 'var(--danger)' : 'var(--text-muted)';
+    const verdict = a ? getVerdict(a.score, a.isZombie) : null;
+    const ratingTone = verdict ? (a.isZombie ? 'muted' : RATING_TONE[verdict.label] || 'muted') : null;
+    const rsiTone = a?.rsi == null ? 'oil-flat' : a.rsi <= 30 ? 'oil-up' : a.rsi >= 70 ? 'oil-down' : 'oil-flat';
+    const trendTone = a?.trend === 'bullish' ? 'oil-up' : a?.trend === 'bearish' ? 'oil-down' : 'oil-flat';
     const trendGlyph = a?.trend === 'bullish' ? '▲' : a?.trend === 'bearish' ? '▼' : '—';
-    const trendColor = a?.trend === 'bullish' ? 'var(--success)' : a?.trend === 'bearish' ? 'var(--danger)' : 'var(--text-muted)';
+    const note = row.group || row.note || (row.name && row.name !== row.sym ? row.name : '');
 
     return (
         <>
-            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                <td style={{ padding: '0.7rem 0.4rem' }}>
-                    <Link to={`/stock/${row.sym}`} style={{ fontWeight: 'bold', color: 'var(--text-main)', textDecoration: 'underline' }}>
-                        {row.sym}
-                    </Link>
-                    <div className="text-muted" style={{ fontSize: '0.7rem', maxWidth: '160px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.name}>
-                        {row.group || row.note || (row.name && row.name !== row.sym ? row.name : '')}
-                    </div>
+            <tr className={`oil-row${expanded ? ' is-expanded' : ''}`}>
+                <td>
+                    <Link to={`/stock/${row.sym}`} className="oil-symbol">{row.sym}</Link>
+                    <div className="oil-symbol-note" title={row.name}>{note}</div>
                     <div className="quote-meta" title={row.fetchedAt ? `Fetched ${formatQuoteTime(row.fetchedAt)}` : undefined}>Quote {formatQuoteTime(row.quotedAt)}</div>
                     <div className="quote-meta">{row.delayMinutes == null ? 'Delay not provided' : `Source delay: ${row.delayMinutes} min`}</div>
                 </td>
-                <td style={{ padding: '0.7rem 0.4rem', textAlign: 'right', fontWeight: 600 }}>{formatPrice(row.price)}{row.stale && <div className="quote-meta text-warning">Stale</div>}</td>
-                <td style={{ padding: '0.7rem 0.4rem', textAlign: 'right', color: row.changePct == null ? 'var(--text-muted)' : row.changePct >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                    {formatPct(row.changePct)}
+                <td className="numeric oil-price">
+                    {formatPrice(row.price)}
+                    {row.stale && <div className="quote-meta oil-stale">Stale</div>}
                 </td>
-                <td style={{ padding: '0.7rem 0.4rem', textAlign: 'right', color: a ? 'var(--danger)' : 'var(--text-muted)' }}>
-                    {a ? `-${a.dipPercentage.toFixed(1)}%` : '—'}
+                <td className={`numeric ${signTone(row.changePct)}`}>{formatPct(row.changePct)}</td>
+                <td className={`numeric ${a ? 'oil-down' : 'oil-flat'}`}>{a ? `-${a.dipPercentage.toFixed(1)}%` : '—'}</td>
+                <td className={`numeric ${rsiTone}`}>{a?.rsi != null ? a.rsi.toFixed(0) : '—'}</td>
+                <td className={`centered ${trendTone}`}>{trendGlyph}</td>
+                <td className="centered">
+                    {verdict
+                        ? <span className={`oil-rating oil-rating--${ratingTone}`}>{verdict.label} ({a.score})</span>
+                        : <span className="oil-flat">—</span>}
                 </td>
-                <td style={{ padding: '0.7rem 0.4rem', textAlign: 'right', color: rsiColor }}>
-                    {a?.rsi != null ? a.rsi.toFixed(0) : '—'}
-                </td>
-                <td style={{ padding: '0.7rem 0.4rem', textAlign: 'center', color: trendColor }}>{trendGlyph}</td>
-                <td style={{ padding: '0.7rem 0.4rem', textAlign: 'center' }}>
-                    {verdict ? (
-                        <span style={{
-                            color: verdict.color,
-                            border: `1px solid ${verdict.color}40`,
-                            background: `${verdict.color}15`,
-                            padding: '0.15rem 0.5rem',
-                            borderRadius: '20px',
-                            fontSize: '0.75rem',
-                            whiteSpace: 'nowrap',
-                        }}>
-                            {verdict.label} ({a.score})
-                        </span>
-                    ) : <span className="text-muted">—</span>}
-                </td>
-                <td style={{ padding: '0.7rem 0.2rem', textAlign: 'center' }}>
+                <td className="centered oil-expand-cell">
                     <button
+                        type="button"
+                        className="oil-expand"
                         onClick={() => onToggle(row.sym)}
                         title="Score breakdown"
-                        style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '0.2rem' }}
+                        aria-label={`Score breakdown for ${row.sym}`}
+                        aria-expanded={expanded}
                     >
-                        <ChevronDown size={14} style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                        <ChevronDown size={14} aria-hidden="true" />
                     </button>
                 </td>
             </tr>
             {expanded && (
-                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.2)' }}>
-                    <td colSpan={8} style={{ padding: '0.75rem 1rem' }}>
+                <tr className="oil-row-detail">
+                    <td colSpan={8}>
                         {a ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                            <div className="oil-factors">
                                 {a.factors.map((f, i) => (
-                                    <div key={i} style={{ display: 'flex', gap: '0.6rem', alignItems: 'baseline', fontSize: '0.8rem' }}>
-                                        <span style={{
-                                            minWidth: '34px',
-                                            textAlign: 'center',
-                                            borderRadius: '10px',
-                                            padding: '1px 6px',
-                                            fontWeight: 700,
-                                            color: f.points > 0 ? 'var(--success)' : f.points < 0 ? 'var(--danger)' : 'var(--text-muted)',
-                                            background: f.points > 0 ? 'rgba(16,185,129,0.12)' : f.points < 0 ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.06)',
-                                        }}>
+                                    <div key={i} className="oil-factor">
+                                        <span className={`oil-factor-points oil-factor-points--${f.points > 0 ? 'up' : f.points < 0 ? 'down' : 'flat'}`}>
                                             {f.points > 0 ? `+${f.points}` : f.points}
                                         </span>
                                         <strong>{f.label}</strong>
-                                        <span className="text-muted">{f.detail}</span>
+                                        <span className="oil-factor-detail">{f.detail}</span>
                                     </div>
                                 ))}
-                                <span className="text-muted" style={{ fontSize: '0.7rem', fontStyle: 'italic' }}>
-                                    Score starts at 50; factors sum and clamp to 0–100.
-                                </span>
+                                <span className="oil-factor-note">Score starts at 50; factors sum and clamp to 0–100.</span>
                             </div>
                         ) : (
-                            <span className="text-muted" style={{ fontSize: '0.8rem' }}>A technical score requires at least 15 valid daily price observations.</span>
+                            <span className="oil-factor-detail">A technical score requires at least 15 valid daily price observations.</span>
                         )}
                     </td>
                 </tr>
@@ -143,20 +138,19 @@ const BoardRow = ({ row, expanded, onToggle }) => {
 };
 
 // ─── A titled board of tickers ───────────────────────────────────────────────
-const TickerBoard = ({ title, icon, color, rows, loading, expandedRows, onToggle, flexBasis = '420px' }) => (
-    <div className="glass-panel" style={{ padding: '1.25rem', flex: `1 1 ${flexBasis}`, minWidth: 0 }}>
-        <h3 className="flex-center" style={{ justifyContent: 'flex-start', gap: '0.5rem', marginTop: 0, marginBottom: '0.75rem', color }}>
-            {icon}
-            {title}
-            {loading && <RefreshCw size={14} className="text-muted" style={{ animation: 'spin 1s linear infinite' }} />}
-        </h3>
-        <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+const TickerBoard = ({ title, icon, tone, rows, loading, expandedRows, onToggle, wide = false }) => (
+    <section className={`glass-panel oil-board oil-board--${tone}${wide ? ' oil-board--wide' : ''}`} aria-label={title} aria-busy={loading}>
+        <div className="oil-board-head">
+            <h3><span className="oil-board-icon">{icon}</span>{title}</h3>
+            {loading && <RefreshCw size={14} className="oil-board-spinner oil-spin" role="img" aria-label="Refreshing quotes" />}
+        </div>
+        <div className="oil-table-scroll">
+            <table className="oil-table">
                 <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                        {['Symbol', 'Price', 'Day Δ%', 'Off 1M close high', 'RSI', 'Trend', 'Technical rating', ''].map((h, i) => (
-                            <th key={i} className="text-muted" style={{ padding: '0.5rem 0.4rem', fontWeight: 600, fontSize: '0.75rem', whiteSpace: 'nowrap', textAlign: i === 0 ? 'left' : i >= 5 ? 'center' : 'right' }}>
-                                {h}
+                    <tr>
+                        {BOARD_COLUMNS.map((column, i) => (
+                            <th key={i} scope="col" className={column.className}>
+                                {column.label || <span className="oil-sr-only">Score breakdown</span>}
                             </th>
                         ))}
                     </tr>
@@ -168,12 +162,10 @@ const TickerBoard = ({ title, icon, color, rows, loading, expandedRows, onToggle
                 </tbody>
             </table>
             {!loading && rows.length === 0 && (
-                <div className="text-muted" style={{ padding: '1rem', textAlign: 'center', fontSize: '0.85rem' }}>
-                    No tickers match the current global filter.
-                </div>
+                <div className="oil-board-empty">No tickers match the current global filter.</div>
             )}
         </div>
-    </div>
+    </section>
 );
 
 // ─── Page ────────────────────────────────────────────────────────────────────
@@ -307,10 +299,11 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                 tickers={ENERGY_TICKERS}
             />
 
-            <div className="flex-between" style={{ marginBottom: '1.5rem' }}>
+            <div className="page-heading flex-between oil-heading">
                 <div>
-                    <h2 className="text-gradient flex-center" style={{ justifyContent: 'flex-start', gap: '0.5rem' }}>
-                        <Droplet size={24} color="var(--primary)" />
+                    <p className="eyebrow"><span className="eyebrow-line" aria-hidden="true" />Energy complex</p>
+                    <h2 className="text-gradient">
+                        <Droplet size={24} aria-hidden="true" />
                         Oil Watch — Tankers, Refiners &amp; Middle East Flow
                     </h2>
                     <p className="text-muted">
@@ -319,116 +312,89 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                 </div>
             </div>
 
-            <div className="source-banner"><span>Yahoo Finance · Quote times and source delay shown per ticker</span><span>{basketFetchedAt ? `Fetched ${formatQuoteTime(basketFetchedAt)}` : 'No verified basket quotes loaded'}</span></div>
+            <div className={`source-banner${loading ? ' is-live' : ''}`}><span>Yahoo Finance · Quote times and source delay shown per ticker</span><span>{basketFetchedAt ? `Fetched ${formatQuoteTime(basketFetchedAt)}` : 'No verified basket quotes loaded'}</span></div>
             {basketError && <p className="data-notice" role="status">{basketError}</p>}
-            <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div className="oil-layout">
                 {/* Boards column */}
-                <div style={{ flex: '2 1 640px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                <div className="oil-boards">
                     <TickerBoard
                         title="Wet Freight — Tanker Fleet"
-                        icon={<Ship size={18} />}
-                        color="var(--primary)"
+                        icon={<Ship size={18} aria-hidden="true" />}
+                        tone="primary"
                         rows={boardRows(TANKERS)}
                         loading={loading}
                         expandedRows={expandedRows}
                         onToggle={onToggle}
                     />
-                    <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+                    <div className="oil-boards-row">
                         <TickerBoard
                             title="Refiners"
-                            icon={<Factory size={18} />}
-                            color="var(--warning)"
+                            icon={<Factory size={18} aria-hidden="true" />}
+                            tone="warning"
                             rows={boardRows(REFINERS)}
                             loading={loading}
                             expandedRows={expandedRows}
                             onToggle={onToggle}
-                            flexBasis="560px"
+                            wide
                         />
                         <TickerBoard
                             title="Energy ETFs"
-                            icon={<Layers size={18} />}
-                            color="var(--success)"
+                            icon={<Layers size={18} aria-hidden="true" />}
+                            tone="success"
                             rows={boardRows(OIL_ETFS)}
                             loading={loading}
                             expandedRows={expandedRows}
                             onToggle={onToggle}
-                            flexBasis="560px"
+                            wide
                         />
                     </div>
                 </div>
 
                 {/* News column */}
-                <div className="glass-panel" style={{ flex: '1 1 340px', minWidth: 0, padding: '1.25rem', maxHeight: '900px', overflowY: 'auto' }}>
-                    <h3 className="flex-center" style={{ justifyContent: 'flex-start', gap: '0.5rem', marginTop: 0, marginBottom: '0.75rem', color: 'var(--secondary)' }}>
-                        <Newspaper size={18} />
-                        Middle East Oil Intelligence
-                        {newsLoading && <RefreshCw size={14} className="text-muted" style={{ animation: 'spin 1s linear infinite' }} />}
-                    </h3>
-                    <p className="text-muted" style={{ fontSize: '0.78rem', marginBottom: '1rem' }}>
+                <section className="glass-panel oil-news-panel oil-board--secondary" aria-label="Middle East Oil Intelligence" aria-busy={newsLoading}>
+                    <div className="oil-board-head oil-news-head">
+                        <h3><span className="oil-board-icon"><Newspaper size={18} aria-hidden="true" /></span>Middle East Oil Intelligence</h3>
+                        {newsLoading && <RefreshCw size={14} className="oil-board-spinner oil-spin" role="img" aria-label="Refreshing headlines" />}
+                    </div>
+                    <p className="oil-news-intro">
                         Last-24h headlines on Middle East oil, the Strait of Hormuz, OPEC, tankers, and refineries.
                         Conflict and disruption keyword matches are flagged; these tags are not verified event assessments.
                     </p>
                     <p className="source-meta">Google News RSS · {newsFetchedAt ? `Fetched ${formatQuoteTime(newsFetchedAt)}` : 'No feed loaded'}</p>
                     {newsError && <p className="data-notice" role="status">{newsError}</p>}
                     {newsStale && news.length > 0 && (
-                        <p style={{ fontSize: '0.72rem', color: 'var(--warning)', margin: '0 0 0.75rem 0' }}>
-                            Feed refresh failed — showing the last loaded headlines.
-                        </p>
+                        <p className="oil-news-stale" role="status">Feed refresh failed — showing the last loaded headlines.</p>
                     )}
                     {!newsLoading && news.length === 0 ? (
-                        <div className="text-muted" style={{ textAlign: 'center', padding: '1.5rem 0', fontSize: '0.85rem' }}>
+                        <div className="oil-news-empty">
                             {newsError ? 'News feed unavailable.' : 'No headlines available right now.'}
                         </div>
                     ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                            {news.map((item, idx) => (
+                        <div className="oil-news-list">
+                            {news.map((item) => (
                                 <a
-                                    key={idx}
+                                    key={item.link}
                                     // Feed-controlled URLs: only http(s) links are clickable.
                                     href={/^https?:\/\//i.test(item.link) ? item.link : undefined}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    style={{
-                                        display: 'block',
-                                        padding: '0.75rem',
-                                        borderRadius: '8px',
-                                        textDecoration: 'none',
-                                        background: item.highImpact ? 'rgba(217, 119, 6, 0.12)' : 'rgba(255,255,255,0.02)',
-                                        border: item.highImpact ? '1px solid rgba(252, 211, 77, 0.4)' : '1px solid rgba(255,255,255,0.06)',
-                                    }}
+                                    className={`oil-news-item${item.highImpact ? ' oil-news-item--high' : ''}`}
                                 >
-                                    <div className="flex-between" style={{ marginBottom: '0.3rem', gap: '0.5rem' }}>
-                                        <span className="text-muted" style={{ fontSize: '0.72rem' }}>
-                                            {formatQuoteTime(item.publishedAt)}{item.source ? ` · ${item.source}` : ''}
-                                        </span>
+                                    <div className="oil-news-meta">
+                                        <span>{formatQuoteTime(item.publishedAt)}{item.source ? ` · ${item.source}` : ''}</span>
                                         {item.highImpact && (
-                                            <span className="flex-center" style={{
-                                                gap: '0.25rem',
-                                                fontSize: '0.62rem',
-                                                fontWeight: 900,
-                                                color: '#fde68a',
-                                                background: 'rgba(217, 119, 6, 0.35)',
-                                                padding: '0.1rem 0.45rem',
-                                                borderRadius: '10px',
-                                                whiteSpace: 'nowrap',
-                                            }}>
-                                                <AlertTriangle size={10} /> KEYWORD FLAG
+                                            <span className="oil-badge-impact" title="Conflict or disruption keyword match — not a verified event assessment">
+                                                <AlertTriangle size={10} aria-hidden="true" /> HIGH IMPACT
                                             </span>
                                         )}
                                     </div>
-                                    <div style={{ fontSize: '0.85rem', lineHeight: 1.45, color: item.highImpact ? '#fef3c7' : 'var(--text-main)' }}>
-                                        {item.title}
-                                    </div>
+                                    <div className="oil-news-title">{item.title}</div>
                                 </a>
                             ))}
                         </div>
                     )}
-                </div>
+                </section>
             </div>
-
-            <style>{`
-                @keyframes spin { 100% { transform: rotate(360deg); } }
-            `}</style>
         </div>
     );
 };

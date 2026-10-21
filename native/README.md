@@ -7,13 +7,22 @@ exists in this directory yet.
 
 The core preserves the reference score, verdict, EMA5/EMA10, simple trailing
 RSI(14), post-peak structure, factor labels/points, trend flags and sparkline.
-Factor explanation strings and theme colors remain presentation work. Provider
-JSON validation, session/timezone handling and futures parsing are separate ports
-still required; this numerical API accepts doubles and an optional live quote.
+This numerical API accepts doubles and an optional live quote. The remaining
+renderer logic is ported module by module under `native/modules/<name>/`, each
+with its own README, header under `include/dip/` and parity driver: `format`
+(display strings), `jsonlite` + `futures` (strict JSON and Finviz futures
+parsing), `marketdata` (Yahoo quote validation and session/timezone handling),
+`oilnews` (headline source split and impact flags) and `palette` (the Pierce/27
+token table, regenerated from `src/styles/tokens.css`). Factor explanation
+strings stay presentation work in the renderer.
 
 ## Build and compare
 
+The verifiers use Node.js and the locked development dependencies (including
+`linkedom` for the oil-news reference). From the repository root:
+
 ```bash
+npm ci --include=dev --ignore-scripts --no-audit --no-fund
 cmake -S native -B artifacts/native-build
 cmake --build artifacts/native-build --config Release
 ctest --test-dir artifacts/native-build -C Release --output-on-failure

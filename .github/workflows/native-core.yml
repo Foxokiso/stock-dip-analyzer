@@ -2,20 +2,28 @@ name: Native C++ core parity
 
 on:
   push:
-    branches: [feat/cpp-native-reengineering]
+    branches: [feat/cpp-native-reengineering, v2/pierce27]
   pull_request:
     paths:
       - 'native/**'
-      - 'scripts/verify-native-analysis.mjs'
+      - 'scripts/verify-native-*.mjs'
+      - 'scripts/gen-native-palette.mjs'
       - 'src/utils/scoring.js'
+      - 'src/utils/format.js'
+      - 'src/utils/marketData.js'
+      - 'src/utils/oilNews.js'
+      - 'src/services/futures.js'
+      - 'src/styles/tokens.css'
       - '.github/workflows/native-core.yml'
+      - 'package.json'
+      - 'package-lock.json'
 
 permissions:
   contents: read
 
 jobs:
   native-parity:
-    name: C++ scoring parity (${{ matrix.os }})
+    name: C++ module parity (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -29,6 +37,8 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
+      - name: Install parity verifier dependencies
+        run: npm ci --include=dev --ignore-scripts --no-audit --no-fund
       - name: Configure C++ core and parity driver
         run: cmake -S native -B artifacts/native-build
       - name: Build

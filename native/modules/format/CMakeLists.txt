@@ -1,0 +1,10 @@
+# dip::format — display formatters ported from src/utils/format.js.
+add_library(dip_format src/format.cpp)
+target_include_directories(dip_format PUBLIC include)
+dip_set_policy(dip_format)
+if(BUILD_TESTING)
+  add_executable(format_driver tests/format_driver.cpp)
+  target_link_libraries(format_driver PRIVATE dip_format)
+  dip_set_policy(format_driver)
+  dip_add_parity_test(format_reference_parity format_driver verify-native-format.mjs)
+endif()

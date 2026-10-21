@@ -178,10 +178,16 @@ export const fetchFinvizFutures = async (ipcRenderer, options = {}) => {
     try {
         const input = await ipcRenderer.invoke('fetch-url', FUTURES_SOURCE_URL);
         const snapshot = parseFinvizFutures(input, { fetchedAt: timestamp(options.now), timeframe, sourceUrl: FUTURES_SOURCE_URL });
-        const merged = mergePrevious(snapshot, previous);
+        // The generic page does not identify its chart interval. Keep its
+        // quotes, but never label those samples as the requested interval.
+        const quotesOnly = {
+            ...snapshot,
+            quotes: snapshot.quotes.map(quote => ({ ...quote, sparkline: [], chartLabels: {} })),
+        };
+        const merged = mergePrevious(quotesOnly, previous);
         return {
             ...merged, attemptedAt,
-            error: [merged.error, `Chart endpoint unavailable (${apiError}); showing Finviz page quotes.`].filter(Boolean).join(' '),
+            error: [merged.error, `Chart endpoint unavailable (${apiError}); showing Finviz page quotes without unverified chart samples.`].filter(Boolean).join(' '),
         };
     } catch (error) {
         return failedSnapshot(previous, timeframe, attemptedAt, `Finviz refresh failed: ${apiError}; ${messageOf(error)}`);
