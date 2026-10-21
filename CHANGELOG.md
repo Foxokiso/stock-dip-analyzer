@@ -6,6 +6,7 @@
 - Every Finviz screener desk (Overview, ETF rankings, Discovery) showed nothing: Finviz now appends a short label span and a sort indicator to header cells, so the header row was no longer recognised. The parser reads the full name from `aria-label` or the label span first (`src/utils/finviz.js`, fixture `tests/fixtures/finviz-overview-grid-2026-10-21.html`).
 - Numeric parsing is normalised to 15 significant digits (33.24M no longer becomes 33240000.000000004).
 - `master` had no CI: both workflows now also run on pushes to it.
+- Packaging wrote into `dist/`, the folder Vite builds into and that the app's `files` glob packs recursively, so every build after the first packed the previous build inside itself (the app archive had reached 375 MB). electron-builder now outputs to `release/`.
 
 ### Changed
 - Overview scan streams (`src/state/scanStore.js`): screener pages are fetched four at a time and published in page order as each one lands; Yahoo scoring starts on the first rows with eight requests in flight and is flushed to the table every 120 ms. Measured at depth 100: first row and first score 0.9 s after a reload, all names scored in 3.3 s (previously five names at a time, pages one at a time with a 300 ms pause).
@@ -14,6 +15,16 @@
 - ETF rankings fetch their three pages in parallel; Oil Watch hydrates through a pool of eight.
 - Settings → Data → **Chart cache** is now honoured by Overview scoring, the stock page and Oil Watch (`src/utils/chartCache.js`; a reused quote keeps its original retrieval time; the Market Pulse strip always fetches live). Settings → Data → **Request timeout** is pushed to the main process through `configure-network`. Both are editable and the section has a reset.
 - Placeholder rows while a scan is arriving are capped at eight.
+
+### Security
+- The renderer is now sandboxed and context-isolated with Node integration off. `preload.cjs` exposes exactly one function, `window.dipAnalyzer.invoke`, limited to the three provider channels; every desk goes through `src/utils/bridge.js`. Previously the page that loads TradingView's remote script and embeds third-party sites ran with full Node access.
+- `fetch-url` refuses anything but HTTPS requests to `finviz.com`, `www.finviz.com` and `news.google.com`, before the request is shared or sent, so the main process can no longer be used as a proxy carrying the app's headers and cookies.
+- The app window cannot navigate away from the app; `<webview>` guests are created without Node, isolated, sandboxed, without a preload, and only on HTTPS; every permission request (camera, microphone, location, notifications…) is denied; popups still open in the system browser only for http(s) URLs.
+- Production builds carry a Content Security Policy (`vite.config.js`): scripts only from the app and TradingView's loader, frames only on TradingView's hosts, no objects, no base override, no form posts.
+- The news overlay no longer geolocates the user through a plain-HTTP IP lookup; it reads the Google News front page.
+- Resource viewer URLs encode the symbol taken from the route.
+- Electron 40 → 45 (closes five high advisories, including a `<webview>` Node-integration escape and sandbox-inheritance bugs). Renderer libraries moved to devDependencies so the packaged app ships only `main.cjs`, `preload.cjs` and `dist/`; `npm audit --omit=dev` is clean, and the remaining moderate findings are in the build tool only.
+- `.github/workflows/release.yml`: pushing a `v*` tag runs the tests, builds the installer, writes `SHA256SUMS.txt` and publishes a GitHub Release; it signs automatically once `CSC_LINK`/`CSC_KEY_PASSWORD` secrets exist.
 
 ### Added
 - `npm run test:finviz` (`scripts/verify-finviz-live.mjs`): fetches every screener view the app uses plus the futures API and runs the shared parsers, so the next Finviz markup change is caught in seconds without launching Electron.

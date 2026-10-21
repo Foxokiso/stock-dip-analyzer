@@ -40,10 +40,10 @@ const waitForServer = async () => {
 // Routes with selectors that only match live values, never chrome or placeholders.
 const ROUTES = [
   { name: 'futures', hash: '/futures', root: '.futures-page', data: { sel: '.futures-table tbody tr td.numeric', text: '\\d' } },
-  { name: 'stock-AAPL', hash: '/stock/AAPL', root: '.stock-details', data: { sel: '.stock-details strong', text: '\\$\\d' }, extra: { chart: { sel: '.recharts-surface' } } },
+  { name: 'stock-AAPL', hash: '/stock/AAPL', root: '.stock-details', data: { sel: '.stock-details strong', text: '\\$\\d' }, extra: { chart: { sel: '.recharts-surface' }, tradingView: { sel: '#tv_stockdetail_chart iframe' } } },
   { name: 'etfs', hash: '/etfs', root: '.etf-awards-page', data: { sel: '.etf-leader-row' } },
   { name: 'oil', hash: '/oil', root: '.oil-watch-page', data: { sel: '.oil-row', text: '\\$\\d' } },
-  { name: 'discovery', hash: '/discovery', root: '.discovery-page', data: { sel: '.discovery-stock-row', text: '\\$\\d' } },
+  { name: 'discovery', hash: '/discovery', root: '.discovery-page', data: { sel: '.discovery-stock-row', text: '\\$\\d' }, extra: { tradingView: { sel: '#tv_discovery_chart iframe' } } },
   { name: 'settings', hash: '/settings', root: '.settings-page', data: { sel: '.settings-section' } },
 ];
 const OVERVIEW = { name: 'overview', hash: '/', root: '.dashboard', data: { sel: '.dash-row .dash-symbol' }, extra: { score: { sel: '.dash-verdict', text: '\\(\\d+\\)' } } };
@@ -57,7 +57,8 @@ try {
     : await electron.launch({ args: [path.join(root, 'main.cjs')], cwd: root, timeout: 60000 });
   app.process().stderr?.on('data', chunk => {
     for (const line of String(chunk).split(/\r?\n/)) {
-      if (/fetch error|status: 4\d\d|status: 5\d\d|TimeoutError/i.test(line)) report.mainProcessErrors.push(line.slice(0, 200));
+      // status 400 is the harness's own refused-host probe, not a provider error.
+      if (/fetch error|status: 4(0[1-9]|[1-9]\d)|status: 5\d\d|TimeoutError/i.test(line)) report.mainProcessErrors.push(line.slice(0, 200));
     }
   });
   // Dev mode opens DevTools, which Playwright also reports as a window; pick the
@@ -172,6 +173,39 @@ try {
   }
 
   for (const route of ROUTES) await visit(route, 'cold');
+
+  // Security posture of the renderer: no Node or Electron reachable from the
+  // page, only the bridge; the embedded Finviz viewer loads as a sandboxed
+  // guest; the TradingView chart frame appears under the CSP.
+  try {
+    await page.goto(`${baseUrl}#/stock/AAPL`);
+    await page.locator('.stock-details').first().waitFor({ timeout: 20000 });
+    report.isolation = await page.evaluate(() => ({
+      nodeRequire: typeof window.require,
+      process: typeof window.process,
+      bridge: typeof window.dipAnalyzer?.invoke,
+      bridgeKeys: Object.keys(window.dipAnalyzer || {}),
+      csp: document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content?.slice(0, 80) || null,
+    }));
+    report.isolation.unknownChannel = await page.evaluate(() => window.dipAnalyzer?.invoke('fs-read', 'x').then(() => 'resolved', e => String(e.message || e)));
+    report.isolation.refusedHost = await page.evaluate(() => window.dipAnalyzer?.invoke('fetch-url', 'https://example.com/').then(() => 'resolved', e => String(e.message || e).slice(0, 80)));
+    await page.locator('#tv_stockdetail_chart iframe').first().waitFor({ timeout: 15000 }).catch(() => {});
+    report.isolation.tradingViewFrame = await page.locator('#tv_stockdetail_chart iframe').count();
+    await page.getByRole('button', { name: 'Finviz', exact: true }).first().click({ timeout: 5000 }).catch(() => page.locator('text=Finviz').first().click());
+    report.isolation.webview = await page.evaluate(() => new Promise(resolve => {
+      const view = document.querySelector('webview');
+      if (!view) return resolve('no webview element');
+      const done = () => resolve({ url: view.getURL?.() || view.src, nodeIntegration: view.hasAttribute('nodeintegration') });
+      view.addEventListener('did-finish-load', done, { once: true });
+      // Third-party frames inside the guest page (ads, trackers) fail all the time; only the page itself counts.
+      view.addEventListener('did-fail-load', (e) => { if (e.isMainFrame) resolve({ failed: e.errorDescription || 'load failed' }); });
+      setTimeout(done, 15000);
+    }));
+    console.log(JSON.stringify({ isolation: report.isolation }));
+  } catch (error) {
+    report.isolation = { error: String(error).slice(0, 200) };
+  }
+
   // Back to the Overview: a retained scan should be on screen immediately.
   {
     await armProbe({ root: { sel: OVERVIEW.root }, data: OVERVIEW.data, score: OVERVIEW.extra.score });
@@ -198,7 +232,7 @@ try {
     const f = v => String(v ?? '—').padStart(10);
     console.log(`${name.padEnd(14)} ${f(m.cold?.mount)} ${f(m.cold?.data)} ${f(m.warm?.mount)} ${f(m.warm?.data)}`);
   }
-  console.log(JSON.stringify({ boot: report.boot, overview: report.overview, returnVisit: report.returnVisit, routes: report.routes.length, consoleErrors: report.consoleErrors.length, pageErrors: report.pageErrors.length, mainProcessErrors: report.mainProcessErrors.length, fatal: report.fatal || null, out: outDir }));
+  console.log(JSON.stringify({ boot: report.boot, overview: report.overview, returnVisit: report.returnVisit, isolation: report.isolation, routes: report.routes.length, consoleErrors: report.consoleErrors.length, pageErrors: report.pageErrors.length, mainProcessErrors: report.mainProcessErrors.length, fatal: report.fatal || null, out: outDir }));
   try { await app?.close(); } catch { /* already gone */ }
   vite?.kill();
   process.exit(report.fatal ? 1 : 0);

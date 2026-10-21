@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDownRight, ArrowUpRight, ArrowUpRight as ExternalLink, ChartNoAxesCombined, Clock3, RefreshCw, Search, ShieldCheck } from 'lucide-react';
 import { fetchFinvizFutures, FUTURES_DELAY_MINUTES, FUTURES_GROUPS, FUTURES_SOURCE_URL, FUTURES_TIMEFRAMES } from '../services/futures';
+import { getInvoke } from '../utils/bridge.js';
 import { formatPct } from '../utils/format';
 import { useSettings } from '../state/settingsContext.js';
 import '../styles/pages/futures.css';
@@ -74,7 +75,8 @@ function Futures({ autoRefreshInterval = 0 }) {
         const run = ++runRef.current;
         setLoading(true);
         try {
-            const ipc = typeof window.require === 'function' ? window.require('electron').ipcRenderer : null;
+            const bridge = getInvoke();
+            const ipc = bridge ? { invoke: bridge } : null;
             const next = await fetchFinvizFutures(ipc, { timeframe, previous: snapshotRef.current });
             if (run !== runRef.current) return;
             snapshotRef.current = next;

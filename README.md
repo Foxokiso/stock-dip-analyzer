@@ -10,7 +10,8 @@ Same desks, same data rules, measured to be fast.
 * **Overview scan streams.** Pages arrive four at a time and are shown in order as they land; scoring starts on the first rows with eight Yahoo requests in flight. At depth 100 the first rows and first score appear 0.9 s after a reload and the whole table is scored in 3.3 s. The scan keeps running when you leave the page; coming back shows it instantly (Settings → Scanner → *Reuse a scan for*, default 90 s), every row with its original retrieval time.
 * **Instant route switches.** The desks no longer suspend on first visit (React 19's fallback throttle cost exactly 300 ms per cold switch); the stock page's charting chunk is warmed during idle time. Measured cold mount: 0 ms on every route; Futures data in ~90 ms, ETF rankings ~240 ms (three pages in parallel), Oil Watch ~160 ms.
 * **Settings that now act:** *Chart cache* is honoured by scoring, the stock page and Oil Watch (reused quotes keep their retrieval time); *Request timeout* is applied by the desktop process immediately.
-* **CI on master.** Both workflows run on pushes to `master`.
+* **Hardened desktop shell.** Sandboxed, context-isolated renderer with a one-function bridge; provider allowlist on every request the renderer can make; navigation lock; guest viewers without Node; all permissions denied; a Content Security Policy in production builds; Electron 45. Details under *Security* below.
+* **CI on master and tagged releases.** Both workflows run on pushes to `master`; pushing a `v*` tag builds, checks and publishes the installer as a GitHub Release.
 
 Verification: `npm test` 112/112, `npx eslint .` clean, `vite build`, `npm run test:finviz` 8/8 live views, `npm run test:live` 0 page errors with no provider errors at depth 100 and 500.
 
@@ -52,6 +53,21 @@ The Futures tab groups Finviz reference instruments across indices, rates, energ
 - Recovery scores are rule-based technical scores from a fixed one-month Yahoo history and its current source quote. They are not calibrated recovery probabilities or guarantees. Changing the detail chart range does not change the scoring period.
 - Technical alerts require sufficient history, an explicitly zero-delay source, and a recent source quote timestamp. Messages describe observed technical conditions, not unmeasured trading flows.
 - Stock screening honors sector exclusions. ETF rankings show the return period or dividend yield corresponding to their ranking criteria.
+
+## Security
+
+The app shows third-party web content (a TradingView widget script in the page, Finviz/Yahoo/Chartmill/StockCharts/Fidelity pages in embedded viewers), so the desktop shell is locked down accordingly:
+
+- **Process model.** The renderer runs with `sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`. `preload.cjs` exposes one function, `window.dipAnalyzer.invoke`, limited to `fetch-url`, `fetch-yahoo-chart` and `configure-network`. No page code can reach Node, Electron or the file system.
+- **Outbound requests.** `fetch-url` only accepts HTTPS URLs on `finviz.com`, `www.finviz.com` and `news.google.com`; `fetch-yahoo-chart` builds its own Yahoo URL from the symbol. Anything else is refused in the main process before a request exists. Cookies are kept per host, in memory only.
+- **Navigation and guests.** The app window cannot navigate anywhere but the app. Every `<webview>` is attached without Node, isolated, sandboxed, without a preload, and only to an HTTPS page. `window.open` and `target="_blank"` never create app windows; http(s) links open in the system browser. All permission requests are denied.
+- **Content Security Policy** (production builds, injected by `vite.config.js`): scripts from the app and `s3.tradingview.com` only; frames only on TradingView's hosts; `object-src 'none'`, `base-uri 'none'`, `form-action 'none'`.
+- **What ships.** The installer contains Electron, `main.cjs`, `preload.cjs` and the built `dist/`; renderer libraries are bundled by Vite and are not installed as packages. `npm audit --omit=dev` reports nothing; the remaining moderate advisories are in `electron-builder`'s own dependencies, which never run on a user's machine.
+- **No telemetry.** The app sends nothing about the user anywhere. Settings live in `localStorage` and contain no secrets.
+- **Build output.** `npm run build` writes the installer and the unpacked app to `release/` (never into `dist/`, which is the renderer bundle that gets packed).
+- **Installer signing.** Releases are unsigned until a code-signing certificate is configured (`CSC_LINK` / `CSC_KEY_PASSWORD` secrets for the release workflow); Windows SmartScreen will warn, and `SHA256SUMS.txt` is attached to every release for verification.
+
+Data sources are public Finviz pages, Finviz's futures JSON endpoint and Yahoo Finance's chart endpoint, used as a personal research tool with browser-like request headers. Their terms of use govern redistribution; review them before publishing the app to others.
 
 ## Run locally
 

@@ -6,6 +6,7 @@ import { analyzeStock, computeSMASeries } from '../utils/scoring';
 import { formatPrice, formatQuoteTime } from '../utils/format';
 import { getYahooQuote, getYahooChartPoints } from '../utils/marketData';
 import { fetchYahooChart } from '../utils/chartCache';
+import { getInvoke } from '../utils/bridge.js';
 import { useSettings } from '../state/settingsContext.js';
 import { resolveFinvizNewsUrl } from '../utils/finviz';
 import { mountTradingViewWidget } from '../utils/tradingView';
@@ -13,11 +14,11 @@ import '../styles/pages/stock-details.css';
 
 const RESOURCE_TABS = [
     { id: 'tradingview', label: 'TradingView', type: 'widget' },
-    { id: 'finviz',      label: 'Finviz',       type: 'webview', url: (s) => `https://finviz.com/quote.ashx?t=${s}&p=d` },
-    { id: 'chartmill',   label: 'Chartmill',    type: 'webview', url: (s) => `https://www.chartmill.com/stock/quote/${s}/technical-rating` },
-    { id: 'stockcharts', label: 'StockCharts',  type: 'webview', url: (s) => `https://stockcharts.com/h-sc/ui?s=${s}` },
-    { id: 'fidelity',    label: 'Fidelity',     type: 'webview', url: (s) => `https://digital.fidelity.com/prgw/digital/research/quote/dashboard/summary?symbol=${s}` },
-    { id: 'yahoo',       label: 'Yahoo Finance',type: 'webview', url: (s) => `https://finance.yahoo.com/quote/${s}` },
+    { id: 'finviz',      label: 'Finviz',       type: 'webview', url: (s) => `https://finviz.com/quote.ashx?t=${encodeURIComponent(s)}&p=d` },
+    { id: 'chartmill',   label: 'Chartmill',    type: 'webview', url: (s) => `https://www.chartmill.com/stock/quote/${encodeURIComponent(s)}/technical-rating` },
+    { id: 'stockcharts', label: 'StockCharts',  type: 'webview', url: (s) => `https://stockcharts.com/h-sc/ui?s=${encodeURIComponent(s)}` },
+    { id: 'fidelity',    label: 'Fidelity',     type: 'webview', url: (s) => `https://digital.fidelity.com/prgw/digital/research/quote/dashboard/summary?symbol=${encodeURIComponent(s)}` },
+    { id: 'yahoo',       label: 'Yahoo Finance',type: 'webview', url: (s) => `https://finance.yahoo.com/quote/${encodeURIComponent(s)}` },
 ];
 
 const InternalResourceViewer = ({ symbol }) => {
@@ -131,11 +132,11 @@ const CHART_TOOLTIP_CURSOR = { stroke: 'var(--line-strong)', strokeDasharray: '3
 const CHART_TICK = { fill: 'var(--text-muted)', fontSize: 10, fontFamily: 'var(--font-mono)' };
 const CHART_AXIS_LINE = { stroke: 'var(--line)' };
 
-const getElectron = () => (
-    typeof window !== 'undefined' && typeof window.require === 'function'
-        ? window.require('electron')
-        : null
-);
+// Desktop bridge in the legacy { ipcRenderer.invoke } shape this page uses throughout.
+const getElectron = () => {
+    const invoke = getInvoke();
+    return invoke ? { ipcRenderer: { invoke } } : null;
+};
 
 // Tones name the brief's semantic roles in the stylesheet (success / warning /
 // danger / muted). The scorer's own colour strings are never rendered.
