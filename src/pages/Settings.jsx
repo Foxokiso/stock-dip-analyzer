@@ -2,8 +2,8 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Palette, ScanSearch, ChartNoAxesCombined, Bell, Database, Archive, Info, RotateCcw, Copy, Check, Upload, ExternalLink, AlertTriangle } from 'lucide-react';
 import { useSettings } from '../state/settingsContext.js';
 import {
-  APP_VERSION, DEFAULT_SETTINGS, DENSITIES, FUTURES_TIMEFRAME_IDS, GLOW_STEP, MOTIONS, RATING_FILTERS,
-  REFRESH_MINUTES, SCAN_DEPTHS, SORTS, THEMES, isTransientTheme, parseSettingsImport, serializeSettings,
+  APP_VERSION, CHART_CACHE_SECONDS, DEFAULT_SETTINGS, DENSITIES, FUTURES_TIMEFRAME_IDS, GLOW_STEP, MOTIONS, RATING_FILTERS,
+  REFRESH_MINUTES, REUSE_SECONDS, SCAN_DEPTHS, SORTS, THEMES, isTransientTheme, parseSettingsImport, serializeSettings,
 } from '../state/settingsSchema.js';
 import { SECTORS } from '../data/sectors.js';
 import { FUTURES_DELAY_MINUTES, FUTURES_GROUPS, FUTURES_TIMEFRAMES } from '../services/futures.js';
@@ -17,7 +17,7 @@ const SECTIONS = [
   { id: 'scanner', label: 'Scanner', icon: ScanSearch, blurb: 'What the Overview, ETF and Discovery scans include, how deep they go and how often they re-run.' },
   { id: 'futures', label: 'Futures', icon: ChartNoAxesCombined, blurb: 'How the futures desk opens and what it discloses about its delayed Finviz feed.' },
   { id: 'alerts', label: 'Alerts', icon: Bell, blurb: 'Which technical alerts fire, how loud they are and how many are kept.' },
-  { id: 'data', label: 'Data & sources', icon: Database, blurb: 'Read-only facts about caching, timeouts and provider delays.' },
+  { id: 'data', label: 'Data & sources', icon: Database, blurb: 'Chart caching, the request deadline and the provider delays every desk discloses.' },
   { id: 'backup', label: 'Backup', icon: Archive, blurb: 'Export, import or reset the whole settings document.' },
   { id: 'about', label: 'About', icon: Info, blurb: 'Version, the 27 system and where the design brief lives.' },
 ];
@@ -31,6 +31,7 @@ const trim = (value) => Number(value.toFixed(2)).toString();
 const formatGlow = (value) => `${value.toFixed(2)} = ${trim(value / GLOW_STEP)}×${GLOW_STEP}`;
 const formatPercent = (value) => `${Math.round(value * 100)}%`;
 const formatMinutes = (value) => (value === 0 ? 'Off' : `${value} min`);
+const formatSeconds = (value) => (value === 0 ? 'Off' : value % 60 === 0 ? `${value / 60} min` : `${value} s`);
 const clampInt = (value, min, max, fallback) => {
   const n = Math.round(Number(value));
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
@@ -246,7 +247,8 @@ export default function SettingsPage() {
 
   const ids = {
     theme: `${uid}-theme`, density: `${uid}-density`, motion: `${uid}-motion`, glow: `${uid}-glow`,
-    sectors: `${uid}-sectors`, refresh: `${uid}-refresh`, depth: `${uid}-depth`, rating: `${uid}-rating`, sort: `${uid}-sort`,
+    sectors: `${uid}-sectors`, refresh: `${uid}-refresh`, reuse: `${uid}-reuse`, depth: `${uid}-depth`, rating: `${uid}-rating`, sort: `${uid}-sort`,
+    chartCache: `${uid}-chart-cache`, timeout: `${uid}-timeout`,
     group: `${uid}-group`, timeframe: `${uid}-timeframe`, delay: `${uid}-delay`,
     sound: `${uid}-sound`, volume: `${uid}-volume`, types: `${uid}-types`, minScore: `${uid}-min-score`, history: `${uid}-history`,
     exportBox: `${uid}-export`, importBox: `${uid}-import`,
@@ -315,6 +317,9 @@ export default function SettingsPage() {
             <Field label="Refresh interval" hint="How often every desk re-runs its scan. Off means manual refresh only." labelId={ids.refresh}>
               <Segmented name={`${uid}-refresh-choice`} value={scanner.refreshMinutes} options={REFRESH_MINUTES.map(value => ({ id: value, label: formatMinutes(value) }))} onChange={(value) => update('scanner.refreshMinutes', value)} labelledBy={ids.refresh} />
             </Field>
+            <Field label="Reuse a scan for" hint="Returning to the Overview shows the last scan at once, each row with its original retrieval time. A scan older than this re-runs in the background; Off re-runs on every return." labelId={ids.reuse}>
+              <Segmented name={`${uid}-reuse-choice`} value={scanner.reuseSeconds} options={REUSE_SECONDS.map(value => ({ id: value, label: formatSeconds(value) }))} onChange={(value) => update('scanner.reuseSeconds', value)} labelledBy={ids.reuse} />
+            </Field>
             <Field label="Scan depth" hint="Names fetched from the Finviz screener per scan. Each one needs its own Yahoo chart request, so deeper scans take proportionally longer and hold more rows in memory." labelId={ids.depth}>
               <Segmented name={`${uid}-depth-choice`} value={scanner.scanDepth} options={SCAN_DEPTHS.map(value => ({ id: value, label: `Top ${value}` }))} onChange={(value) => update('scanner.scanDepth', value)} labelledBy={ids.depth} />
             </Field>
@@ -370,10 +375,14 @@ export default function SettingsPage() {
           </Section>
 
           {/* 5 ── Data & sources */}
-          <Section id="data" title="Data & sources" blurb={SECTIONS[4].blurb} headingRef={bindHeading('data')}>
+          <Section id="data" title="Data & sources" blurb={SECTIONS[4].blurb} onReset={() => reset('data')} headingRef={bindHeading('data')}>
+            <Field label="Chart cache" hint="How long a Yahoo chart response is reused by Overview scoring, the stock page and Oil Watch. A reused quote keeps its original retrieval time; the Market Pulse strip always fetches live." labelId={ids.chartCache}>
+              <Segmented name={`${uid}-chart-cache-choice`} value={data.chartCacheSeconds} options={CHART_CACHE_SECONDS.map(value => ({ id: value, label: formatSeconds(value) }))} onChange={(value) => update('data.chartCacheSeconds', value)} labelledBy={ids.chartCache} />
+            </Field>
+            <Field label="Request timeout" hint="One deadline per provider request, retries included (1–600 s). The desktop app applies it immediately." htmlFor={ids.timeout}>
+              <input id={ids.timeout} className="settings-number" type="number" min={1} max={600} step={1} inputMode="numeric" value={data.requestTimeoutSeconds} onChange={(e) => update('data.requestTimeoutSeconds', clampInt(e.target.value, 1, 600, DEFAULT_SETTINGS.data.requestTimeoutSeconds))} />
+            </Field>
             <dl className="settings-facts">
-              <div><dt>Chart cache</dt><dd>{data.chartCacheSeconds === 0 ? 'Disabled' : `${data.chartCacheSeconds} s`}</dd></div>
-              <div><dt>Request timeout</dt><dd>{data.requestTimeoutSeconds} s</dd></div>
               <div><dt>Finviz screener delay</dt><dd>1 min</dd></div>
               <div><dt>Finviz futures delay</dt><dd>{FUTURES_DELAY_MINUTES} min</dd></div>
               <div><dt>Yahoo Finance delay</dt><dd>As reported by the provider with each quote</dd></div>

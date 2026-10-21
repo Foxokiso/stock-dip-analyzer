@@ -31,7 +31,9 @@ const ETFAwards = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                 return;
             }
             const electron = window.require('electron');
-            for (const category of CATEGORIES) {
+            // The three rankings are independent pages: fetch them together and
+            // show each one the moment it lands.
+            await Promise.all(CATEGORIES.map(async (category) => {
                 if (cancelled) return;
                 try {
                     const url = `https://finviz.com/screener.ashx?v=${category.view}&f=ind_exchangetradedfund&o=${category.order}`;
@@ -42,7 +44,7 @@ const ETFAwards = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                 } catch (error) {
                     if (!cancelled) setLists(previous => ({ ...previous, [category.key]: { ...previous[category.key], stale: previous[category.key].rows.length > 0, error: error.message || 'Finviz ETF data is unavailable.' } }));
                 }
-            }
+            }));
             inFlight = false;
             if (!cancelled) setLoading(false);
         };

@@ -5,6 +5,8 @@ import { ComposedChart, Area, Line, ReferenceLine, XAxis, YAxis, CartesianGrid, 
 import { analyzeStock, computeSMASeries } from '../utils/scoring';
 import { formatPrice, formatQuoteTime } from '../utils/format';
 import { getYahooQuote, getYahooChartPoints } from '../utils/marketData';
+import { fetchYahooChart } from '../utils/chartCache';
+import { useSettings } from '../state/settingsContext.js';
 import { resolveFinvizNewsUrl } from '../utils/finviz';
 import { mountTradingViewWidget } from '../utils/tradingView';
 import '../styles/pages/stock-details.css';
@@ -151,6 +153,8 @@ const factorTone = (points) => (points > 0 ? 'up' : points < 0 ? 'down' : 'flat'
 
 const StockDetails = ({ autoRefreshInterval = 0 }) => {
     const { symbol } = useParams();
+    const { settings } = useSettings();
+    const chartCacheSeconds = settings.data.chartCacheSeconds;
     const [range, setRange] = useState('1mo');
     const [chartData, setChartData] = useState([]);
     const [news, setNews] = useState([]);
@@ -209,7 +213,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
             }
 
             try {
-                const yahooData = await electron.ipcRenderer.invoke('fetch-yahoo-chart', symbol, range, '1d');
+                const { json: yahooData } = await fetchYahooChart((channel, ...args) => electron.ipcRenderer.invoke(channel, ...args), symbol, { range, interval: '1d', ttlSeconds: chartCacheSeconds });
                 const result = yahooData?.chart?.result?.[0];
                 if (cancelled) return;
                 if (result) {
@@ -231,7 +235,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
 
         loadChart();
         return () => { cancelled = true; };
-    }, [symbol, range, chartRetry]);
+    }, [symbol, range, chartRetry, chartCacheSeconds]);
 
     // The score uses a fixed month regardless of the chart's selected display range.
     useEffect(() => {
@@ -253,9 +257,9 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
                 return;
             }
             try {
-                const json = await electron.ipcRenderer.invoke('fetch-yahoo-chart', symbol, '1mo', '1d');
+                const { json, fetchedAt } = await fetchYahooChart((channel, ...args) => electron.ipcRenderer.invoke(channel, ...args), symbol, { range: '1mo', interval: '1d', ttlSeconds: chartCacheSeconds });
                 const result = json?.chart?.result?.[0];
-                const quote = getYahooQuote(result, { range: '1mo' });
+                const quote = getYahooQuote(result, { range: '1mo', fetchedAt });
                 if (quote.price === null || quote.closes.length < 15) throw new Error('Quote or sufficient daily history is unavailable from Yahoo Finance.');
                 if (!cancelled) {
                     setTechnicalQuote(quote);
@@ -273,7 +277,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
         };
         loadTechnical();
         return () => { cancelled = true; };
-    }, [symbol, chartRetry]);
+    }, [symbol, chartRetry, chartCacheSeconds]);
 
     useEffect(() => {
         if (autoRefreshInterval <= 0) return;

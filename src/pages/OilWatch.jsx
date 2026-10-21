@@ -6,7 +6,12 @@ import { analyzeStock, getVerdict } from '../utils/scoring';
 import { formatPrice, formatPct, formatQuoteTime } from '../utils/format';
 import { getYahooQuote } from '../utils/marketData';
 import { parseOilNews } from '../utils/oilNews';
+import { fetchYahooChart } from '../utils/chartCache';
+import { mapPool } from '../utils/pool';
+import { useSettings } from '../state/settingsContext.js';
 import '../styles/pages/oil-watch.css';
+
+const BASKET_CONCURRENCY = 8;
 
 const electron = typeof window !== 'undefined' && typeof window.require === 'function'
     ? window.require('electron')
@@ -191,7 +196,10 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
         });
     }, []);
 
-    // Small parallel batches keep quote hydration responsive and avoid overlapping refreshes.
+    const { settings } = useSettings();
+    const chartCacheSeconds = settings.data.chartCacheSeconds;
+
+    // A bounded pool keeps quote hydration responsive; each row lands as its quote arrives.
     useEffect(() => {
         let cancelled = false, inFlight = false;
         const symbols = [...new Set([...TANKERS, ...REFINERS, ...OIL_ETFS].map(t => t.sym))];
@@ -208,27 +216,25 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                 return;
             }
             let failures = 0, successes = 0;
-            for (let index = 0; index < symbols.length; index += 5) {
-                if (cancelled) return;
-                const results = await Promise.all(symbols.slice(index, index + 5).map(async sym => {
-                    try {
-                        const json = await electron.ipcRenderer.invoke('fetch-yahoo-chart', sym, '1mo', '1d');
-                        const result = json?.chart?.result?.[0];
-                        const quote = result ? getYahooQuote(result, { range: '1mo' }) : null;
-                        if (quote?.price == null) return [sym, null];
-                        return [sym, { ...quote, sym, name: result.meta?.longName || result.meta?.shortName || sym,
-                            analysis: quote.closes.length >= 15 ? analyzeStock(quote.closes, quote.price) : null, stale: false }];
-                    } catch { return [sym, null]; }
-                }));
-                if (cancelled) return;
-                failures += results.filter(([, quote]) => !quote).length;
-                successes += results.filter(([, quote]) => quote).length;
-                setBasket(previous => {
-                    const next = { ...previous };
-                    for (const [sym, row] of results) next[sym] = row || (previous[sym] ? { ...previous[sym], stale: true } : null);
-                    return next;
-                });
-            }
+            const invoke = (channel, ...args) => electron.ipcRenderer.invoke(channel, ...args);
+            await mapPool(symbols, BASKET_CONCURRENCY, async (sym) => {
+                try {
+                    const { json, fetchedAt } = await fetchYahooChart(invoke, sym, { range: '1mo', interval: '1d', ttlSeconds: chartCacheSeconds });
+                    const result = json?.chart?.result?.[0];
+                    const quote = result ? getYahooQuote(result, { range: '1mo', fetchedAt }) : null;
+                    if (quote?.price == null) return null;
+                    return { ...quote, sym, name: result.meta?.longName || result.meta?.shortName || sym,
+                        analysis: quote.closes.length >= 15 ? analyzeStock(quote.closes, quote.price) : null, stale: false };
+                } catch { return null; }
+            }, {
+                shouldStop: () => cancelled,
+                onSettled: (index, row, sym) => {
+                    if (cancelled) return;
+                    if (row) successes++; else failures++;
+                    setBasket(previous => ({ ...previous, [sym]: row || (previous[sym] ? { ...previous[sym], stale: true } : null) }));
+                },
+            });
+            if (cancelled) return;
             if (successes > 0) setBasketFetchedAt(new Date().toISOString());
             setBasketError(failures > 0 ? `${failures} quote${failures === 1 ? '' : 's'} unavailable. Retained prices are marked stale.` : '');
             setLoading(false);
@@ -237,7 +243,7 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
         loadBasket();
         const timer = autoRefreshInterval > 0 ? setInterval(loadBasket, autoRefreshInterval * 60 * 1000) : null;
         return () => { cancelled = true; if (timer) clearInterval(timer); };
-    }, [autoRefreshInterval]);
+    }, [autoRefreshInterval, chartCacheSeconds]);
 
     useEffect(() => {
         let cancelled = false, inFlight = false;

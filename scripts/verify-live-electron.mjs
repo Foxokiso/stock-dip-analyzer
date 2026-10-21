@@ -138,7 +138,7 @@ try {
   report.overview.scoredAll = ms(now() - reloadAt - stableFor);
   report.overview.rows = rows;
   report.overview.scored = scored;
-  report.overview.unavailable = await count('text=/Unavailable/');
+  report.overview.unavailable = await page.locator('.dash-verdict').filter({ hasText: /^Unavailable$/ }).count();
   report.overview.sourceBanner = (await textOf('.dash-source-text')).trim().slice(0, 120);
   report.overview.mockMarkers = (await count('text=Zombie Corp')) + (await count('text=Mock News'));
   console.log(JSON.stringify({ overview: report.overview }));

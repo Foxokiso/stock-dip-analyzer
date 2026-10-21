@@ -28,6 +28,8 @@ export const MOTIONS = [
   { id: 'reduced', label: 'Reduced', blurb: 'No transitions or pulses.' },
 ];
 export const REFRESH_MINUTES = [0, 1, 5, 15, 30];
+export const REUSE_SECONDS = [0, 30, 90, 180, 600];
+export const CHART_CACHE_SECONDS = [0, 30, 60, 300, 900];
 export const SCAN_DEPTHS = [100, 250, 500];
 export const RATING_FILTERS = ['All', 'Strong Buy', 'Buy', 'Hold', 'Sell/Strong Sell', 'Bullish', 'Bearish'];
 export const SORTS = [
@@ -56,6 +58,7 @@ export const DEFAULT_SETTINGS = deepFreeze({
   scanner: {
     excludedSectors: [],
     refreshMinutes: 0,        // 0 = manual only
+    reuseSeconds: 90,         // returning to the Overview reuses a scan this recent; 0 = always rescan
     scanDepth: 100,           // 100 | 250 | 500
     defaultRating: 'All',
     sort: 'score',            // score | change | dip | volume
@@ -127,6 +130,7 @@ const RULES = {
   'appearance.glow': number(0, 1),
   'scanner.excludedSectors': stringList,
   'scanner.refreshMinutes': number(0, 24 * 60),
+  'scanner.reuseSeconds': number(0, 3600),
   'scanner.scanDepth': number(1, 10000, { integer: true }),
   'scanner.defaultRating': oneOf(RATING_FILTERS),
   'scanner.sort': oneOf(SORTS.map(item => item.id)),

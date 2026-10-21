@@ -2,7 +2,7 @@ name: Native C++ core parity
 
 on:
   push:
-    branches: [feat/cpp-native-reengineering, v2/pierce27]
+    branches: [master, feat/cpp-native-reengineering, v2/pierce27]
   pull_request:
     paths:
       - 'native/**'
