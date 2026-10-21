@@ -42,6 +42,7 @@ ipcMain.handle('fetch-url', async (event, url) => {
             }
 
             const response = await fetch(url, {
+                signal: AbortSignal.timeout(12000),
                 cache: 'no-store',
                 headers,
                 redirect: 'follow',
@@ -59,7 +60,7 @@ ipcMain.handle('fetch-url', async (event, url) => {
                 // On retry, first hit the homepage to establish a session
                 if (host === 'finviz.com' && !cookieJar.get(host)) {
                     try {
-                        const seedResp = await fetch('https://finviz.com/', { headers: BROWSER_HEADERS, redirect: 'follow' });
+                        const seedResp = await fetch('https://finviz.com/', { signal: AbortSignal.timeout(12000), headers: BROWSER_HEADERS, redirect: 'follow' });
                         const seedCookies = seedResp.headers.getSetCookie?.() || [];
                         if (seedCookies.length > 0) {
                             cookieJar.set(host, seedCookies.map(c => c.split(';')[0]).join('; '));
@@ -87,6 +88,7 @@ ipcMain.handle('fetch-yahoo-chart', async (event, symbol, range = '1mo', interva
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${encodeURIComponent(range)}&interval=${encodeURIComponent(interval)}`;
     try {
         const response = await fetch(url, {
+            signal: AbortSignal.timeout(12000),
             cache: 'no-store',
             headers: {
                 ...BROWSER_HEADERS,
@@ -126,8 +128,7 @@ function createWindow() {
     });
 }
 
-// Force software rendering / disable hardware acceleration
-app.disableHardwareAcceleration();
+// Use Electron's default accelerated rendering for chart and interface compositing.
 
 // Window-open policy: no chromeless in-app popups. Any window.open /
 // target=_blank from the app or its webviews (news links, resource tabs)

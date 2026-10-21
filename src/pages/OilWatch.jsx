@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom';
 import { Droplet, Ship, Factory, Layers, Newspaper, ChevronDown, RefreshCw, AlertTriangle } from 'lucide-react';
 import MarketPulse from '../components/MarketPulse';
 import { analyzeStock, getVerdict } from '../utils/scoring';
-import { formatPrice, formatPct } from '../utils/format';
+import { formatPrice, formatPct, formatQuoteTime } from '../utils/format';
+import { getYahooQuote } from '../utils/marketData';
+import { parseOilNews } from '../utils/oilNews';
 
 const electron = typeof window !== 'undefined' && typeof window.require === 'function'
     ? window.require('electron')
@@ -11,20 +13,12 @@ const electron = typeof window !== 'undefined' && typeof window.require === 'fun
 
 // ─── Energy complex for the pulse strip ──────────────────────────────────────
 const ENERGY_TICKERS = [
-    { sym: 'CL=F', label: 'WTI Crude' },
-    { sym: 'BZ=F', label: 'Brent Crude' },
-    { sym: 'RB=F', label: 'Gasoline' },
-    { sym: 'NG=F', label: 'Nat Gas' },
+    { sym: 'CL=F', label: 'WTI Crude', unit: '$/barrel' },
+    { sym: 'BZ=F', label: 'Brent Crude', unit: '$/barrel' },
+    { sym: 'RB=F', label: 'Gasoline', unit: '$/gallon' },
+    { sym: 'NG=F', label: 'Nat Gas', unit: '$/MMBtu' },
     { sym: 'XLE', label: 'Energy Sector' },
 ];
-
-const ENERGY_MOCKS = {
-    'CL=F': { price: 78.42, changePct: 2.31, closes: [76.5, 76.8, 76.6, 77.2, 77.5, 77.9, 77.6, 78.1, 78.5, 78.42] },
-    'BZ=F': { price: 82.15, changePct: 2.08, closes: [80.3, 80.6, 80.4, 81.0, 81.3, 81.6, 81.4, 81.9, 82.3, 82.15] },
-    'RB=F': { price: 2.41, changePct: 1.45, closes: [2.37, 2.38, 2.37, 2.39, 2.40, 2.39, 2.40, 2.41, 2.42, 2.41] },
-    'NG=F': { price: 2.87, changePct: -1.20, closes: [2.92, 2.91, 2.93, 2.90, 2.89, 2.90, 2.88, 2.87, 2.88, 2.87] },
-    'XLE': { price: 91.30, changePct: 1.12, closes: [90.1, 90.4, 90.2, 90.7, 90.9, 90.6, 91.0, 91.3, 91.5, 91.3] },
-};
 
 // ─── Watch baskets ───────────────────────────────────────────────────────────
 const TANKERS = [
@@ -53,47 +47,7 @@ const OIL_ETFS = [
     { sym: 'CRAK', note: 'Refiners' },
 ];
 
-// High-impact matching: de-escalation phrasing is stripped first, then the
-// remaining text is matched on word boundaries — so 'ceasefire' never trips
-// 'fire', 'warns' never trips 'war', and 'strikes a deal' never trips 'strike'.
-const DEESCALATION_PHRASES = /ceasefire|cease-fire|truce|peace deal|peace talks|de-?escalat\w*|strikes? (a |an )?deal|deal struck|strike price/gi;
-const HIGH_IMPACT_RE = new RegExp(
-    [
-        'hormuz', 'attack\\w*', 'strikes?', 'struck', 'blockade\\w*', 'sanction\\w*', 'seiz\\w*',
-        'closures?', 'closed', 'fires?', 'explosions?', 'blasts?', 'drones?', 'missiles?',
-        'war', 'escalat\\w*', 'disrupt\\w*', 'halts?', 'halted', 'embargo\\w*',
-    ].map(t => `\\b${t}\\b`).join('|'),
-    'i'
-);
-
 const NEWS_QUERY = '"Middle East" oil OR "Strait of Hormuz" OR OPEC OR "oil tanker" OR refinery when:24h';
-
-const MOCK_NEWS = [
-    { title: 'Mock: Tanker rates spike as insurers reprice Strait of Hormuz transits', link: 'https://news.google.com', source: 'Mock Wire', time: '09:10', highImpact: true },
-    { title: 'Mock: OPEC+ signals output hold through next quarter', link: 'https://news.google.com', source: 'Mock Wire', time: '08:42', highImpact: false },
-    { title: 'Mock: Gulf refinery restarts unit after maintenance', link: 'https://news.google.com', source: 'Mock Wire', time: '07:55', highImpact: false },
-];
-
-const isHighImpact = (title) => {
-    const cleaned = (title || '').replace(DEESCALATION_PHRASES, ' ');
-    return HIGH_IMPACT_RE.test(cleaned);
-};
-
-// Deterministic-ish mock series so browser dev renders full boards.
-const buildMockSeries = (seed) => {
-    let x = seed;
-    const rand = () => {
-        x = (x * 1103515245 + 12345) % 2147483648;
-        return x / 2147483648;
-    };
-    const series = [];
-    let price = 20 + rand() * 120;
-    for (let i = 0; i < 30; i++) {
-        price = Math.max(1, price * (1 + (rand() - 0.51) * 0.05));
-        series.push(Number(price.toFixed(2)));
-    }
-    return series;
-};
 
 // ─── One row of a ticker board ───────────────────────────────────────────────
 const BoardRow = ({ row, expanded, onToggle }) => {
@@ -113,8 +67,10 @@ const BoardRow = ({ row, expanded, onToggle }) => {
                     <div className="text-muted" style={{ fontSize: '0.7rem', maxWidth: '160px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={row.name}>
                         {row.group || row.note || (row.name && row.name !== row.sym ? row.name : '')}
                     </div>
+                    <div className="quote-meta" title={row.fetchedAt ? `Fetched ${formatQuoteTime(row.fetchedAt)}` : undefined}>Quote {formatQuoteTime(row.quotedAt)}</div>
+                    <div className="quote-meta">{row.delayMinutes == null ? 'Delay not provided' : `Source delay: ${row.delayMinutes} min`}</div>
                 </td>
-                <td style={{ padding: '0.7rem 0.4rem', textAlign: 'right', fontWeight: 600 }}>{formatPrice(row.price)}</td>
+                <td style={{ padding: '0.7rem 0.4rem', textAlign: 'right', fontWeight: 600 }}>{formatPrice(row.price)}{row.stale && <div className="quote-meta text-warning">Stale</div>}</td>
                 <td style={{ padding: '0.7rem 0.4rem', textAlign: 'right', color: row.changePct == null ? 'var(--text-muted)' : row.changePct >= 0 ? 'var(--success)' : 'var(--danger)' }}>
                     {formatPct(row.changePct)}
                 </td>
@@ -177,7 +133,7 @@ const BoardRow = ({ row, expanded, onToggle }) => {
                                 </span>
                             </div>
                         ) : (
-                            <span className="text-muted" style={{ fontSize: '0.8rem' }}>Score not hydrated yet.</span>
+                            <span className="text-muted" style={{ fontSize: '0.8rem' }}>A technical score requires at least 15 valid daily price observations.</span>
                         )}
                     </td>
                 </tr>
@@ -198,7 +154,7 @@ const TickerBoard = ({ title, icon, color, rows, loading, expandedRows, onToggle
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                 <thead>
                     <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                        {['Symbol', 'Price', 'Day Δ%', 'Off 30d High', 'RSI', 'Trend', 'Rating', ''].map((h, i) => (
+                        {['Symbol', 'Price', 'Day Δ%', 'Off 1M close high', 'RSI', 'Trend', 'Technical rating', ''].map((h, i) => (
                             <th key={i} className="text-muted" style={{ padding: '0.5rem 0.4rem', fontWeight: 600, fontSize: '0.75rem', whiteSpace: 'nowrap', textAlign: i === 0 ? 'left' : i >= 5 ? 'center' : 'right' }}>
                                 {h}
                             </th>
@@ -228,6 +184,10 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
     const [news, setNews] = useState([]);
     const [newsLoading, setNewsLoading] = useState(true);
     const [newsStale, setNewsStale] = useState(false);
+    const [basketFetchedAt, setBasketFetchedAt] = useState(null);
+    const [basketError, setBasketError] = useState('');
+    const [newsFetchedAt, setNewsFetchedAt] = useState(null);
+    const [newsError, setNewsError] = useState('');
     const [expandedRows, setExpandedRows] = useState(() => new Set());
 
     const onToggle = useCallback((sym) => {
@@ -239,146 +199,88 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
         });
     }, []);
 
-    // Fetch every basket symbol once (deduped), in small chunks like the dashboard hydrator.
+    // Small parallel batches keep quote hydration responsive and avoid overlapping refreshes.
     useEffect(() => {
-        let cancelled = false;
-        let runSeq = 0;
-        const allSymbols = [...new Set([...TANKERS, ...REFINERS, ...OIL_ETFS].map(t => t.sym))];
-
+        let cancelled = false, inFlight = false;
+        const symbols = [...new Set([...TANKERS, ...REFINERS, ...OIL_ETFS].map(t => t.sym))];
         const loadBasket = async () => {
-            // Per-run staleness token: a run that outlasts the refresh interval
-            // must not overwrite rows (or clear the spinner) for the newer run.
-            const runId = ++runSeq;
-            const isStale = () => cancelled || runId !== runSeq;
+            if (inFlight) return;
+            inFlight = true;
+            await Promise.resolve();
+            if (cancelled) return;
             setLoading(true);
-
             if (!electron) {
-                const entries = allSymbols.map((sym, i) => {
-                    // Symbols also shown in the Energy Pulse strip reuse its mock
-                    // quote so the two surfaces never contradict each other.
-                    const pulseMock = ENERGY_MOCKS[sym];
-                    const closes = pulseMock ? pulseMock.closes : buildMockSeries(i + 7);
-                    const price = pulseMock ? pulseMock.price : closes[closes.length - 1];
-                    const prev = closes[closes.length - 2];
-                    const changePct = pulseMock ? pulseMock.changePct : ((price - prev) / prev) * 100;
-                    return [sym, {
-                        sym,
-                        name: sym,
-                        price,
-                        changePct,
-                        analysis: analyzeStock(closes, price),
-                    }];
-                });
-                if (!isStale()) {
-                    setBasket(Object.fromEntries(entries));
-                    setLoading(false);
-                }
+                setBasketError('Oil Watch quotes require the desktop app connection.');
+                setLoading(false);
+                inFlight = false;
                 return;
             }
-
-            const chunkSize = 5;
-            for (let i = 0; i < allSymbols.length; i += chunkSize) {
-                if (isStale()) return;
-                const chunk = allSymbols.slice(i, i + chunkSize);
-                await Promise.all(chunk.map(async (sym) => {
+            let failures = 0, successes = 0;
+            for (let index = 0; index < symbols.length; index += 5) {
+                if (cancelled) return;
+                const results = await Promise.all(symbols.slice(index, index + 5).map(async sym => {
                     try {
                         const json = await electron.ipcRenderer.invoke('fetch-yahoo-chart', sym, '1mo', '1d');
                         const result = json?.chart?.result?.[0];
-                        if (!result) return;
-                        const meta = result.meta || {};
-                        const closes = (result.indicators?.quote?.[0]?.close || [])
-                            .filter(c => c !== null && c !== undefined);
-                        if (closes.length === 0) return;
-                        const price = meta.regularMarketPrice ?? closes[closes.length - 1];
-                        // Day change from the prior daily bar (chartPreviousClose on a
-                        // 1mo request is the close from a month ago — see Dashboard).
-                        const prevClose = closes.length >= 2 ? closes[closes.length - 2] : null;
-                        const changePct = (price && prevClose) ? ((price - prevClose) / prevClose) * 100 : null;
-                        const row = {
-                            sym,
-                            name: meta.longName ?? meta.shortName ?? sym,
-                            price,
-                            changePct,
-                            analysis: analyzeStock(closes, price),
-                        };
-                        if (!isStale()) setBasket(prev => ({ ...prev, [sym]: row }));
-                    } catch (err) {
-                        console.error(`OilWatch: failed to fetch ${sym}`, err);
-                    }
+                        const quote = result ? getYahooQuote(result, { range: '1mo' }) : null;
+                        if (quote?.price == null) return [sym, null];
+                        return [sym, { ...quote, sym, name: result.meta?.longName || result.meta?.shortName || sym,
+                            analysis: quote.closes.length >= 15 ? analyzeStock(quote.closes, quote.price) : null, stale: false }];
+                    } catch { return [sym, null]; }
                 }));
-                await new Promise(r => setTimeout(r, 300));
+                if (cancelled) return;
+                failures += results.filter(([, quote]) => !quote).length;
+                successes += results.filter(([, quote]) => quote).length;
+                setBasket(previous => {
+                    const next = { ...previous };
+                    for (const [sym, row] of results) next[sym] = row || (previous[sym] ? { ...previous[sym], stale: true } : null);
+                    return next;
+                });
             }
-            if (!isStale()) setLoading(false);
+            if (successes > 0) setBasketFetchedAt(new Date().toISOString());
+            setBasketError(failures > 0 ? `${failures} quote${failures === 1 ? '' : 's'} unavailable. Retained prices are marked stale.` : '');
+            setLoading(false);
+            inFlight = false;
         };
-
         loadBasket();
-
-        if (autoRefreshInterval > 0) {
-            const intervalId = setInterval(loadBasket, autoRefreshInterval * 60 * 1000);
-            return () => { cancelled = true; clearInterval(intervalId); };
-        }
-        return () => { cancelled = true; };
+        const timer = autoRefreshInterval > 0 ? setInterval(loadBasket, autoRefreshInterval * 60 * 1000) : null;
+        return () => { cancelled = true; if (timer) clearInterval(timer); };
     }, [autoRefreshInterval]);
 
-    // Middle East oil news via Google News RSS (same approach as telemetry.js).
     useEffect(() => {
-        let cancelled = false;
-
+        let cancelled = false, inFlight = false;
         const loadNews = async () => {
+            if (inFlight) return;
+            inFlight = true;
+            await Promise.resolve();
+            if (cancelled) return;
             setNewsLoading(true);
-
             if (!electron) {
-                setTimeout(() => {
-                    if (cancelled) return;
-                    setNews(MOCK_NEWS);
-                    setNewsLoading(false);
-                }, 500);
+                setNewsError('News feed requires the desktop app connection.');
+                setNewsLoading(false);
+                inFlight = false;
                 return;
             }
-
             try {
                 const url = `https://news.google.com/rss/search?q=${encodeURIComponent(NEWS_QUERY)}&hl=en-US&gl=US&ceid=US:en`;
-                const rssText = await electron.ipcRenderer.invoke('fetch-url', url);
-                const xml = new DOMParser().parseFromString(rssText, 'text/xml');
-                const items = xml.querySelectorAll('item');
-                const parsed = [];
-                for (let i = 0; i < Math.min(items.length, 15); i++) {
-                    const item = items[i];
-                    let title = item.querySelector('title')?.textContent || '';
-                    const source = item.querySelector('source')?.textContent
-                        || (title.lastIndexOf(' - ') > 0 ? title.slice(title.lastIndexOf(' - ') + 3) : '');
-                    const dashIndex = title.lastIndexOf(' - ');
-                    if (dashIndex > 0) title = title.slice(0, dashIndex);
-                    const link = item.querySelector('link')?.textContent || '';
-                    const pubDate = item.querySelector('pubDate')?.textContent;
-                    const time = pubDate
-                        ? new Date(pubDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                        : '';
-                    parsed.push({ title, link, source, time, highImpact: isHighImpact(title) });
-                }
-                // High-impact headlines float to the top, otherwise keep feed order.
-                parsed.sort((a, b) => Number(b.highImpact) - Number(a.highImpact));
+                const rss = await electron.ipcRenderer.invoke('fetch-url', url);
+                const headlines = parseOilNews(rss);
                 if (!cancelled) {
-                    setNews(parsed);
+                    setNews(headlines);
+                    setNewsFetchedAt(new Date().toISOString());
                     setNewsStale(false);
+                    setNewsError('');
                 }
-            } catch (err) {
-                console.error('OilWatch: news fetch failed', err);
-                // Keep the previously loaded headlines on a transient refresh
-                // failure — mark them stale instead of wiping the panel.
-                if (!cancelled) setNewsStale(true);
+            } catch (error) {
+                if (!cancelled) { setNewsStale(true); setNewsError(error.message || 'News feed unavailable.'); }
             } finally {
+                inFlight = false;
                 if (!cancelled) setNewsLoading(false);
             }
         };
-
         loadNews();
-
-        if (autoRefreshInterval > 0) {
-            const intervalId = setInterval(loadNews, autoRefreshInterval * 60 * 1000);
-            return () => { cancelled = true; clearInterval(intervalId); };
-        }
-        return () => { cancelled = true; };
+        const timer = autoRefreshInterval > 0 ? setInterval(loadNews, autoRefreshInterval * 60 * 1000) : null;
+        return () => { cancelled = true; if (timer) clearInterval(timer); };
     }, [autoRefreshInterval]);
 
     // Same global filter semantics as the other pages.
@@ -403,7 +305,6 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                 autoRefreshInterval={autoRefreshInterval}
                 title="Energy Pulse"
                 tickers={ENERGY_TICKERS}
-                mocks={ENERGY_MOCKS}
             />
 
             <div className="flex-between" style={{ marginBottom: '1.5rem' }}>
@@ -413,12 +314,13 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                         Oil Watch — Tankers, Refiners &amp; Middle East Flow
                     </h2>
                     <p className="text-muted">
-                        Wet-freight tanker fleet, refiners, and energy ETFs scored by the shared recovery engine,
-                        with a live Middle East oil intelligence feed.
+                        Tanker fleet, refiners, and energy ETFs with technical scores and sourced oil headlines.
                     </p>
                 </div>
             </div>
 
+            <div className="source-banner"><span>Yahoo Finance · Quote times and source delay shown per ticker</span><span>{basketFetchedAt ? `Fetched ${formatQuoteTime(basketFetchedAt)}` : 'No verified basket quotes loaded'}</span></div>
+            {basketError && <p className="data-notice" role="status">{basketError}</p>}
             <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
                 {/* Boards column */}
                 <div style={{ flex: '2 1 640px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -464,8 +366,10 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                     </h3>
                     <p className="text-muted" style={{ fontSize: '0.78rem', marginBottom: '1rem' }}>
                         Last-24h headlines on Middle East oil, the Strait of Hormuz, OPEC, tankers, and refineries.
-                        High-impact events are flagged and float to the top.
+                        Conflict and disruption keyword matches are flagged; these tags are not verified event assessments.
                     </p>
+                    <p className="source-meta">Google News RSS · {newsFetchedAt ? `Fetched ${formatQuoteTime(newsFetchedAt)}` : 'No feed loaded'}</p>
+                    {newsError && <p className="data-notice" role="status">{newsError}</p>}
                     {newsStale && news.length > 0 && (
                         <p style={{ fontSize: '0.72rem', color: 'var(--warning)', margin: '0 0 0.75rem 0' }}>
                             Feed refresh failed — showing the last loaded headlines.
@@ -473,7 +377,7 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                     )}
                     {!newsLoading && news.length === 0 ? (
                         <div className="text-muted" style={{ textAlign: 'center', padding: '1.5rem 0', fontSize: '0.85rem' }}>
-                            {newsStale ? 'News feed unavailable right now — will retry on the next refresh.' : 'No headlines available right now.'}
+                            {newsError ? 'News feed unavailable.' : 'No headlines available right now.'}
                         </div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -495,7 +399,7 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                                 >
                                     <div className="flex-between" style={{ marginBottom: '0.3rem', gap: '0.5rem' }}>
                                         <span className="text-muted" style={{ fontSize: '0.72rem' }}>
-                                            {item.time}{item.source ? ` · ${item.source}` : ''}
+                                            {formatQuoteTime(item.publishedAt)}{item.source ? ` · ${item.source}` : ''}
                                         </span>
                                         {item.highImpact && (
                                             <span className="flex-center" style={{
@@ -508,7 +412,7 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                                                 borderRadius: '10px',
                                                 whiteSpace: 'nowrap',
                                             }}>
-                                                <AlertTriangle size={10} /> HIGH IMPACT
+                                                <AlertTriangle size={10} /> KEYWORD FLAG
                                             </span>
                                         )}
                                     </div>

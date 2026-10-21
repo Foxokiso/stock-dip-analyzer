@@ -2,23 +2,16 @@ import { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { Search, SlidersHorizontal, RefreshCw, ChevronDown } from 'lucide-react';
 import MarketPulse from '../components/MarketPulse';
 import { analyzeStock, getVerdict } from '../utils/scoring';
-import { formatCompact, formatPct, formatPrice } from '../utils/format';
+import { formatCompact, formatPct, formatPrice, formatQuoteTime } from '../utils/format';
+import { getYahooQuote, canRaiseTechnicalAlert } from '../utils/marketData';
+import { parseFinvizScreener } from '../utils/finviz';
 
 // ─── Stable module-level constants — not React dependencies ──────────────────
-const YAHOO_SCREENER_IDS = [
-    'day_losers',                // biggest % losers today
-    'most_actives',              // high volume (often volatile dippers)
-    'undervalued_growth_stocks', // fundamentally cheap + recent dip
-];
-
 const PHOTONICS_TICKERS = ['LITE', 'COHR', 'IPGP', 'MKSI', 'FN', 'CAMT', 'ONTO', 'VIAV'];
 
-const BULLISH_MSGS = ["Bullish divergence detected. Momentum shifting positive.", "Bulls are waking up. Accumulation phase initiated.", "Relative strength is surging.", "Aggressive buying pressure identified."];
-const BEARISH_MSGS = ["Bearish trend confirmed. Distribution in progress.", "Bears have control. Selling pressure overwhelming.", "Momentum breaking down. Weakness detected.", "Warning: Bearish cross. Technicals deteriorating."];
-
 // ─── Alert dispatch driven by the shared analysis object ─────────────────────
-const dispatchAlertsFromAnalysis = (symbol, analysis) => {
-    if (!analysis) return;
+const dispatchAlertsFromAnalysis = (symbol, analysis, quote) => {
+    if (!analysis || !canRaiseTechnicalAlert(quote, quote?.closes?.length ?? 0)) return;
     const { isBreakout, isBreakdown, trend, trendAlertEligible, dipPercentage, currentPrice } = analysis;
     const isBullish = trend === 'bullish' && trendAlertEligible;
     const isBearish = trend === 'bearish' && trendAlertEligible;
@@ -27,7 +20,7 @@ const dispatchAlertsFromAnalysis = (symbol, analysis) => {
     if (!window._stockAlertsEmitted) window._stockAlertsEmitted = new Set();
 
     const typeStr = isBreakout ? 'breakout' : isBreakdown ? 'breakdown' : isBullish ? 'bullish' : 'bearish';
-    const cacheKey = `${symbol}-${typeStr}`;
+    const cacheKey = `${symbol}-${typeStr}-${quote.quotedAt}`;
     if (window._stockAlertsEmitted.has(cacheKey)) return;
     window._stockAlertsEmitted.add(cacheKey);
 
@@ -36,19 +29,19 @@ const dispatchAlertsFromAnalysis = (symbol, analysis) => {
 
     if (isBreakdown && dipPercentage >= 15) {
         alertColor = 'amber';
-        message = `AMBER ALERT: Astonishingly huge drop of ${dipPercentage.toFixed(1)}%. Support shattered at $${currentPrice.toFixed(2)}!`;
+        message = `Price is near the post-peak closing low, ${dipPercentage.toFixed(1)}% below its closing peak, at ${formatPrice(currentPrice)}.`;
     } else if (isBreakout) {
-        message = `Breaking resistance at $${currentPrice.toFixed(2)}`;
+        message = `Price is near the post-peak closing high at ${formatPrice(currentPrice)}.`;
     } else if (isBreakdown) {
-        message = `Breaking support at $${currentPrice.toFixed(2)}, accelerating downtrend`;
+        message = `Price is near the post-peak closing low at ${formatPrice(currentPrice)}.`;
     } else if (isBullish) {
-        message = `${BULLISH_MSGS[Math.floor(Math.random() * BULLISH_MSGS.length)]} $${currentPrice.toFixed(2)}`;
+        message = `EMA5 is above EMA10 and price is more than 1% above EMA5: ${formatPrice(currentPrice)}.`;
     } else if (isBearish) {
-        message = `${BEARISH_MSGS[Math.floor(Math.random() * BEARISH_MSGS.length)]} $${currentPrice.toFixed(2)}`;
+        message = `EMA5 is below EMA10 and price is more than 1% below EMA5: ${formatPrice(currentPrice)}.`;
     }
 
     window.dispatchEvent(new CustomEvent('stock-alert', {
-        detail: { symbol, type: typeStr, color: alertColor, message, timestamp: Date.now() }
+        detail: { symbol, type: typeStr, color: alertColor, message, timestamp: Date.now(), quotedAt: quote.quotedAt, source: quote.source, delayMinutes: quote.delayMinutes }
     }));
 };
 
@@ -57,40 +50,18 @@ const fetchChart = async (symbol, electron, range = '1mo', interval = '1d') => {
     const yahooData = await electron.ipcRenderer.invoke('fetch-yahoo-chart', symbol, range, interval);
     const result = yahooData?.chart?.result?.[0];
     if (!result) return null;
-    const closes = (result.indicators?.quote?.[0]?.close || [])
-        .filter(c => c !== null && c !== undefined);
-    return { meta: result.meta || {}, closes };
+    const quote = getYahooQuote(result, { range });
+    return { meta: result.meta || {}, ...quote };
 };
 
-// Small synthetic price series so the app still renders analyses in a plain browser.
-const buildMockSeries = () => {
-    const series = [];
-    let price = 40 + Math.random() * 160;
-    for (let i = 0; i < 30; i++) {
-        price = Math.max(1, price * (1 + (Math.random() - 0.52) * 0.06));
-        series.push(Number(price.toFixed(2)));
-    }
-    return series;
-};
-
-// Fetch closes (or synthesize outside Electron), run the shared scoring engine,
-// dispatch the same live alerts as before. Returns the full analysis, or null.
-const analyzeSymbol = async (symbol, electron, livePrice) => {
+// Analysis always uses a fixed one-month Yahoo series and its own timestamped quote.
+const analyzeSymbol = async (symbol, electron) => {
     try {
-        let closes;
-        if (electron) {
-            const chart = await fetchChart(symbol, electron);
-            closes = chart?.closes || [];
-        } else {
-            closes = buildMockSeries();
-        }
-        if (closes.length === 0) return null;
-        const analysis = analyzeStock(closes, livePrice);
-        if (!analysis) return null;
-        // Only real market data may raise alerts — synthetic browser-mode series
-        // must not pollute the (persisted) alert history with fabricated ambers.
-        if (electron) dispatchAlertsFromAnalysis(symbol, analysis);
-        return analysis;
+        if (!electron) return null;
+        const quote = await fetchChart(symbol, electron);
+        if (!quote || quote.price === null) return null;
+        const analysis = analyzeStock(quote.closes, quote.price);
+        return analysis ? { ...analysis, quote } : null;
     } catch (e) {
         console.error(`Failed to analyze ${symbol}`, e);
         return null;
@@ -132,14 +103,14 @@ const COLUMNS = [
     { id: 'name', label: 'Company', align: 'left' },
     { id: 'price', label: 'Price', sortKey: 'price', align: 'right' },
     { id: 'dayChange', label: 'Day Δ%', sortKey: 'dayChange', align: 'right' },
-    { id: 'off30d', label: 'Off 30d High %', sortKey: 'off30dHigh', align: 'right' },
+    { id: 'off30d', label: 'Below 1M Close High', sortKey: 'off30dHigh', align: 'right' },
     { id: 'volume', label: 'Volume', sortKey: 'volume', align: 'right' },
     { id: 'relVol', label: 'RelVol', sortKey: 'relVol', align: 'right' },
     { id: 'mktCap', label: 'Mkt Cap', sortKey: 'marketCap', align: 'right' },
     { id: 'range52', label: '52W Range', align: 'center' },
     { id: 'rsi', label: 'RSI', sortKey: 'rsi', align: 'right' },
     { id: 'trend', label: 'Trend', align: 'center' },
-    { id: 'spark', label: '30d', align: 'center' },
+    { id: 'spark', label: '15 bars', align: 'center' },
     { id: 'rating', label: 'Rating', sortKey: 'score', align: 'center' },
     { id: 'expand', label: '', align: 'center' },
 ];
@@ -203,7 +174,7 @@ const StatTile = ({ label, value, color }) => (
 const cellStyle = { padding: '0.8rem 0.5rem', whiteSpace: 'nowrap' };
 
 const StockRow = memo(({ stock, expanded, onToggle }) => {
-    const score = stock.recoveryProbability ?? 50;
+    const score = stock.recoveryProbability;
     const verdict = getVerdict(score, stock.isZombie);
     const analysis = stock.analysis || null;
 
@@ -217,26 +188,24 @@ const StockRow = memo(({ stock, expanded, onToggle }) => {
             <tr
                 style={{
                     borderBottom: expanded ? 'none' : '1px solid rgba(255,255,255,0.05)',
-                    opacity: stock.isZombie ? 0.6 : 1,
                     cursor: 'pointer',
-                    transition: 'all 0.2s ease-in-out',
-                    willChange: 'transform'
+                    transition: 'background-color 0.15s ease'
                 }}
                 onClick={() => window.location.hash = `/stock/${stock.symbol}`}
                 onMouseEnter={(e) => {
                     e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
                 }}
                 onMouseLeave={(e) => {
                     e.currentTarget.style.background = 'transparent';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = 'none';
                 }}
             >
                 <td style={{ ...cellStyle, fontWeight: 'bold', color: 'var(--text-main)' }}>{stock.symbol}</td>
                 <td style={{ ...cellStyle, color: 'var(--text-muted)', fontSize: '0.85rem', maxWidth: '28ch', overflow: 'hidden', textOverflow: 'ellipsis' }} title={stock.name}>
                     {stock.name}
+                    <div style={{ fontSize: '0.65rem' }}>{stock.source} · {stock.delayMinutes === null ? 'delay unknown' : `${stock.delayMinutes} min delay`}</div>
+                    {stock.stale && <div style={{ fontSize: '0.65rem', color: 'var(--warning)' }}>Cached quote · refresh failed</div>}
+                    <div style={{ fontSize: '0.65rem' }}>Quote: {formatQuoteTime(stock.quotedAt)}</div>
+                    <div style={{ fontSize: '0.65rem' }}>Retrieved: {formatQuoteTime(stock.fetchedAt)}</div>
                 </td>
                 <td style={{ ...cellStyle, fontWeight: '600', textAlign: 'right' }}>{formatPrice(stock.price)}</td>
                 <td style={{ ...cellStyle, textAlign: 'right', color: (stock.changePercentage ?? 0) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
@@ -266,16 +235,16 @@ const StockRow = memo(({ stock, expanded, onToggle }) => {
                 </td>
                 <td style={{ ...cellStyle, textAlign: 'center' }}>
                     <span style={{
-                        color: verdict.color,
-                        border: `1px solid ${verdict.color}40`,
-                        background: `${verdict.color}15`,
+                        color: verdict?.color || 'var(--text-muted)',
+                        border: '1px solid rgba(148,163,184,0.2)',
+                        background: 'rgba(148,163,184,0.04)',
                         padding: '0.2rem 0.6rem',
                         borderRadius: '20px',
                         fontSize: '0.8rem',
                         display: 'inline-block',
                         minWidth: '100px'
                     }}>
-                        {verdict.label} ({score})
+                        {verdict ? `${verdict.label} (${score})` : 'Unavailable'}
                     </span>
                 </td>
                 <td style={{ ...cellStyle, textAlign: 'center' }}>
@@ -304,6 +273,7 @@ const StockRow = memo(({ stock, expanded, onToggle }) => {
                     <td colSpan={COLUMN_COUNT} style={{ padding: '0.4rem 1rem 1rem 1.5rem', background: 'rgba(0,0,0,0.2)' }}>
                         {stock.analysis ? (
                             <div>
+                                <p className="text-muted" style={{ fontSize: '0.75rem' }}>Technical score · fixed 1-month daily series · {stock.analysis.quote.source} quote {formatPrice(stock.analysis.currentPrice)} as of {formatQuoteTime(stock.analysis.quote.quotedAt)} · {stock.analysis.quote.delayMinutes === null ? 'delay unknown' : `${stock.analysis.quote.delayMinutes} min delay`}</p>
                                 {stock.analysis.factors.map((f) => {
                                     const badgeColor = f.points > 0 ? 'var(--success)' : f.points < 0 ? 'var(--danger)' : 'var(--text-muted)';
                                     return (
@@ -332,7 +302,7 @@ const StockRow = memo(({ stock, expanded, onToggle }) => {
                                 </div>
                             </div>
                         ) : (
-                            <div className="text-muted" style={{ fontSize: '0.85rem' }}>Score not hydrated yet.</div>
+                            <div className="text-muted" style={{ fontSize: '0.85rem' }}>{stock.analysisUnavailable ? 'Technical data unavailable or fewer than 15 valid daily closes.' : 'Technical analysis pending.'}</div>
                         )}
                     </td>
                 </tr>
@@ -352,12 +322,16 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
     }); // Empty string means "Any Sector"
     const [stocks, setStocks] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [scanPhase, setScanPhase] = useState(null);
     const [sortKey, setSortKey] = useState(null); // null = default order (day change asc)
     const [sortDir, setSortDir] = useState('desc');
     const [expandedRows, setExpandedRows] = useState(() => new Set());
     // Monotonic scan counter: state writes from superseded scans are dropped so a
     // slow older run (screener flushes, hydration) can't overwrite a newer one.
     const runSeqRef = useRef(0);
+    const inFlightRef = useRef(false);
+    const scopeRef = useRef(null);
 
     useEffect(() => {
         localStorage.setItem('dipAnalyzerChartCount', chartCount);
@@ -389,179 +363,121 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
         }
     };
 
-    // Fetch a Yahoo predefined screener and return normalised stock objects
-    const fetchYahooScreener = async (scrId, electron) => {
-        const url = `https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?formatted=false&scrIds=${scrId}&count=100`;
-        const html = await electron.ipcRenderer.invoke('fetch-url', url);
-        try {
-            const json = JSON.parse(html);
-            const quotes = json?.finance?.result?.[0]?.quotes || [];
-            return quotes.map(q => ({
-                symbol: q.symbol,
-                name: q.shortName || q.longName || q.symbol,
-                price: q.regularMarketPrice || 0,
-                changePercentage: q.regularMarketChangePercent || 0,
-                dipPercentage: q.regularMarketChangePercent < 0 ? Math.abs(q.regularMarketChangePercent) : 0,
-                volume: q.regularMarketVolume ?? null,
-                avgVolume: q.averageDailyVolume3Month ?? null,
-                marketCap: q.marketCap ?? null,
-                fiftyTwoWeekLow: q.fiftyTwoWeekLow ?? null,
-                fiftyTwoWeekHigh: q.fiftyTwoWeekHigh ?? null,
-                recoveryProbability: null,
-                isZombie: false,
-                analysis: null,
-                source: scrId,
-            }));
-        } catch { return []; }
-    };
-
     const fetchFinvizData = useCallback(async (targetCount) => {
         const runId = ++runSeqRef.current;
+        inFlightRef.current = true;
         const isStale = () => runSeqRef.current !== runId;
+        const requestScope = JSON.stringify([sector, [...excludedSectors].sort(), targetCount]);
+        if (scopeRef.current !== requestScope) {
+            scopeRef.current = requestScope;
+            setStocks([]);
+        }
         setLoading(true);
+        setScanPhase('quotes');
+        setError('');
         try {
-            let electron = null;
-            if (typeof window !== 'undefined' && typeof window.require === 'function') {
-                electron = window.require('electron');
-            }
+            const electron = typeof window.require === 'function' ? window.require('electron') : null;
+            if (!electron) throw new Error('Market data requires the desktop app connection. No sample quotes are shown.');
 
-            // Apply the shared analysis result onto a stock in state.
-            const applyAnalysis = (symbol, analysis) => {
-                if (!analysis || isStale()) return;
-                setStocks(prev => prev.map(s => s.symbol === symbol
-                    ? { ...s, recoveryProbability: analysis.score, isZombie: analysis.isZombie, analysis }
-                    : s));
-            };
-
-            let allStocks = [];
-
-            if (!electron) {
-                console.warn('Electron environment not detected. Loading mock dashboard data.');
-                allStocks = [
-                    { symbol: 'AAPL', name: 'Apple Inc.', price: 173.5, changePercentage: -2.4, dipPercentage: 2.4, volume: 58200000, avgVolume: 52400000, marketCap: 2.7e12, fiftyTwoWeekLow: 143.9, fiftyTwoWeekHigh: 199.6, recoveryProbability: 50, isZombie: false, analysis: null, source: 'mock' },
-                    { symbol: 'TSLA', name: 'Tesla Inc.', price: 180.2, changePercentage: -5.1, dipPercentage: 5.1, volume: 112000000, avgVolume: 98000000, marketCap: 5.7e11, fiftyTwoWeekLow: 138.8, fiftyTwoWeekHigh: 299.3, recoveryProbability: 50, isZombie: false, analysis: null, source: 'mock' },
-                    { symbol: 'DEAD', name: 'Zombie Corp', price: 0.5, changePercentage: -80.0, dipPercentage: 80.0, volume: 900000, avgVolume: null, marketCap: 12000000, fiftyTwoWeekLow: null, fiftyTwoWeekHigh: null, recoveryProbability: 50, isZombie: false, analysis: null, source: 'mock' },
-                    { symbol: 'MSFT', name: 'Microsoft', price: 400.1, changePercentage: 1.2, dipPercentage: 0, volume: 24500000, avgVolume: 26100000, marketCap: 3.0e12, fiftyTwoWeekLow: 309.4, fiftyTwoWeekHigh: 430.8, recoveryProbability: 50, isZombie: false, analysis: null, source: 'mock' }
-                ];
-                if (isStale()) return;
-                setStocks(allStocks);
-                setLoading(false);
-                // Hydrate mock analyses via the shared engine on synthetic series.
-                allStocks.forEach(async (stock) => {
-                    const analysis = await analyzeSymbol(stock.symbol, null, stock.price);
-                    applyAnalysis(stock.symbol, analysis);
-                });
-                return;
-            }
-
-            // ── PHOTONICS BASKET OVERRIDE ─────────────────────────────────────
-            // Uses the chart API (crumb-free) instead of the unreliable v7 quote API.
             if (sector === 'photonics') {
-                const results = await Promise.all(PHOTONICS_TICKERS.map(async (symbol) => {
+                const results = await Promise.all(PHOTONICS_TICKERS.map(async symbol => {
                     try {
-                        const chart = await fetchChart(symbol, electron);
-                        if (!chart || chart.closes.length === 0) return null;
-                        const { meta, closes } = chart;
-                        const lastClose = closes[closes.length - 1];
-                        const price = meta.regularMarketPrice ?? lastClose ?? 0;
-                        // Day change must come from the prior daily bar: for a 1mo request,
-                        // meta.chartPreviousClose is the close from a MONTH ago, not yesterday.
-                        const prevClose = closes.length >= 2 ? closes[closes.length - 2] : null;
-                        const changePercentage = (price && prevClose)
-                            ? ((price - prevClose) / prevClose) * 100
-                            : 0;
-
-                        // Reuse the closes we already have for the shared hydration path.
-                        const analysis = analyzeStock(closes, price);
-                        if (analysis) dispatchAlertsFromAnalysis(symbol, analysis);
-
+                        const quote = await fetchChart(symbol, electron);
+                        if (!quote || quote.price === null) return null;
+                        const analysis = analyzeStock(quote.closes, quote.price);
                         return {
-                            symbol,
-                            name: meta.longName ?? meta.shortName ?? symbol,
-                            price,
-                            changePercentage,
-                            dipPercentage: changePercentage < 0 ? Math.abs(changePercentage) : 0,
-                            volume: meta.regularMarketVolume ?? null,
-                            avgVolume: null,
-                            marketCap: null,
-                            fiftyTwoWeekLow: meta.fiftyTwoWeekLow ?? null,
-                            fiftyTwoWeekHigh: meta.fiftyTwoWeekHigh ?? null,
-                            recoveryProbability: analysis ? analysis.score : 50,
-                            isZombie: analysis ? analysis.isZombie : false,
-                            analysis: analysis || null,
-                            source: 'photonics',
+                            ...quote, symbol, name: quote.meta.longName ?? quote.meta.shortName ?? symbol,
+                            changePercentage: quote.changePct, volume: quote.meta.regularMarketVolume ?? null,
+                            avgVolume: null, marketCap: null,
+                            fiftyTwoWeekLow: quote.meta.fiftyTwoWeekLow ?? null,
+                            fiftyTwoWeekHigh: quote.meta.fiftyTwoWeekHigh ?? null,
+                            recoveryProbability: analysis?.score ?? null,
+                            isZombie: analysis?.isZombie ?? false,
+                            analysis: analysis ? { ...analysis, quote } : null,
                         };
                     } catch { return null; }
                 }));
                 if (isStale()) return;
-                setStocks(results.filter(Boolean));
-                setLoading(false);
+                const valid = results.filter(Boolean);
+                if (valid.length === 0) throw new Error('Photonics quotes are unavailable. Retained quotes keep their original source times.');
+                setStocks(previous => PHOTONICS_TICKERS.map(symbol => valid.find(stock => stock.symbol === symbol)
+                    ?? (previous.find(stock => stock.symbol === symbol)
+                        ? { ...previous.find(stock => stock.symbol === symbol), stale: true }
+                        : { symbol, name: symbol, source: 'Yahoo Finance', price: null, changePercentage: null,
+                            delayMinutes: null, quotedAt: null, fetchedAt: null, analysis: null,
+                            recoveryProbability: null, analysisUnavailable: true })));
+                if (valid.length < PHOTONICS_TICKERS.length) setError('Some Photonics quotes are unavailable. Only confirmed provider data is shown.');
+                valid.forEach(stock => dispatchAlertsFromAnalysis(stock.symbol, stock.analysis, stock.analysis?.quote));
                 return;
             }
-            // ── END PHOTONICS ─────────────────────────────────────────────────
 
-            // ── MULTI-SOURCE YAHOO SCREENER FETCH ─────────────────────────────
-            const combinedMap = new Map();
-
-            for (const scrId of YAHOO_SCREENER_IDS) {
+            const combined = new Map();
+            const normalizedSector = value => (value || '').toLowerCase().replace(/[^a-z]/g, '');
+            for (let page = 0; page < 50 && combined.size < targetCount; page++) {
                 if (isStale()) return;
-                const results = await fetchYahooScreener(scrId, electron);
+                const filters = sector ? `&f=sec_${encodeURIComponent(sector)}` : '';
+                const url = `https://finviz.com/screener.ashx?v=111&o=change&r=${page * 20 + 1}${filters}`;
+                const html = await electron.ipcRenderer.invoke('fetch-url', url);
+                const rows = parseFinvizScreener(html);
                 if (isStale()) return;
-                for (const stock of results) {
-                    if (!combinedMap.has(stock.symbol)) {
-                        // Defensive: Yahoo screeners rarely return sector, but honour exclusions when present.
-                        if (stock.sector && excludedSectors.includes(stock.sector)) continue;
-                        if (sector && sector !== '') continue; // sector filter: only show all if no sector selected
-                        combinedMap.set(stock.symbol, stock);
-                    }
+                for (const stock of rows) {
+                    if (stock.changePercentage === null || stock.changePercentage >= 0) continue;
+                    const rowSector = normalizedSector(stock.sector);
+                    if (excludedSectors.includes(rowSector) || (sector && rowSector !== sector)) continue;
+                    combined.set(stock.symbol, {
+                        ...stock, avgVolume: null, fiftyTwoWeekLow: null, fiftyTwoWeekHigh: null,
+                        recoveryProbability: null, isZombie: false, analysis: null,
+                    });
                 }
-                // Flush incrementally so UI populates immediately
-                allStocks = Array.from(combinedMap.values())
-                    .filter(s => s.dipPercentage > 0) // only actual dippers
-                    .sort((a, b) => b.dipPercentage - a.dipPercentage)
-                    .slice(0, targetCount);
-
-                setStocks(prevStocks => allStocks.map(ns => {
-                    const ex = prevStocks.find(p => p.symbol === ns.symbol);
-                    return ex
-                        ? { ...ns, recoveryProbability: ex.recoveryProbability, isZombie: ex.isZombie, analysis: ex.analysis }
-                        : { ...ns, recoveryProbability: 50 };
-                }));
-
-                await new Promise(r => setTimeout(r, 300));
+                if (rows.length < 20 || rows.every(stock => stock.changePercentage !== null && stock.changePercentage >= 0)) break;
+                if (combined.size < targetCount) await new Promise(resolve => setTimeout(resolve, 300));
             }
-
-            // Hydrate analyses (score + factors + technicals) in small batches
-            const hydrateScores = async () => {
-                const chunkSize = 5;
-                for (let i = 0; i < allStocks.length; i += chunkSize) {
-                    if (isStale()) return;
-                    const chunk = allStocks.slice(i, i + chunkSize);
-                    await Promise.all(chunk.map(async stock => {
-                        const analysis = await analyzeSymbol(stock.symbol, electron, stock.price);
-                        applyAnalysis(stock.symbol, analysis);
-                    }));
-                    await new Promise(r => setTimeout(r, 800));
-                }
-            };
-            hydrateScores().catch(err => console.error('Error hydrating scores:', err));
-
+            const allStocks = Array.from(combined.values()).slice(0, targetCount);
+            if (isStale()) return;
+            setStocks(allStocks);
+            setScanPhase('analysis');
+            // Each score has its own Yahoo source time; never retain a previous scan's score.
+            for (let i = 0; i < allStocks.length; i += 5) {
+                if (isStale()) return;
+                const analyses = await Promise.all(allStocks.slice(i, i + 5).map(async stock => {
+                    const analysis = await analyzeSymbol(stock.symbol, electron);
+                    return [stock.symbol, analysis];
+                }));
+                if (isStale()) return;
+                const batch = new Map(analyses);
+                setStocks(previous => previous.map(row => batch.has(row.symbol)
+                    ? { ...row, recoveryProbability: batch.get(row.symbol)?.score ?? null,
+                        isZombie: batch.get(row.symbol)?.isZombie ?? false,
+                        analysis: batch.get(row.symbol), analysisUnavailable: !batch.get(row.symbol) }
+                    : row));
+                analyses.forEach(([symbol, analysis]) => {
+                    if (analysis) dispatchAlertsFromAnalysis(symbol, analysis, analysis.quote);
+                });
+            }
         } catch (error) {
-            console.error('Failed to fetch screener data', error);
+            if (!isStale()) {
+                setError(error.message || 'Finviz quotes are unavailable. Please retry.');
+                setStocks(previous => previous.map(stock => ({ ...stock, stale: true })));
+            }
         } finally {
-            if (!isStale()) setLoading(false);
+            if (!isStale()) {
+                inFlightRef.current = false;
+                setLoading(false);
+                setScanPhase(null);
+            }
         }
     }, [sector, excludedSectors]);
 
     useEffect(() => {
         fetchFinvizData(chartCount);
+        return () => { runSeqRef.current += 1; };
     }, [chartCount, fetchFinvizData]);
 
     useEffect(() => {
         if (autoRefreshInterval <= 0) return;
 
         const intervalId = setInterval(() => {
-            fetchFinvizData(chartCount);
+            if (!inFlightRef.current) fetchFinvizData(chartCount);
         }, autoRefreshInterval * 60 * 1000);
 
         return () => clearInterval(intervalId);
@@ -571,7 +487,7 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
         if (!s.symbol.toLowerCase().includes(searchTerm.toLowerCase())) return false;
 
         if (globalFilter !== 'All') {
-            const rating = getVerdict(s.recoveryProbability ?? 50, s.isZombie).label;
+            const rating = getVerdict(s.recoveryProbability, s.isZombie)?.label;
 
             if (globalFilter === 'Sell/Strong Sell') {
                 return rating === 'Sell' || rating === 'Strong Sell';
@@ -591,11 +507,13 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
 
     // Summary tiles — live-updating as hydration progresses
     const scanned = stocks.length;
-    const avgDayChange = scanned > 0
-        ? stocks.reduce((sum, s) => sum + (s.changePercentage || 0), 0) / scanned
+    const knownChanges = stocks.filter(stock => Number.isFinite(stock.changePercentage));
+    const avgDayChange = knownChanges.length > 0
+        ? knownChanges.reduce((sum, stock) => sum + stock.changePercentage, 0) / knownChanges.length
         : null;
     const buySignals = stocks.filter(s => (s.recoveryProbability ?? 0) >= 60).length;
     const zombieCount = stocks.filter(s => s.isZombie).length;
+    const scoredCount = stocks.filter(stock => stock.analysis).length;
     // Only actual losers qualify — an all-green basket must not crown a "dip".
     const deepestDip = stocks.reduce((worst, s) =>
         (s.changePercentage < 0 && (worst === null || s.changePercentage < worst.changePercentage)) ? s : worst, null);
@@ -627,7 +545,7 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                         Market Dips Analysis
                         {loading && <RefreshCw size={20} className="text-muted" style={{ animation: 'spin 1s linear infinite' }} />}
                     </h2>
-                    <p className="text-muted">Scanning market dippers from Yahoo Finance, Finviz & more.</p>
+                    <p className="text-muted">Finviz stock quotes • delayed 1 minute • Yahoo Finance technical history.</p>
                 </div>
 
                 <div style={{ marginRight: 'auto', paddingLeft: '2rem' }}>
@@ -716,6 +634,15 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                 </div>
             </div>
 
+            <div className="flex-between data-source-line" style={{ marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <span className="text-muted" style={{ fontSize: '0.8rem' }}>Finviz quote times are unavailable; retrieval time is shown on each row. Technical scores use one month of daily closes and are not recovery probabilities.</span>
+                <button className="btn btn-outline" onClick={() => fetchFinvizData(chartCount)} disabled={loading}>
+                    <RefreshCw size={14} /> Refresh quotes
+                </button>
+            </div>
+            {error && <p role="alert" className="data-notice">{error}</p>}
+            {loading && scanPhase === 'quotes' && stocks.length > 0 && <p role="status" className="data-notice">Refreshing · previous scan retained with its original quote and retrieval times.</p>}
+
             {/* Summary stat tiles */}
             <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
                 <StatTile label="Scanned" value={scanned} />
@@ -724,8 +651,8 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                     value={avgDayChange === null ? '—' : formatPct(avgDayChange)}
                     color={avgDayChange === null ? undefined : avgDayChange >= 0 ? 'var(--success)' : 'var(--danger)'}
                 />
-                <StatTile label="Buy Signals" value={buySignals} color={buySignals > 0 ? 'var(--success)' : undefined} />
-                <StatTile label="Zombies" value={zombieCount} color={zombieCount > 0 ? '#9ca3af' : undefined} />
+                <StatTile label="Buy signals (scored)" value={scoredCount ? buySignals : '—'} color={buySignals > 0 ? 'var(--success)' : undefined} />
+                <StatTile label="Low scores" value={scoredCount ? zombieCount : '—'} color={zombieCount > 0 ? '#9ca3af' : undefined} />
                 <StatTile
                     label="Deepest Dip"
                     value={deepestDip ? `${deepestDip.symbol} ${formatPct(deepestDip.changePercentage)}` : '—'}
