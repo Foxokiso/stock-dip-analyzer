@@ -74,6 +74,23 @@ try {
   report.target = packagedExe ? `packaged ${packagedExe}` : 'dev server';
   page.on('console', msg => { if (msg.type() === 'error') report.consoleErrors.push(msg.text().slice(0, 300)); });
   page.on('pageerror', err => report.pageErrors.push(String(err).slice(0, 300)));
+  // Content Security Policy violations, with their source, so a blocked
+  // resource or inline handler can be traced to the library that caused it.
+  await page.addInitScript(() => {
+    window.__cspViolations = [];
+    document.addEventListener('securitypolicyviolation', (e) => {
+      if (window.__cspViolations.length < 200) window.__cspViolations.push({ directive: e.violatedDirective, blocked: e.blockedURI, source: e.sourceFile, line: e.lineNumber, sample: (e.sample || '').slice(0, 120) });
+    });
+  });
+  const collectCsp = async () => {
+    const violations = await page.evaluate(() => window.__cspViolations || []).catch(() => []);
+    const groups = new Map();
+    for (const v of violations) {
+      const key = `${v.directive} | ${v.blocked} | ${v.source}:${v.line} | ${v.sample}`;
+      groups.set(key, (groups.get(key) || 0) + 1);
+    }
+    report.cspViolations = [...groups.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([key, count]) => ({ count, key }));
+  };
   await page.setViewportSize({ width: 1440, height: 1050 });
 
   const count = (sel) => page.locator(sel).count();
@@ -219,6 +236,8 @@ try {
     console.log(JSON.stringify({ returnVisit: report.returnVisit }));
   }
   for (const route of ROUTES) await visit(route, 'warm');
+  await collectCsp();
+  if (report.cspViolations?.length) console.log(JSON.stringify({ cspViolations: report.cspViolations }));
 } catch (error) {
   report.fatal = String(error).slice(0, 400);
   console.error('fatal:', report.fatal);

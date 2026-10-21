@@ -6,7 +6,7 @@
 - Every Finviz screener desk (Overview, ETF rankings, Discovery) showed nothing: Finviz now appends a short label span and a sort indicator to header cells, so the header row was no longer recognised. The parser reads the full name from `aria-label` or the label span first (`src/utils/finviz.js`, fixture `tests/fixtures/finviz-overview-grid-2026-10-21.html`).
 - Numeric parsing is normalised to 15 significant digits (33.24M no longer becomes 33240000.000000004).
 - `master` had no CI: both workflows now also run on pushes to it.
-- Packaging wrote into `dist/`, the folder Vite builds into and that the app's `files` glob packs recursively, so every build after the first packed the previous build inside itself (the app archive had reached 375 MB). electron-builder now outputs to `release/`.
+- Packaging wrote into `dist/`, the folder Vite builds into and that the app's `files` glob packs recursively, so every build after the first packed the previous build inside itself (the app archive had reached 375 MB). electron-builder now outputs to `release/`. The installer is 116 MB (was 207–234 MB) and the app archive 1.2 MB (was 375 MB). electron-builder is pinned to 26.8.1: 26.15.x packages through a temporary folder and a directory rename that Windows refuses on this machine (`EPERM` on `win-unpacked.tmp`), so a floating range broke `npm run build`.
 
 ### Changed
 - Overview scan streams (`src/state/scanStore.js`): screener pages are fetched four at a time and published in page order as each one lands; Yahoo scoring starts on the first rows with eight requests in flight and is flushed to the table every 120 ms. Measured at depth 100: first row and first score 0.9 s after a reload, all names scored in 3.3 s (previously five names at a time, pages one at a time with a 300 ms pause).
@@ -23,6 +23,7 @@
 - Production builds carry a Content Security Policy (`vite.config.js`): scripts only from the app and TradingView's loader, frames only on TradingView's hosts, no objects, no base override, no form posts.
 - The news overlay no longer geolocates the user through a plain-HTTP IP lookup; it reads the Google News front page.
 - Resource viewer URLs encode the symbol taken from the route.
+- Third-party HTML (Finviz screener and quote pages) has its inline event-handler attributes stripped before it is parsed (`src/utils/inertHtml.js`): the parsed documents were always inert, but Chromium reported each of Finviz's hundreds of `onclick` attributes as a CSP violation, and no handler text now reaches a document in the renderer.
 - Electron 40 → 45 (closes five high advisories, including a `<webview>` Node-integration escape and sandbox-inheritance bugs). Renderer libraries moved to devDependencies so the packaged app ships only `main.cjs`, `preload.cjs` and `dist/`; `npm audit --omit=dev` is clean, and the remaining moderate findings are in the build tool only.
 - `.github/workflows/release.yml`: pushing a `v*` tag runs the tests, builds the installer, writes `SHA256SUMS.txt` and publishes a GitHub Release; it signs automatically once `CSC_LINK`/`CSC_KEY_PASSWORD` secrets exist.
 

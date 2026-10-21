@@ -9,6 +9,7 @@ import { fetchYahooChart } from '../utils/chartCache';
 import { getInvoke } from '../utils/bridge.js';
 import { useSettings } from '../state/settingsContext.js';
 import { resolveFinvizNewsUrl } from '../utils/finviz';
+import { stripInlineHandlers } from '../utils/inertHtml.js';
 import { mountTradingViewWidget } from '../utils/tradingView';
 import '../styles/pages/stock-details.css';
 
@@ -313,7 +314,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
                 const finvizUrl = `https://finviz.com/quote.ashx?t=${symbol}&p=d`;
                 const finvizHtml = await electron.ipcRenderer.invoke('fetch-url', finvizUrl);
                 const parser = new DOMParser();
-                const doc = parser.parseFromString(finvizHtml, 'text/html');
+                const doc = parser.parseFromString(stripInlineHandlers(finvizHtml), 'text/html');
 
                 // --- News (up to 10 items) ---
                 const newsRows = doc.querySelectorAll('#news-table tr');
