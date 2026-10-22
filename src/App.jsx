@@ -1,21 +1,27 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import { HashRouter as Router, Routes, Route, NavLink } from 'react-router-dom'
 import { Activity, LayoutDashboard, Settings, Palette, Trophy, Compass, Droplet, ChartNoAxesCombined, ArrowUpRight } from 'lucide-react'
 import './App.css'
 import { getLocalNewsHeadlines } from './utils/telemetry'
+import { preloadable } from './utils/preloadable.js'
 import { SettingsProvider } from './state/settings.jsx'
 import { useSettings } from './state/settingsContext.js'
 import { THEMES, DEFAULT_SETTINGS, RATING_FILTERS } from './state/settingsSchema.js'
 
 import Dashboard from './pages/Dashboard'
 import LiveAlerts from './components/LiveAlerts'
+// The desks ship in the main bundle: the app loads from local disk, so code
+// splitting saved nothing at startup and cost a Suspense fallback (plus React's
+// 300 ms fallback throttle) on every first visit to a route.
+import Futures from './pages/Futures'
+import ETFAwards from './pages/ETFAwards'
+import Discovery from './pages/Discovery'
+import OilWatch from './pages/OilWatch'
+import SettingsPage from './pages/Settings'
 
-const StockDetails = lazy(() => import('./pages/StockDetails'));
-const ETFAwards = lazy(() => import('./pages/ETFAwards'));
-const Discovery = lazy(() => import('./pages/Discovery'));
-const OilWatch = lazy(() => import('./pages/OilWatch'));
-const Futures = lazy(() => import('./pages/Futures'));
-const SettingsPage = lazy(() => import('./pages/Settings'));
+// Only the stock page carries the charting library; it is warmed during idle
+// time right after startup so clicking a row never waits on it.
+const StockDetails = preloadable(() => import('./pages/StockDetails'));
 
 const RATING_LABELS = { All: 'All Ratings', 'Sell/Strong Sell': 'Sell / Strong Sell' };
 
@@ -44,6 +50,17 @@ function Workspace() {
   // The header filter starts from, and follows, Settings → Scanner → default rating.
   const [globalFilter, setGlobalFilter] = useState(defaultRating);
   useEffect(() => { setGlobalFilter(defaultRating); }, [defaultRating]);
+
+  // Warm the stock page chunk once the first paint and the initial scan requests are out.
+  useEffect(() => {
+    const warm = () => { StockDetails.preload().catch(() => { /* retried on first visit */ }); };
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(warm, { timeout: 3000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = setTimeout(warm, 1500);
+    return () => clearTimeout(id);
+  }, []);
 
   // 20 Second Reversion & Audio Control for Seizure Mode
   useEffect(() => {

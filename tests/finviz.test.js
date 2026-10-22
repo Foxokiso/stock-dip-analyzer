@@ -94,6 +94,18 @@ test('live Finviz ARIA grid preserves quote fields and ignores logo initials in 
     assert.ok(stocks.every(stock => stock.quotedAt === null && stock.fetchedAt === options.fetchedAt));
 });
 
+test('2026-10-21 grid with short header labels, sort indicators and data-ticker cells still parses', () => {
+    const html = readFileSync(new URL('./fixtures/finviz-overview-grid-2026-10-21.html', import.meta.url), 'utf8');
+    const stocks = parseFinvizScreener(html, options);
+    assert.deepEqual(stocks.map(({ symbol, name, sector, price, change, volume, marketCap }) =>
+        ({ symbol, name, sector, price, change, volume, marketCap })), [
+        { symbol: 'NDLS', name: 'Noodles & Company', sector: 'Consumer Cyclical', price: 5.57, change: -59.72, volume: 1, marketCap: 33240000 },
+        { symbol: 'TKNO', name: 'Alpha Teknova Inc', sector: 'Healthcare', price: 5.16, change: -30.18, volume: 31497, marketCap: 277030000 },
+    ]);
+    // A header whose full name only exists in aria-label must not be read from its visible text.
+    assert.throws(() => parseFinvizScreener(html.replace('aria-label="Change %"', 'aria-label="Something else"'), options), /unavailable|schema/i);
+});
+
 test('grid column indices preserve values when visual lane and cell order changes', () => {
     const doc = new DOMParser().parseFromString(currentGrid, 'text/html');
     for (const lane of doc.querySelectorAll('[data-lane]')) {

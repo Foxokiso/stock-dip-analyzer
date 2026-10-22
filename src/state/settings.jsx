@@ -30,6 +30,12 @@ export function SettingsProvider({ children }) {
     root.style.setProperty('--glow-intensity', String(settings.appearance.glow));
   }, [settings.appearance]);
 
+  // The main process owns the network deadline; keep it in step with the setting.
+  useEffect(() => {
+    const electron = typeof window.require === 'function' ? window.require('electron') : null;
+    electron?.ipcRenderer.invoke('configure-network', { requestTimeoutSeconds: settings.data.requestTimeoutSeconds }).catch(() => {});
+  }, [settings.data.requestTimeoutSeconds]);
+
   const update = useCallback((path, value) => {
     const keys = typeof path === 'string' ? path.split('.') : path;
     setSettings(current => setPath(current, keys, typeof value === 'function' ? value(keys.reduce((o, k) => o?.[k], current)) : value));

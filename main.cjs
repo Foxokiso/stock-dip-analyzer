@@ -27,6 +27,15 @@ const BROWSER_HEADERS = {
     'Upgrade-Insecure-Requests': '1',
 };
 
+// One deadline per request (retries, session seeding, backoff and body included).
+// Settings → Data → request timeout updates it through 'configure-network'.
+let requestTimeoutMs = 12000;
+ipcMain.handle('configure-network', (event, options = {}) => {
+    const seconds = Number(options?.requestTimeoutSeconds);
+    if (Number.isFinite(seconds) && seconds >= 1 && seconds <= 600) requestTimeoutMs = Math.round(seconds * 1000);
+    return { requestTimeoutMs };
+});
+
 // Share only work that is still in progress. Once a response (including its
 // body) settles, the next refresh always goes back to the provider.
 const pendingRequests = new Map();
@@ -59,7 +68,7 @@ ipcMain.handle('fetch-url', (event, url) => shareRequest(`url:${url}`, async () 
     const host = hostOf(url);
     // A single deadline covers retries, session seeding, backoff and body
     // consumption. A failing source must not hold up the interface for 40s+.
-    const signal = AbortSignal.timeout(12000);
+    const signal = AbortSignal.timeout(requestTimeoutMs);
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
             signal.throwIfAborted();
@@ -127,7 +136,7 @@ ipcMain.handle('fetch-yahoo-chart', (event, symbol, range = '1mo', interval = '1
     return shareRequest(`yahoo:${url}`, async () => {
         try {
             const response = await fetch(url, {
-                signal: AbortSignal.timeout(12000),
+                signal: AbortSignal.timeout(requestTimeoutMs),
                 cache: 'no-store',
                 headers: {
                     ...BROWSER_HEADERS,

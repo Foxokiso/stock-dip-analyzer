@@ -2,6 +2,18 @@
 
 A desktop market research workspace built with React, Vite, and Electron. Finviz is the primary stock screener and futures reference; Yahoo Finance supplies historical technical analysis and market context. Google News RSS supplies the Oil Watch headlines.
 
+## Release Notes v2.1.0 — Response
+
+Same desks, same data rules, measured to be fast.
+
+* **Finviz screener repaired.** Finviz changed its grid again on 2026-10-21 (short header labels, sort indicators); every screener desk showed nothing. The parser now binds headers by their accessible name and a live smoke test (`npm run test:finviz`) checks all seven views plus the futures API in seconds.
+* **Overview scan streams.** Pages arrive four at a time and are shown in order as they land; scoring starts on the first rows with eight Yahoo requests in flight. At depth 100 the first rows and first score appear 0.9 s after a reload and the whole table is scored in 3.3 s. The scan keeps running when you leave the page; coming back shows it instantly (Settings → Scanner → *Reuse a scan for*, default 90 s), every row with its original retrieval time.
+* **Instant route switches.** The desks no longer suspend on first visit (React 19's fallback throttle cost exactly 300 ms per cold switch); the stock page's charting chunk is warmed during idle time. Measured cold mount: 0 ms on every route; Futures data in ~90 ms, ETF rankings ~240 ms (three pages in parallel), Oil Watch ~160 ms.
+* **Settings that now act:** *Chart cache* is honoured by scoring, the stock page and Oil Watch (reused quotes keep their retrieval time); *Request timeout* is applied by the desktop process immediately.
+* **CI on master.** Both workflows run on pushes to `master`.
+
+Verification: `npm test` 112/112, `npx eslint .` clean, `vite build`, `npm run test:finviz` 8/8 live views, `npm run test:live` 0 page errors with no provider errors at depth 100 and 500.
+
 ## Release Notes v2.0.0 — Pierce/27
 
 The layout is the same; the style is new, every setting is deliberate, and the C++ core now covers far more than scoring.
@@ -27,7 +39,7 @@ Verification: `npm test` 67/67, `npx eslint .` clean, `vite build`, `ctest` 6/6 
 
 ## Futures desk and modern workspace
 
-The Futures tab groups Finviz reference instruments across indices, rates, energy, metals, grains, softs, and currencies. It includes search, overview cards, actual source sparklines, and an instrument detail panel. The default theme uses slate surfaces, mint accents, readable tabular numbers, and active navigation. Large route components load on demand; refreshes preserve the interface, and reduced motion is respected.
+The Futures tab groups Finviz reference instruments across indices, rates, energy, metals, grains, softs, and currencies. It includes search, overview cards, actual source sparklines, and an instrument detail panel. The default theme uses slate surfaces, mint accents, readable tabular numbers, and active navigation. Only the stock page's charting code loads separately, and it is warmed in the background after startup; refreshes preserve the interface, and reduced motion is respected.
 
 ## Data integrity
 

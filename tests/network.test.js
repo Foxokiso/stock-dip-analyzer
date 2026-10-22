@@ -122,6 +122,20 @@ for (const [channel, args, bodyMethod] of [
   });
 }
 
+test('configure-network changes the single request deadline and ignores out-of-range values', async () => {
+  const { invoke, clock } = loadMain((url, { signal }) => waitForAbort(signal));
+  // Results come from another VM realm, so compare fields rather than object identity.
+  const deadline = async (options) => (await invoke('configure-network', options)).requestTimeoutMs;
+  assert.equal(await deadline({ requestTimeoutSeconds: 3 }), 3000);
+  const pending = assert.rejects(invoke('fetch-url', 'https://finviz.com/screener.ashx?v=111'), /timed out/i);
+  await clock.advance(2999);
+  await clock.advance(1);
+  await pending;
+  assert.equal(await deadline({ requestTimeoutSeconds: 0 }), 3000);
+  assert.equal(await deadline({ requestTimeoutSeconds: 'soon' }), 3000);
+  assert.equal(await deadline(undefined), 3000);
+});
+
 test('Yahoo coalesces default arguments but keeps symbol, range and interval distinct', async () => {
   const pending = deferred();
   const urls = [];
