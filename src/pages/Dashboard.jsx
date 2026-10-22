@@ -5,6 +5,7 @@ import { getVerdict } from '../utils/scoring';
 import { formatCompact, formatPct, formatPrice, formatQuoteTime } from '../utils/format';
 import { useSettings } from '../state/settingsContext.js';
 import { getScan, scanAge, scanKey, startScan, useScan } from '../state/scanStore.js';
+import { getInvoke } from '../utils/bridge.js';
 import '../styles/pages/dashboard.css';
 
 // ─── Stable module-level constants — not React dependencies ──────────────────
@@ -253,10 +254,7 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
     const { stocks, loading, error, phase: scanPhase } = useScan(key);
     const reuseSeconds = settings.scanner.reuseSeconds;
     const chartCacheSeconds = settings.data.chartCacheSeconds;
-    const invoke = useMemo(() => {
-        const electron = typeof window.require === 'function' ? window.require('electron') : null;
-        return electron ? (channel, ...args) => electron.ipcRenderer.invoke(channel, ...args) : null;
-    }, []);
+    const invoke = useMemo(() => getInvoke(), []);
     const rescan = useCallback(() => startScan(scanParams, { invoke, chartCacheSeconds }), [scanParams, invoke, chartCacheSeconds]);
 
     useEffect(() => {

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Compass, BarChart2, Activity, Zap, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { parseFinvizScreener } from '../utils/finviz';
+import { getInvoke } from '../utils/bridge.js';
 import { formatPrice, formatPct, formatCompact, formatQuoteTime } from '../utils/format';
 import { mountTradingViewWidget } from '../utils/tradingView';
 import { useSettings } from '../state/settingsContext.js';
@@ -121,14 +122,15 @@ const Discovery = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
             await Promise.resolve();
             if (cancelled) return;
             setLoading(true);
-            if (typeof window.require !== 'function') {
+            const invoke = getInvoke();
+            if (!invoke) {
                 setError('Discovery quotes require the desktop app connection.');
                 setLoading(false);
                 inFlight = false;
                 return;
             }
             try {
-                const html = await window.require('electron').ipcRenderer.invoke('fetch-url', 'https://finviz.com/screener.ashx?v=111&f=ta_unusualvolume,ta_volatility_mo5&o=-volume');
+                const html = await invoke('fetch-url', 'https://finviz.com/screener.ashx?v=111&f=ta_unusualvolume,ta_volatility_mo5&o=-volume');
                 const fetched = new Date().toISOString();
                 const results = parseFinvizScreener(html, { fetchedAt: fetched }).slice(0, 20);
                 if (!cancelled) {

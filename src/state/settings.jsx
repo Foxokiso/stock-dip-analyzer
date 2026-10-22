@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SettingsContext } from './settingsContext.js';
+import { getInvoke } from '../utils/bridge.js';
 import { DEFAULT_SETTINGS, SETTINGS_KEY, isTransientTheme, loadSettings, mergeKnown, normalizeSettings, persistableSettings, setPath } from './settingsSchema.js';
 
 export function SettingsProvider({ children }) {
@@ -32,8 +33,7 @@ export function SettingsProvider({ children }) {
 
   // The main process owns the network deadline; keep it in step with the setting.
   useEffect(() => {
-    const electron = typeof window.require === 'function' ? window.require('electron') : null;
-    electron?.ipcRenderer.invoke('configure-network', { requestTimeoutSeconds: settings.data.requestTimeoutSeconds }).catch(() => {});
+    getInvoke()?.('configure-network', { requestTimeoutSeconds: settings.data.requestTimeoutSeconds }).catch(() => {});
   }, [settings.data.requestTimeoutSeconds]);
 
   const update = useCallback((path, value) => {

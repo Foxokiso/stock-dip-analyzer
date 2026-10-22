@@ -8,14 +8,14 @@ import { getYahooQuote } from '../utils/marketData';
 import { parseOilNews } from '../utils/oilNews';
 import { fetchYahooChart } from '../utils/chartCache';
 import { mapPool } from '../utils/pool';
+import { getInvoke } from '../utils/bridge.js';
 import { useSettings } from '../state/settingsContext.js';
 import '../styles/pages/oil-watch.css';
 
 const BASKET_CONCURRENCY = 8;
 
-const electron = typeof window !== 'undefined' && typeof window.require === 'function'
-    ? window.require('electron')
-    : null;
+// Desktop bridge in the { ipcRenderer.invoke } shape this page uses throughout.
+const electron = (() => { const invoke = getInvoke(); return invoke ? { ipcRenderer: { invoke } } : null; })();
 
 // ─── Energy complex for the pulse strip ──────────────────────────────────────
 const ENERGY_TICKERS = [

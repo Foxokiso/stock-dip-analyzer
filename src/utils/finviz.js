@@ -1,3 +1,5 @@
+import { stripInlineHandlers } from './inertHtml.js';
+
 const fields = {
     ticker: 'symbol', company: 'name', sector: 'sector', price: 'price', change: 'change',
     volume: 'volume', 'market cap': 'marketCap', 'perf month': 'perfMonth', 'perf year': 'perfYear', dividend: 'dividendYield',
@@ -46,7 +48,7 @@ export function parseFinvizScreener(html, {
     fetchedAt = new Date().toISOString(), DOMParser = globalThis.DOMParser, view = '111',
 } = {}) {
     if (!DOMParser) throw new Error('Finviz parser is unavailable in this environment.');
-    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const doc = new DOMParser().parseFromString(stripInlineHandlers(html), 'text/html');
     const stocks = new Map();
     let recognizedTable = false;
     let dataRows = 0;

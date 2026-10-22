@@ -2,9 +2,11 @@ import { useState, useEffect, memo } from 'react';
 import { Radio, AlertTriangle } from 'lucide-react';
 import { formatPrice, formatPct, formatQuoteTime } from '../utils/format';
 import { getYahooQuote } from '../utils/marketData';
+import { getInvoke } from '../utils/bridge.js';
 import '../styles/components.css';
 
-const electron = typeof window.require === 'function' ? window.require('electron') : null;
+// Desktop bridge in the { ipcRenderer.invoke } shape this component uses.
+const electron = (() => { const invoke = getInvoke(); return invoke ? { ipcRenderer: { invoke } } : null; })();
 const TRACKED = [
     { sym: 'SPY', label: 'S&P 500 ETF' },
     { sym: 'QQQ', label: 'Nasdaq 100 ETF' },

@@ -122,6 +122,27 @@ for (const [channel, args, bodyMethod] of [
   });
 }
 
+test('fetch-url refuses anything but HTTPS requests to the known providers', async () => {
+  let calls = 0;
+  const { invoke } = loadMain(async () => { calls++; return response('ok'); });
+  for (const url of [
+    'http://finviz.com/screener.ashx?v=111',          // plain HTTP
+    'http://ip-api.com/json/',                         // a host the app no longer uses
+    'https://evil.example/collect',                    // any other site
+    'https://finviz.com.evil.example/',                // suffix trick
+    'https://127.0.0.1:5174/',                         // local network
+    'file:///C:/Windows/win.ini',
+    'not a url',
+    undefined,
+  ]) {
+    await assert.rejects(invoke('fetch-url', url), /Refused request/);
+  }
+  assert.equal(calls, 0, 'refused requests never reach the network');
+  assert.equal(await invoke('fetch-url', 'https://news.google.com/rss?hl=en-US'), 'ok');
+  assert.equal(await invoke('fetch-url', 'https://www.finviz.com/futures'), 'ok');
+  assert.equal(calls, 2);
+});
+
 test('configure-network changes the single request deadline and ignores out-of-range values', async () => {
   const { invoke, clock } = loadMain((url, { signal }) => waitForAbort(signal));
   // Results come from another VM realm, so compare fields rather than object identity.
@@ -171,7 +192,7 @@ test('transient server failures retry within the original request deadline', asy
     signals.push(options.signal);
     return response(signals.length === 1 ? '' : 'recovered', signals.length === 1 ? 503 : 200);
   });
-  const result = invoke('fetch-url', 'https://example.com/quotes');
+  const result = invoke('fetch-url', 'https://finviz.com/quotes');
   await clock.advance(1000);
   assert.equal(await result, 'recovered');
   assert.equal(signals.length, 2);
@@ -219,7 +240,7 @@ test('the total deadline includes response body reading and prevents another ret
     calls++;
     return { ...response(''), text: () => waitForAbort(options.signal) };
   });
-  const result = assert.rejects(invoke('fetch-url', 'https://example.com/quotes'), { name: 'TimeoutError' });
+  const result = assert.rejects(invoke('fetch-url', 'https://finviz.com/quotes'), { name: 'TimeoutError' });
   await clock.advance(12000);
   await result;
   assert.equal(calls, 1);

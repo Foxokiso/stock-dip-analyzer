@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Trophy, TrendingUp, DollarSign, Percent, ExternalLink, RefreshCw } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { parseFinvizScreener } from '../utils/finviz';
+import { getInvoke } from '../utils/bridge.js';
 import { formatPrice, formatPct, formatCompact, formatQuoteTime } from '../utils/format';
 import '../styles/pages/etf-discovery.css';
 
@@ -24,20 +25,20 @@ const ETFAwards = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
             await Promise.resolve();
             if (cancelled) return;
             setLoading(true);
-            if (typeof window.require !== 'function') {
+            const invoke = getInvoke();
+            if (!invoke) {
                 setLists(previous => Object.fromEntries(CATEGORIES.map(({ key }) => [key, { ...previous[key], error: 'ETF quotes require the desktop app connection.' }])));
                 setLoading(false);
                 inFlight = false;
                 return;
             }
-            const electron = window.require('electron');
             // The three rankings are independent pages: fetch them together and
             // show each one the moment it lands.
             await Promise.all(CATEGORIES.map(async (category) => {
                 if (cancelled) return;
                 try {
                     const url = `https://finviz.com/screener.ashx?v=${category.view}&f=ind_exchangetradedfund&o=${category.order}`;
-                    const html = await electron.ipcRenderer.invoke('fetch-url', url);
+                    const html = await invoke('fetch-url', url);
                     const fetchedAt = new Date().toISOString();
                     const rows = parseFinvizScreener(html, { view: category.view, fetchedAt }).slice(0, 10);
                     if (!cancelled) setLists(previous => ({ ...previous, [category.key]: { rows, fetchedAt, error: '', stale: false } }));

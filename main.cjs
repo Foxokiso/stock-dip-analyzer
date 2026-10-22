@@ -1,6 +1,18 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, session } = require('electron');
 const path = require('path');
 const isDev = !app.isPackaged;
+
+// The renderer may only ask the main process for these providers, over HTTPS.
+// Anything else (local network, plain HTTP, other sites) is refused before a
+// request is even shared, so a compromised page cannot turn 'fetch-url' into
+// a proxy that carries the app's browser headers and cookies.
+const FETCH_HOSTS = new Set(['finviz.com', 'www.finviz.com', 'news.google.com']);
+function allowedFetchUrl(url) {
+    let parsed;
+    try { parsed = new URL(String(url)); } catch { return null; }
+    if (parsed.protocol !== 'https:' || !FETCH_HOSTS.has(parsed.hostname)) return null;
+    return parsed.href;
+}
 
 // Per-host cookie jar. Cookies are only attached to (and captured from) the
 // host that set them, so a Google News response can never clobber the Finviz
@@ -63,7 +75,14 @@ function retryDelay(ms, signal) {
     });
 }
 
-ipcMain.handle('fetch-url', (event, url) => shareRequest(`url:${url}`, async () => {
+ipcMain.handle('fetch-url', (event, requested) => {
+    const url = allowedFetchUrl(requested);
+    if (!url) {
+        const error = new Error(`Refused request: only HTTPS requests to ${[...FETCH_HOSTS].join(', ')} are allowed.`);
+        error.status = 400;
+        return Promise.reject(error);
+    }
+    return shareRequest(`url:${url}`, async () => {
     const maxRetries = 2;
     const host = hostOf(url);
     // A single deadline covers retries, session seeding, backoff and body
@@ -127,7 +146,8 @@ ipcMain.handle('fetch-url', (event, url) => shareRequest(`url:${url}`, async () 
             }
         }
     }
-}));
+    });
+});
 
 // range/interval are optional so existing fetch-yahoo-chart(symbol) callers keep working.
 // Valid ranges: 1d, 5d, 1mo, 3mo, 6mo, 1y, 2y, 5y, max. Intervals: 1m..1d, 1wk, 1mo.
@@ -166,14 +186,20 @@ function createWindow() {
         // flashes white before the renderer paints its own background.
         backgroundColor: '#0b0a10',
         webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
+            // The renderer is sandboxed and isolated; preload.cjs exposes the
+            // three provider channels and nothing else. It loads a remote
+            // charting script and embeds third-party sites, so it must never
+            // hold Node or Electron APIs.
+            preload: path.join(__dirname, 'preload.cjs'),
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
             webviewTag: true  // Required for internal embedded site viewers
         }
     });
 
     if (isDev) {
-        mainWindow.loadURL('http://127.0.0.1:5174');
+        mainWindow.loadURL(DEV_URL);
         mainWindow.webContents.openDevTools();
     } else {
         mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
@@ -184,21 +210,60 @@ function createWindow() {
     });
 }
 
+const DEV_URL = 'http://127.0.0.1:5174';
+// The app window may only show the app itself; its webviews may only show HTTPS sites.
+const samePath = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+const isAppUrl = (url) => {
+    try {
+        const parsed = new URL(url);
+        if (isDev && parsed.origin === DEV_URL) return true;
+        if (parsed.protocol !== 'file:') return false;
+        const filePath = path.normalize(decodeURIComponent(parsed.pathname.replace(/^\/([A-Za-z]:)/, '$1')));
+        return samePath(filePath, path.normalize(path.join(__dirname, 'dist', 'index.html')));
+    } catch { return false; }
+};
+const isHttps = (url) => { try { return new URL(url).protocol === 'https:'; } catch { return false; } };
+
 // Use Electron's default accelerated rendering for chart and interface compositing.
 
-// Window-open policy: no chromeless in-app popups. Any window.open /
-// target=_blank from the app or its webviews (news links, resource tabs)
-// opens in the system browser instead — and only for http(s) URLs.
 app.on('web-contents-created', (event, contents) => {
+    // Window-open policy: no chromeless in-app popups. Any window.open /
+    // target=_blank from the app or its webviews (news links, resource tabs)
+    // opens in the system browser instead — and only for http(s) URLs.
     contents.setWindowOpenHandler(({ url }) => {
         if (/^https?:\/\//i.test(url)) {
             shell.openExternal(url);
         }
         return { action: 'deny' };
     });
+
+    // Navigation lock: the app window never leaves the app; embedded site
+    // viewers stay on HTTPS.
+    contents.on('will-navigate', (navigation, url) => {
+        const allowed = contents.getType() === 'webview' ? isHttps(url) : isAppUrl(url);
+        if (!allowed) navigation.preventDefault();
+    });
+
+    // Every <webview> is created without Node, isolated and sandboxed, with no
+    // preload of its own, and may only start on an HTTPS page.
+    contents.on('will-attach-webview', (attach, webPreferences, params) => {
+        delete webPreferences.preload;
+        delete webPreferences.preloadURL;
+        webPreferences.nodeIntegration = false;
+        webPreferences.nodeIntegrationInSubFrames = false;
+        webPreferences.contextIsolation = true;
+        webPreferences.sandbox = true;
+        webPreferences.webSecurity = true;
+        webPreferences.allowRunningInsecureContent = false;
+        if (!isHttps(params.src)) attach.preventDefault();
+    });
 });
 
 app.whenReady().then(() => {
+    // No page in this app, including embedded third-party sites, gets camera,
+    // microphone, location, notifications or any other permission.
+    session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => callback(false));
+    session.defaultSession.setPermissionCheckHandler(() => false);
     createWindow();
 
     app.on('activate', () => {
