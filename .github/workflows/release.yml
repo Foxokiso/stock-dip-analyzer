@@ -85,8 +85,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'renderer build failed' }
 
       - name: Build installer
-        # The signing secrets are set for this step only, not for npm ci or the tests;
-        # electron-builder and every package it loads from node_modules can read them.
+        # The signing secrets are set in this step's environment only. That is not
+        # isolation: the job's earlier steps (npm install scripts, tests, lint, build)
+        # share the runner and the write token, and electron-builder and every package
+        # it loads from node_modules can read them.
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}

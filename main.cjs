@@ -323,8 +323,9 @@ function createWindow() {
             // The renderer is sandboxed and isolated; preload.cjs exposes the
             // three provider channels and nothing else. It runs only the app's
             // own scripts but embeds third-party pages (TradingView's chart in
-            // a sandboxed iframe, the research sites in webviews), so it must
-            // never hold Node or Electron APIs.
+            // a sandboxed iframe, the research sites in webviews), so it holds
+            // no Node API. The one Electron API it keeps is the <webview>
+            // element's, which webviewTag below requires.
             preload: path.join(__dirname, 'preload.cjs'),
             contextIsolation: true,
             nodeIntegration: false,
@@ -346,7 +347,9 @@ function createWindow() {
 }
 
 const DEV_URL = 'http://127.0.0.1:5174';
-// The app window may only show the app itself; its webviews may only show HTTPS sites.
+// The app window may only show the app itself; a webview's own navigations and its
+// server redirects may only reach HTTPS sites. (Loads that code in the app window starts
+// through the <webview> API, such as loadURL, raise no navigation event to check.)
 const samePath = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
 const isAppUrl = (url) => {
     try {
@@ -411,7 +414,9 @@ app.on('web-contents-created', (event, contents) => {
     });
 
     // Navigation lock: the app window never leaves the app; embedded site
-    // viewers stay on HTTPS. Server redirects never raise will-navigate, so
+    // viewers stay on HTTPS for the navigations their own pages start (loads
+    // the app window starts through the <webview> API are not seen here).
+    // Server redirects never raise will-navigate, so
     // they get the same check. Subframe redirects (the TradingView chart, a
     // guest's own frames) are left to the CSP and mixed-content blocking.
     const lockNavigation = (navigation) => {
