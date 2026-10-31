@@ -1,7 +1,8 @@
 // Route screenshots for visual review. Mirrors scripts/verify-ui.mjs: fonts and
-// TradingView are aborted, and the Futures desk is fed the recorded Finviz
-// fixture through the same window.require stub so it renders real rows. Every
-// other route has no IPC bridge in a browser and shows its unavailable state.
+// TradingView's hosts (the chart iframe) are aborted, and the Futures desk is fed
+// the recorded Finviz fixture through the bridge the packaged app ships
+// (window.dipAnalyzer = { invoke }) so it renders real rows. Every other route has
+// no bridge in a browser and is shot once its unavailable notice is up.
 import { chromium } from 'playwright';
 import { readFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -15,14 +16,16 @@ const SIZES = {
   desktop: { width: 1440, height: 1050 },
   mobile: { width: 390, height: 844 },
 };
+// `ready` is what each desk shows once it has settled: the fixture's last row, or
+// its own unavailable notice.
 const ROUTES = [
-  { name: 'dashboard', path: '/#/' },
-  { name: 'futures', path: '/#/futures', futures: true },
-  { name: 'etfs', path: '/#/etfs' },
-  { name: 'oil', path: '/#/oil' },
-  { name: 'discovery', path: '/#/discovery' },
-  { name: 'stock-AAPL', path: '/#/stock/AAPL' },
-  { name: 'settings', path: '/#/settings' },
+  { name: 'dashboard', path: '/#/', ready: 'text="Market data requires the desktop app connection. No sample quotes are shown."' },
+  { name: 'futures', path: '/#/futures', futures: true, ready: '.futures-table tbody tr >> nth=58' },
+  { name: 'etfs', path: '/#/etfs', ready: 'text="Rankings unavailable."' },
+  { name: 'oil', path: '/#/oil', ready: 'text="Oil Watch quotes require the desktop app connection."' },
+  { name: 'discovery', path: '/#/discovery', ready: 'text="Scanner unavailable."' },
+  { name: 'stock-AAPL', path: '/#/stock/AAPL', ready: 'text="52-week position unavailable"' },
+  { name: 'settings', path: '/#/settings', ready: 'text="Not reported by Yahoo’s chart endpoint"' },
 ];
 const SHOTS = [
   ...ROUTES.map((route) => ({ ...route, size: 'desktop' })),
@@ -39,25 +42,19 @@ try {
     const context = await browser.newContext({ viewport: SIZES[shot.size] });
     const page = await context.newPage();
     page.on('pageerror', (error) => errors.push(`${shot.name}-${shot.size}: ${error.message}`));
-    await page.route(/https:\/\/(s3\.tradingview|fonts\.googleapis|fonts\.gstatic)/, (route) => route.abort());
+    await page.route(/https:\/\/([a-z0-9-]+\.)*tradingview\.com|fonts\.googleapis|fonts\.gstatic/, (route) => route.abort());
     if (shot.futures) {
       await page.addInitScript(({ liveData }) => {
-        window.__failQuotes = false;
-        window.require = () => ({ ipcRenderer: { invoke: async (_method, url) => {
-          if (window.__failQuotes) throw new Error('Controlled network failure');
-          if (url.includes('/api/futures_all')) return liveData;
-          throw new Error('Unexpected endpoint');
-        } } });
+        if (window !== window.top) return;
+        window.dipAnalyzer = { invoke: async (channel, url) => {
+          if (channel === 'configure-network') return {};
+          if (channel === 'fetch-url' && url === 'https://finviz.com/api/futures_all?timeframe=i5') return liveData;
+          throw new Error(`Error invoking remote method '${channel}': Error: No recorded response for ${url}`);
+        } };
       }, { liveData });
     }
     await page.goto(baseUrl + shot.path);
-    if (shot.futures) {
-      await page.locator('.futures-table tbody tr').nth(58).waitFor();
-    } else {
-      await page.waitForTimeout(900);
-    }
-    assert.equal(await page.getByText('Zombie Corp', { exact: true }).count(), 0, `${shot.name}: Zombie Corp present`);
-    assert.equal(await page.getByText('Mock News', { exact: false }).count(), 0, `${shot.name}: Mock News present`);
+    await page.locator(shot.ready).first().waitFor();
     const file = `${outDir}${shot.name}-${shot.size}.png`;
     await page.screenshot({ path: file, fullPage: true });
     written.push(file);

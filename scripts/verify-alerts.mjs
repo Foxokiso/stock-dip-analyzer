@@ -4,9 +4,17 @@ import {readFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 const baseUrl=process.env.UI_BASE_URL || 'http://127.0.0.1:5174';
 const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
-const page=await browser.newPage();
-const errors=[];
-page.on('pageerror',error=>errors.push(error.message));
+const errors=[], cspViolations=[];
+// Uncaught errors and, on a production build, Content Security Policy violations
+// (the alert clip must play under media-src 'self') fail the run.
+const watch=async(page)=>{
+ page.on('pageerror',error=>errors.push(error.message));
+ await page.exposeFunction('__reportCsp',violation=>cspViolations.push(violation));
+ await page.addInitScript(()=>document.addEventListener('securitypolicyviolation',e=>window.__reportCsp(`${e.violatedDirective} ${e.blockedURI} ${e.sourceFile}:${e.lineNumber}`)));
+ return page;
+};
+const fixture=name=>readFile(new URL(`../tests/fixtures/${name}`,import.meta.url),'utf8');
+const page=await watch(await browser.newPage());
 const soundRequests=[];
 page.on('request',request=>{ if (/\/alien_ominous[^/?]*\.(mp3|wav)$/.test(request.url())) soundRequests.push(request.url()); });
 await page.addInitScript(()=>{
@@ -90,11 +98,10 @@ assert.deepEqual(entries,['$HIGHBULL','$AMBER2','$LATE2','$LATE1',...Array.from(
 assert.equal(await page.locator('.alert-toast--overflow').count(),0,'opening the history clears the summary');
 // The floating history toggle never hides a focused control (WCAG 2.4.11): tab through
 // the Overview with the recorded screener page; Yahoo is unavailable, so rows stay unscored.
-const screener=await readFile(new URL('../tests/fixtures/finviz-overview-2026.html',import.meta.url),'utf8');
+const screener=await fixture('finviz-overview-2026.html');
 const obscured={};
 for (const viewport of [{width:1440,height:900},{width:390,height:844}]) {
- const tab=await browser.newPage({viewport});
- tab.on('pageerror',error=>errors.push(error.message));
+ const tab=await watch(await browser.newPage({viewport}));
  await tab.addInitScript(screener=>{
   const empty='<table><tr><th>No.</th><th>Ticker</th><th>Company</th><th>Sector</th><th>Industry</th><th>Country</th><th>Market Cap</th><th>P/E</th><th>Price</th><th>Change</th><th>Volume</th></tr></table>';
   window.dipAnalyzer={invoke:async(channel,url)=>{
@@ -126,7 +133,88 @@ for (const viewport of [{width:1440,height:900},{width:390,height:844}]) {
  assert.equal(stops.fully,0,`the history toggle hid a focused control at ${viewport.width} px`);
  await tab.close();
 }
-const result={...(await counts()),history:entries.length,clip,obscured,errors};
+// Desktop bridge in the shape preload.cjs ships, answering recorded responses only;
+// window.__calls logs every call.
+const recordedBridge=(tab,{urls={},charts={}})=>tab.addInitScript(({urls,charts})=>{
+ window.__calls=[];
+ window.dipAnalyzer={invoke:async(channel,...args)=>{
+  window.__calls.push([channel,...args]);
+  if (channel==='configure-network') return {};
+  const key=channel==='fetch-url'?args[0]:args.join(' ');
+  const body=channel==='fetch-url'?urls[key]:charts[key];
+  if (body===undefined) throw new Error(`Error invoking remote method '${channel}': Error: No recorded response for ${key}`);
+  return channel==='fetch-url'?body:JSON.parse(body);
+ }};
+},{urls,charts});
+const silent=(tab,settings={})=>tab.addInitScript(settings=>localStorage.setItem('dipAnalyzerSettingsV2',JSON.stringify({version:2,...settings,alerts:{sound:false}})),settings);
+// U59: in Alien Fractal the alert layer stays in the viewport however far a long
+// desk is scrolled. A filter on <body> made it the containing block of fixed
+// elements, which put the toggle and toasts at the end of the page and the drawer
+// at its start.
+const fractal=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+await silent(fractal,{appearance:{theme:'theme-anime'}});
+await recordedBridge(fractal,{urls:{'https://finviz.com/api/futures_all?timeframe=i5':await fixture('futures-reference.json')}});
+await fractal.goto(baseUrl+'/#/futures');
+await fractal.locator('.futures-table tbody tr').nth(58).waitFor();
+assert.ok(await fractal.evaluate(()=>document.body.classList.contains('theme-anime')));
+// Measured once its toast or drawer has finished sliding in.
+const inViewport=locator=>locator.evaluate(async el=>{
+ await Promise.all((el.closest('.alert-toast, .alert-drawer')??el).getAnimations().map(animation=>animation.finished));
+ const r=el.getBoundingClientRect();
+ return r.width>0&&r.top>=0&&r.left>=0&&r.bottom<=innerHeight&&r.right<=innerWidth;
+});
+for (const [edge,y] of [['TOP',0],['BOTTOM',1e6]]) {
+ await fractal.evaluate(y=>window.scrollTo(0,y),y);
+ if (y) assert.ok(await fractal.evaluate(()=>scrollY>500),'the futures desk scrolls');
+ await fractal.evaluate(symbol=>window.dispatchEvent(new CustomEvent('stock-alert',{detail:{symbol,type:'breakdown',message:'Controlled alert',timestamp:Date.now()}})),edge);
+ const toast=fractal.locator('.alert-toast',{hasText:`$${edge}`});
+ await toast.waitFor();
+ assert.ok(await inViewport(toast),`the toast leaves the viewport scrolled to the ${edge.toLowerCase()}`);
+ assert.ok(await inViewport(fractal.locator('.alert-history-toggle')),`the history toggle leaves the viewport scrolled to the ${edge.toLowerCase()}`);
+}
+await fractal.getByRole('button',{name:'Alert history',exact:true}).click();
+assert.ok(await inViewport(fractal.getByRole('button',{name:'Close alert history',exact:true})),'the history drawer\'s close button leaves the viewport');
+await fractal.close();
+// C1 end to end. The Overview scans the recorded losers page and scores the two rows
+// that have recorded charts, PTHS and CETX: both at a one-month breakdown, scored 15.
+// With the browser clock two minutes after their 2026-10-30 close, each raises one
+// alert although the minimum score is 60, which gates buy-side alerts only (C1.3), and
+// a refresh that finds the same conditions stays silent (C1.2). Six minutes after the
+// close the quotes are stale and the same scan raises nothing (C1.1).
+const losers={urls:{'https://finviz.com/screener/stocks?v=111&o=change&r=1':await fixture('ui/finviz-losers-r1-2026-10-31.html')},
+ charts:{'PTHS 1mo 1d':await fixture('ui/yahoo-chart-PTHS-1mo-2026-10-30.json'),'CETX 1mo 1d':await fixture('ui/yahoo-chart-CETX-1mo-2026-10-30.json')}};
+const closedAt=Date.parse('2026-10-30T20:00:00Z');
+// Scan number `runs` is over once it has requested CETX's chart, the later of the two, and the spinner is gone.
+const scanned=(tab,runs)=>tab.waitForFunction(runs=>window.__calls.filter(([channel,symbol])=>channel==='fetch-yahoo-chart'&&symbol==='CETX').length===runs
+ &&document.querySelectorAll('.dash-row').length===20&&!document.querySelector('.dash-spinner'),runs);
+const raised=tab=>tab.evaluate(()=>JSON.parse(localStorage.getItem('dipAnalyzerAlertHistory')||'[]').map(({symbol,type,color,score})=>`${symbol} ${type} ${color} ${score}`).sort());
+const scanAt=async minutesAfterClose=>{
+ const tab=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+ await tab.clock.install({time:closedAt+minutesAfterClose*60000});
+ await silent(tab);
+ await recordedBridge(tab,losers);
+ await tab.goto(baseUrl+'/#/');
+ await scanned(tab,1);
+ assert.equal((await tab.locator('.dash-row',{hasText:'PTHS'}).locator('.dash-verdict').textContent()).trim(),'Strong Sell (15)');
+ return tab;
+};
+const alerted=['CETX breakdown amber 15','PTHS breakdown amber 15'];
+const fresh=await scanAt(2);
+await fresh.waitForFunction(()=>JSON.parse(localStorage.getItem('dipAnalyzerAlertHistory')||'[]').length>=2,null,{timeout:5000}).catch(()=>{});
+assert.deepEqual(await raised(fresh),alerted,'fresh quotes at a breakdown raised these alerts');
+assert.deepEqual((await fresh.locator('.alert-toast .alert-symbol').allTextContents()).map(text=>text.trim()).sort(),['$CETX','$PTHS']);
+await fresh.getByRole('button',{name:'Refresh quotes',exact:true}).click();
+await scanned(fresh,2);
+await fresh.waitForTimeout(500);
+assert.deepEqual(await raised(fresh),alerted,'a refresh repeated an alert whose condition held');
+await fresh.close();
+const stale=await scanAt(6);
+await stale.waitForTimeout(500);
+assert.deepEqual(await raised(stale),[],'a quote older than five minutes raised an alert');
+assert.equal(await stale.locator('.alert-toast').count(),0);
+await stale.close();
+const result={...(await counts()),history:entries.length,clip,obscured,c1:{fresh:alerted,stale:[]},errors,cspViolations};
 console.log(result);
 await browser.close();
 assert.deepEqual(errors,[]);
+assert.deepEqual(cspViolations,[],'Content Security Policy violations');
