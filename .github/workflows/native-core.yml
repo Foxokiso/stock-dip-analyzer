@@ -2,7 +2,7 @@ name: Native C++ core parity
 
 on:
   push:
-    branches: [master, feat/cpp-native-reengineering, v2/pierce27]
+    branches: [master]
   pull_request:
     paths:
       - 'native/**'
@@ -14,6 +14,10 @@ on:
       - 'src/utils/oilNews.js'
       - 'src/services/futures.js'
       - 'src/styles/tokens.css'
+      # Recorded inputs the verifiers read (futures-reference.json today).
+      - 'tests/fixtures/**'
+      # Pins palette.hpp to LF, which the palette parity compares byte for byte.
+      - '.gitattributes'
       - '.github/workflows/native-core.yml'
       - 'package.json'
       - 'package-lock.json'
@@ -31,17 +35,42 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
       - name: Install parity verifier dependencies
         run: npm ci --include=dev --ignore-scripts --no-audit --no-fund
       - name: Configure C++ core and parity driver
-        run: cmake -S native -B artifacts/native-build
+        # Single-config generators (Linux) need the build type here; Visual Studio
+        # ignores it and builds the --config below.
+        run: cmake -S native -B artifacts/native-build -DCMAKE_BUILD_TYPE=Release
       - name: Build
         run: cmake --build artifacts/native-build --config Release
       - name: Compare native calculations against reference
         run: ctest --test-dir artifacts/native-build -C Release --output-on-failure
+
+  sanitizers:
+    name: C++ module parity (ASan + UBSan)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Install parity verifier dependencies
+        run: npm ci --include=dev --ignore-scripts --no-audit --no-fund
+      - name: Configure with AddressSanitizer and UndefinedBehaviorSanitizer
+        run: >-
+          cmake -S native -B artifacts/native-sanitize -DCMAKE_BUILD_TYPE=Debug
+          "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=undefined"
+      - name: Build
+        run: cmake --build artifacts/native-sanitize
+      - name: Compare native calculations against reference
+        # A sanitizer report makes the driver exit non-zero, which fails its parity test.
+        run: ctest --test-dir artifacts/native-sanitize --output-on-failure
