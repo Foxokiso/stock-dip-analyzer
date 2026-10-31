@@ -12,14 +12,15 @@
 //   parse <text>                                                          → milliseconds | nan
 //
 // Number tokens: null | nan | Infinity | -Infinity | a decimal literal as String(x) prints it
-// (parsed with strtod, which round-trips it exactly). String tokens: null, or "s:" followed by
+// (parsed with std::from_chars, which round-trips it exactly and, unlike strtod, ignores the C
+// locale's decimal point). String tokens: null, or "s:" followed by
 // the percent-encoded (encodeURIComponent) UTF-8 text, so "s:" alone is the empty string.
 // Output numbers use 17 significant digits with the same null/nan/Infinity spellings, and
 // output strings use the same "s:" encoding.
 #include "dip/marketdata.hpp"
 
+#include <charconv>
 #include <cmath>
-#include <cstdlib>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -27,6 +28,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace {
@@ -39,9 +41,9 @@ std::optional<double> parseNumber(const std::string& token, bool& ok) {
     if (token == "nan" || token == "NaN") return std::numeric_limits<double>::quiet_NaN();
     if (token == "Infinity" || token == "+Infinity" || token == "inf") return std::numeric_limits<double>::infinity();
     if (token == "-Infinity" || token == "-inf") return -std::numeric_limits<double>::infinity();
-    char* end = nullptr;
-    const double parsed = std::strtod(token.c_str(), &end);
-    if (end == token.c_str() || *end != '\0') ok = false;
+    double parsed = 0;
+    const auto [end, error] = std::from_chars(token.data(), token.data() + token.size(), parsed);
+    if (error != std::errc{} || end != token.data() + token.size()) ok = false;
     return parsed;
 }
 

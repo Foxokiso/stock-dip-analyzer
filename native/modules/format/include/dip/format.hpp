@@ -4,12 +4,12 @@
 // behavior of the reference application byte-for-byte; it is not a trading backtest
 // and performs no provider IO.
 //
-// Locale assumption: the JavaScript reference calls Number.prototype.toLocaleString()
-// with the host's default locale. This port reproduces the en-US result (ICU "decimal"
+// Locale assumption: below 1000 the JavaScript reference formats with the host's default
+// locale (Intl.NumberFormat with signDisplay "negative": the toLocaleString() text, but
+// unsigned when it rounds to zero). This port reproduces the en-US result (ICU "decimal"
 // style: "," grouping, "." decimal point, 0..3 fraction digits with trailing zeros
-// trimmed, half-expand rounding of the shortest round-trip decimal, "-" shown for
-// negative values including -0). Hosts whose default Intl locale formats numbers
-// differently are outside the contract.
+// trimmed, half-expand rounding of the shortest round-trip decimal). Hosts whose default
+// Intl locale formats numbers differently are outside the contract.
 //
 // Rounding notes (verified empirically against V8/ICU, see scripts/verify-native-format.mjs):
 //  * Number.prototype.toFixed rounds the EXACT binary value and resolves exact ties toward
@@ -23,6 +23,10 @@
 //    (1.0005).toFixed(3) == "1.000". The port therefore derives digits with
 //    std::to_chars (shortest) before rounding half away from zero.
 //  * For |x| >= 1e21 toFixed falls back to Number.prototype.toString ("1e+21").
+//
+// Display rules on top of that rounding: formatCompact picks its unit after rounding
+// (999950 -> "1.00M", never "1000.0K"), and every formatter prints a value that rounds
+// to zero without a sign (formatPct(-0.004) == "0.00%", formatCompact(-0) == "0").
 #include <optional>
 #include <string>
 
@@ -39,6 +43,7 @@ std::string formatPrice(std::optional<double> value);
 std::string toFixed(double value, int digits);
 // Number.prototype.toString() (radix 10), e.g. 1e21 -> "1e+21", 1e-7 -> "1e-7".
 std::string numberToString(double value);
-// Number.prototype.toLocaleString() for the en-US locale, e.g. 1234.5678 -> "1,234.568".
+// Number.prototype.toLocaleString() for the en-US locale, e.g. 1234.5678 -> "1,234.568";
+// "-" is kept for negative values including -0 ("-0").
 std::string toLocaleStringEnUS(double value);
 }

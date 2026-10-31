@@ -4,9 +4,27 @@ const finite = (value) => typeof value === 'number' && Number.isFinite(value) ? 
 const isoTime = (seconds) => positive(seconds) && Number.isFinite(new Date(seconds * 1000).getTime())
     ? new Date(seconds * 1000).toISOString() : null;
 
+// Every bar needs its exchange day, and building an Intl.DateTimeFormat costs far more than
+// formatting with one, so keep one per zone; null marks a zone Intl rejects.
+const dayFormats = new Map();
+const dayFormat = (zone) => {
+    if (!dayFormats.has(zone)) {
+        let format = null;
+        try {
+            format = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' });
+        } catch {
+            // Unknown zone: exchangeDay falls back to the UTC date.
+        }
+        dayFormats.set(zone, format);
+    }
+    return dayFormats.get(zone);
+};
+
 const exchangeDay = (seconds, timezone) => {
     try {
-        return new Intl.DateTimeFormat('en-CA', { timeZone: timezone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(seconds * 1000));
+        const format = dayFormat(String(timezone || 'UTC'));
+        const date = new Date(seconds * 1000);
+        return format ? format.format(date) : date.toISOString().slice(0, 10);
     } catch {
         return new Date(seconds * 1000).toISOString().slice(0, 10);
     }
@@ -56,9 +74,13 @@ export function getYahooQuote(result, { fetchedAt = new Date().toISOString(), ra
     };
 }
 
+// Freshness is measured from the quote's own time: Yahoo's chart meta never states a delay,
+// and during trading a delayed feed's last trade is older than five minutes. A delay the
+// source does state must be zero; a quote up to a minute ahead is clock skew.
 export function canRaiseTechnicalAlert(quote, historyLength, now = Date.now()) {
     const quoteTime = Date.parse(quote?.quotedAt);
     const age = now - quoteTime;
-    return positive(quote?.price) !== null && historyLength >= 15 && quote?.delayMinutes === 0
-        && Number.isFinite(quoteTime) && age >= 0 && age <= 5 * 60 * 1000;
+    return positive(quote?.price) !== null && historyLength >= 15
+        && (quote?.delayMinutes == null || quote.delayMinutes === 0)
+        && Number.isFinite(quoteTime) && age >= -60 * 1000 && age <= 5 * 60 * 1000;
 }

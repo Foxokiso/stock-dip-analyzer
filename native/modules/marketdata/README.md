@@ -22,8 +22,11 @@ time (`fetchedAt`) stays separate from the source quote time (`quotedAt`).
   truncated toward zero, years past 9999 written `+YYYYYY`); **delayMinutes** keeps a
   finite value `>= 0` (including `-0`); **currency** / **exchangeTimezone** pass
   through only when they are strings; **changePct** is `(price - prev) / prev * 100`.
-- **canRaiseTechnicalAlert**: positive price, `historyLength >= 15`,
-  `delayMinutes === 0`, and a parseable `quotedAt` between five minutes ago and now.
+- **canRaiseTechnicalAlert**: positive price, `historyLength >= 15`, a parseable
+  `quotedAt` between five minutes ago and one minute ahead (clock skew), and a delay
+  that is either not reported (`null`) or exactly `0`. Yahoo's chart meta never
+  reports `exchangeDataDelayedBy`, so the quote's own age decides: during trading a
+  delayed feed's last trade is older than five minutes.
 
 ## Time zones
 
@@ -45,6 +48,15 @@ forms are UTC; date-time forms without an offset are host-local, using the offse
 in force *before* a transition inside a DST gap or overlap (ECMAScript `LocalTZA`,
 which `std::chrono::local_info::first` provides). V8's lenient legacy formats
 (`"Oct 9 2026"`, `"2026-1-9"`, `"2026-10-09Z"`) are not ported and parse as `NaN`.
+
+The host zone is found the way V8 (through ICU) finds it: the `TZ` environment
+variable when it is set — an IANA name, optionally `:`-prefixed, as in
+`TZ=America/New_York` — and otherwise `std::chrono::current_zone()`. libstdc++'s
+`current_zone()` reads only `/etc/localtime`, so without this step a `TZ` setting
+made the port and the Electron app disagree by the zone's offset. An empty `TZ`, or
+one that names no zone, means UTC, as it does for V8 on Linux; `TZ` values that are
+POSIX rule strings or file paths (which ICU turns into a fixed offset) are not
+ported.
 
 ## Driver protocol
 
@@ -74,9 +86,16 @@ node scripts/verify-native-marketdata.mjs artifacts/native-marketdata/modules/ma
 
 `scripts/verify-native-marketdata.mjs` imports the real `src/utils/marketData.js`
 and compares with relative tolerance `1e-12` for doubles and exact equality for
-strings. It covers every case in `tests/marketData.test.js`, object-shape probes,
-DST boundaries for America/New_York, Europe/London and Australia/Sydney, Asia/Tokyo,
-aliased and lower-case zone names, unknown zones, invalid timestamps, `Infinity`
-closes, far-future instants, 300 seeded quote cases, and the `exchangeDay`,
-`isoTime` and `Date.parse` building blocks (the last against the engine, as the
-format verifier does for `toFixed`).
+strings. It covers every case in `tests/marketData.test.js`, the recorded Yahoo
+responses in `tests/fixtures`, object-shape probes, DST boundaries for
+America/New_York, Europe/London and Australia/Sydney, Asia/Tokyo, aliased and
+lower-case zone names, unknown zones, invalid timestamps, `Infinity` closes,
+far-future instants, 300 seeded quote cases, the alert gate's delay, age, skew and
+history boundaries, and the `exchangeDay`, `isoTime` and `Date.parse` building
+blocks (the last against the engine, as the format verifier does for `toFixed`).
+It then re-runs the local-time `Date.parse` and alert cases with `TZ` set to
+America/New_York, `:Europe/London`, Australia/Sydney and Asia/Kolkata (the driver
+started with that `TZ`, the reference after `process.env.TZ` is set), including
+times inside each zone's DST gap and overlap, so a UTC CI host still checks the
+transition rule. The whole verifier also passes when run under any of those `TZ`
+values.

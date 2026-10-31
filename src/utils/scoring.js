@@ -8,7 +8,8 @@ export function computeEMA(values, period) {
     return values.reduce((ema, v, i) => (i === 0 ? v : (v - ema) * k + ema), values[0]);
 }
 
-// Simple (Wilder-less) RSI over the trailing `period` bars.
+// Cutler's simple RSI: plain sums of the gains and losses over the trailing `period` changes,
+// not Wilder's smoothed RSI that Finviz and TradingView show, so it is labelled "Simple RSI".
 export function computeRSI(values, period = 14) {
     if (!values || values.length < period + 1) return null;
     const slice = values.slice(-(period + 1));
@@ -37,14 +38,15 @@ export function computeSMASeries(values, period) {
     });
 }
 
+// Labels only: pages choose the chip tone from the label.
 export function getVerdict(score, isZombie = score < 20) {
     if (typeof score !== 'number' || !Number.isFinite(score)) return null;
-    if (isZombie) return { label: 'Strong Sell', color: '#9ca3af' };
-    if (score >= 80) return { label: 'Strong Buy', color: 'var(--success)' };
-    if (score >= 60) return { label: 'Buy', color: '#22c55e' };
-    if (score >= 40) return { label: 'Hold', color: 'var(--warning)' };
-    if (score >= 20) return { label: 'Sell', color: '#f97316' };
-    return { label: 'Strong Sell', color: 'var(--danger)' };
+    if (isZombie) return { label: 'Strong Sell' };
+    if (score >= 80) return { label: 'Strong Buy' };
+    if (score >= 60) return { label: 'Buy' };
+    if (score >= 40) return { label: 'Hold' };
+    if (score >= 20) return { label: 'Sell' };
+    return { label: 'Strong Sell' };
 }
 
 /**
@@ -53,13 +55,14 @@ export function getVerdict(score, isZombie = score < 20) {
  * @param {number[]} closes   Chronological closing prices (nulls tolerated).
  * @param {number}   livePrice Optional validated provider quote overriding the last close.
  * @returns {object|null} {
- *   score, verdict: {label, color}, isZombie,
+ *   score, verdict: {label}, isZombie,
  *   factors: [{ label, points, detail }],
  *   currentPrice, peakPrice, peakIndex, dipPercentage,
  *   recentLow, recentHigh, rsi, ema5, ema10,
  *   trend: 'bullish'|'bearish'|'neutral',
  *   trendAlertEligible,        // peak old enough that trend alerts may fire
- *   isBreakout, isBreakdown,
+ *   isBreakout,                // above the closing high of earlier sessions, set 9+ sessions ago
+ *   isBreakdown,               // at most 0.5% above the post-peak closing low, >5% under the peak
  *   sparkline: number[]        // trailing closes for mini-charts
  * } or null when there is no usable data.
  */
@@ -93,11 +96,10 @@ export function analyzeStock(closes, livePrice = null) {
         apply('Dip depth', -10, `Only ${dipPercentage.toFixed(1)}% below peak — no meaningful dip yet`);
     }
 
-    // Post-peak structure: bounce detection plus support/resistance breaks.
+    // Post-peak structure: bounce detection plus a break down to the post-peak low.
     const postPeak = prices.slice(peakIndex);
     const recentLow = postPeak.length ? Math.min(...postPeak) : null;
     const recentHigh = postPeak.length ? Math.max(...postPeak) : null;
-    let isBreakout = false;
     let isBreakdown = false;
 
     if (prices.length - peakIndex > 5) {
@@ -107,15 +109,19 @@ export function analyzeStock(closes, livePrice = null) {
         } else {
             apply('Recovery bounce', -15, `Still pinned to the post-peak low of $${recentLow.toFixed(2)} — no bounce yet`);
         }
-
-        if (postPeak.length >= 10) {
-            if (currentPrice <= recentLow * 1.005 && dipPercentage > 5) {
-                isBreakdown = true;
-            } else if (currentPrice >= recentHigh * 0.995 && currentPrice > prices[0]) {
-                isBreakout = true;
-            }
-        }
+        isBreakdown = postPeak.length >= 10 && currentPrice <= recentLow * 1.005 && dipPercentage > 5;
     }
+
+    // Breakout: the price is above the highest close before the current session, and that high
+    // was set at least 9 sessions earlier (the base). The current session is the quote's exchange
+    // day. Yahoo's daily series ends with that session's bar both while it trades (the bar is at
+    // the live price) and before the next open (the quote is that session's closing price), so
+    // the earlier sessions are every close but the last. If the provider has not yet added the
+    // quote's own bar, yesterday's close is wrongly left out of the prior high; analyzeStock has
+    // no session dates to detect that.
+    const prior = prices.slice(0, -1);
+    const priorHigh = Math.max(...prior);
+    const isBreakout = currentPrice > priorHigh && prior.length - prior.lastIndexOf(priorHigh) >= 9;
 
     // Factor 3: short-term momentum via EMA5 vs EMA10 with price confirmation.
     const ema5 = computeEMA(prices, 5);
@@ -133,12 +139,12 @@ export function analyzeStock(closes, livePrice = null) {
         }
     }
 
-    // Factor 4: RSI extremes.
+    // Factor 4: simple RSI extremes.
     const rsi = computeRSI(prices, 14);
     if (rsi !== null) {
-        if (rsi <= 30) apply('RSI (14)', 10, `RSI ${rsi.toFixed(0)} — oversold, mean-reversion setups favored`);
-        else if (rsi >= 70) apply('RSI (14)', -10, `RSI ${rsi.toFixed(0)} — overbought, poor dip-entry timing`);
-        else apply('RSI (14)', 0, `RSI ${rsi.toFixed(0)} — neutral zone`);
+        if (rsi <= 30) apply('Simple RSI (14)', 10, `Simple RSI ${rsi.toFixed(0)} — oversold, mean-reversion setups favored`);
+        else if (rsi >= 70) apply('Simple RSI (14)', -10, `Simple RSI ${rsi.toFixed(0)} — overbought, poor dip-entry timing`);
+        else apply('Simple RSI (14)', 0, `Simple RSI ${rsi.toFixed(0)} — neutral zone`);
     }
 
     score = Math.max(0, Math.min(100, score));

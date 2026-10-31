@@ -13,6 +13,7 @@ double ema(const std::vector<double>& prices, int period) {
     return result;
 }
 
+// Cutler's simple RSI over the last 14 changes (not Wilder's smoothed RSI).
 double rsi14(const std::vector<double>& prices) {
     double gains = 0, losses = 0;
     for (std::size_t i = prices.size() - 14; i < prices.size(); ++i) {
@@ -72,14 +73,18 @@ std::optional<Analysis> analyzeStock(const std::vector<double>& closes,
     const auto postPeakCount = prices.size() - a.peakIndex;
     if (postPeakCount > 5) {
         apply("Recovery bounce", a.currentPrice > a.recentLow * 1.02 ? 20 : -15);
-        if (postPeakCount >= 10) {
-            if (a.currentPrice <= a.recentLow * 1.005 && a.dipPercentage > 5) {
-                a.isBreakdown = true;
-            } else if (a.currentPrice >= a.recentHigh * 0.995 && a.currentPrice > prices.front()) {
-                a.isBreakout = true;
-            }
-        }
+        a.isBreakdown = postPeakCount >= 10 && a.currentPrice <= a.recentLow * 1.005 && a.dipPercentage > 5;
     }
+
+    // Breakout: above the highest close before the current session (the last bar, as in
+    // src/utils/scoring.js), with that high set at least 9 sessions earlier.
+    const std::size_t priorCount = prices.size() - 1;
+    const double priorHigh = *std::max_element(prices.begin(), prices.begin() + static_cast<std::ptrdiff_t>(priorCount));
+    std::size_t priorHighIndex = 0;
+    for (std::size_t i = 0; i < priorCount; ++i) {
+        if (prices[i] == priorHigh) priorHighIndex = i;
+    }
+    a.isBreakout = a.currentPrice > priorHigh && priorCount - priorHighIndex >= 9;
 
     a.ema5 = ema(prices, 5);
     a.ema10 = ema(prices, 10);
@@ -94,7 +99,7 @@ std::optional<Analysis> analyzeStock(const std::vector<double>& closes,
         apply("Short-term trend", 0);
     }
     a.rsi = rsi14(prices);
-    apply("RSI (14)", a.rsi <= 30 ? 10 : a.rsi >= 70 ? -10 : 0);
+    apply("Simple RSI (14)", a.rsi <= 30 ? 10 : a.rsi >= 70 ? -10 : 0);
     a.score = std::clamp(a.score, 0, 100);
     a.verdict = verdict(a.score);
     a.isZombie = a.score < 20;
