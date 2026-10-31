@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEFAULT_SETTINGS, SETTINGS_KEY, SETTINGS_VERSION, THEMES,
-  loadSettings, mergeKnown, normalizeSettings, parseSettingsImport, persistableSettings,
+  CHART_CACHE_SECONDS, DEFAULT_SETTINGS, REFRESH_MINUTES, REUSE_SECONDS, SCAN_DEPTHS, SETTINGS_KEY, SETTINGS_VERSION, THEMES,
+  loadSettings, mergeKnown, normalizeSettings, parseNumberDraft, parseSettingsImport, persistableSettings,
   serializeSettings, setPath,
 } from '../src/state/settingsSchema.js';
+import { SECTORS } from '../src/data/sectors.js';
 
 // Minimal Storage stand-in: the schema only ever calls getItem/setItem.
 const fakeStorage = (entries = {}) => {
@@ -166,7 +167,9 @@ test('export → import round trip is lossless for a persistable document', () =
     scanner: { excludedSectors: ['financial'], refreshMinutes: 5, scanDepth: 500, defaultRating: 'Buy', sort: 'dip' },
     futures: { defaultGroup: 'rates', timeframe: 'w', showDelayNotice: false },
     alerts: { sound: false, volume: 0.73, breakout: false, breakdown: true, trend: false, minScore: 75, historyLimit: 200 },
+    data: { chartCacheSeconds: 900, requestTimeoutSeconds: 130 },
   }).settings;
+  assert.deepEqual(doc.data, { chartCacheSeconds: 900, requestTimeoutSeconds: 130 });
   assert.deepEqual(parseSettingsImport(serializeSettings(doc)), doc);
 });
 
@@ -225,18 +228,135 @@ test('parseSettingsImport rejects malformed known sections without resetting pre
   assert.deepEqual(parseSettingsImport('{}'), DEFAULT_SETTINGS);
 });
 
-test('read-only source facts always reflect the current app, including old exports', () => {
-  const oldExport = {
+test('data preferences survive a restart, an import, an export round trip and replace()', () => {
+  const saved = {
     version: SETTINGS_VERSION,
     appearance: { theme: 'theme-majestic' },
-    data: { chartCacheSeconds: 45, requestTimeoutSeconds: 600 },
+    data: { chartCacheSeconds: 300, requestTimeoutSeconds: 45 },
   };
-  const imported = parseSettingsImport(JSON.stringify(oldExport));
-  const loaded = loadSettings(fakeStorage({ [SETTINGS_KEY]: JSON.stringify(oldExport) }));
-  for (const settings of [imported, loaded]) {
+  const loaded = loadSettings(fakeStorage({ [SETTINGS_KEY]: JSON.stringify(saved) }));
+  const imported = parseSettingsImport(JSON.stringify(saved));
+  const roundTrip = parseSettingsImport(serializeSettings(loaded));
+  // SettingsProvider.replace() keeps exactly what normalizeSettings returns.
+  const replaced = normalizeSettings(saved).settings;
+  for (const settings of [loaded, imported, roundTrip, replaced]) {
     assert.equal(settings.appearance.theme, 'theme-majestic');
-    assert.deepEqual(settings.data, { chartCacheSeconds: 0, requestTimeoutSeconds: 12 });
+    assert.deepEqual(settings.data, { chartCacheSeconds: 300, requestTimeoutSeconds: 45 });
     assert.notEqual(settings.data, DEFAULT_SETTINGS.data);
   }
-  assert.throws(() => parseSettingsImport('{"data":{"requestTimeoutSeconds":"forever"}}'), /data\.requestTimeoutSeconds/);
+});
+
+test('data preferences the desk does not offer fall back on load and are reported on import', () => {
+  // 45 s was a pre-release chart cache value; the desk offers CHART_CACHE_SECONDS only,
+  // and the request timeout field takes whole seconds from 1 to 600.
+  const cases = [
+    [{ chartCacheSeconds: 45 }, /data\.chartCacheSeconds must be one of 0, 30, 60, 300, 900/],
+    [{ chartCacheSeconds: '300' }, /data\.chartCacheSeconds/],
+    [{ requestTimeoutSeconds: 0 }, /data\.requestTimeoutSeconds must be between 1 and 600/],
+    [{ requestTimeoutSeconds: 601 }, /data\.requestTimeoutSeconds must be between 1 and 600/],
+    [{ requestTimeoutSeconds: 12.5 }, /data\.requestTimeoutSeconds must be a whole number/],
+    [{ requestTimeoutSeconds: 'forever' }, /data\.requestTimeoutSeconds must be a number/],
+  ];
+  for (const [data, problem] of cases) {
+    const loaded = loadSettings(fakeStorage({ [SETTINGS_KEY]: JSON.stringify({ version: SETTINGS_VERSION, data: { chartCacheSeconds: 60, requestTimeoutSeconds: 30, ...data } }) }));
+    const [path] = Object.keys(data);
+    assert.equal(loaded.data[path], DEFAULT_SETTINGS.data[path], `${JSON.stringify(data)} falls back to the default`);
+    // The other, valid data preference is kept.
+    const other = path === 'chartCacheSeconds' ? ['requestTimeoutSeconds', 30] : ['chartCacheSeconds', 60];
+    assert.equal(loaded.data[other[0]], other[1]);
+    assert.throws(() => parseSettingsImport(JSON.stringify({ data })), problem);
+  }
+});
+
+test('every choice the desk offers is accepted on import and survives a restart', () => {
+  const offered = [
+    ...REFRESH_MINUTES.map(refreshMinutes => ({ scanner: { refreshMinutes } })),
+    ...REUSE_SECONDS.map(reuseSeconds => ({ scanner: { reuseSeconds } })),
+    ...SCAN_DEPTHS.map(scanDepth => ({ scanner: { scanDepth } })),
+    ...CHART_CACHE_SECONDS.map(chartCacheSeconds => ({ data: { chartCacheSeconds } })),
+    { scanner: { excludedSectors: SECTORS.map(sector => sector.id) } },
+    { alerts: { minScore: 0, historyLimit: 1 } },
+    { alerts: { minScore: 100, historyLimit: 1000 } },
+    { data: { requestTimeoutSeconds: 1 } },
+    { data: { requestTimeoutSeconds: 600 } },
+  ];
+  for (const patch of offered) {
+    const imported = parseSettingsImport(JSON.stringify(patch));
+    const loaded = loadSettings(fakeStorage({ [SETTINGS_KEY]: JSON.stringify({ ...patch, version: SETTINGS_VERSION }) }));
+    for (const [section, values] of Object.entries(patch)) {
+      assert.deepEqual(imported[section], { ...DEFAULT_SETTINGS[section], ...values }, JSON.stringify(patch));
+      assert.deepEqual(loaded[section], imported[section], JSON.stringify(patch));
+    }
+  }
+});
+
+test('scanner and alert values the desk never offers fall back on load and are reported on import', () => {
+  const cases = [
+    // A fractional interval made every desk poll continuously (0.0001 min = every 6 ms).
+    [{ scanner: { refreshMinutes: 0.0001 } }, /scanner\.refreshMinutes must be one of 0, 1, 5, 15, 30/],
+    [{ scanner: { refreshMinutes: 2 } }, /scanner\.refreshMinutes must be one of/],
+    [{ scanner: { reuseSeconds: 0.5 } }, /scanner\.reuseSeconds must be one of 0, 30, 90, 180, 600/],
+    [{ scanner: { scanDepth: 10000 } }, /scanner\.scanDepth must be one of 100, 250, 500/],
+    [{ scanner: { scanDepth: 20 } }, /scanner\.scanDepth must be one of/],
+    [{ alerts: { minScore: 62.5 } }, /alerts\.minScore must be a whole number/],
+    [{ alerts: { historyLimit: 1001 } }, /alerts\.historyLimit must be between 1 and 1000/],
+    [{ alerts: { historyLimit: 0 } }, /alerts\.historyLimit must be between 1 and 1000/],
+  ];
+  for (const [patch, problem] of cases) {
+    const [[section, values]] = Object.entries(patch);
+    const [key] = Object.keys(values);
+    const loaded = loadSettings(fakeStorage({ [SETTINGS_KEY]: JSON.stringify({ ...patch, version: SETTINGS_VERSION }) }));
+    assert.equal(loaded[section][key], DEFAULT_SETTINGS[section][key], `${JSON.stringify(patch)} falls back to the default`);
+    assert.throws(() => parseSettingsImport(JSON.stringify(patch)), problem);
+  }
+});
+
+test('excluded sectors: stored lists keep their known ids once each, imports must be clean', () => {
+  const stored = (excludedSectors) => loadSettings(fakeStorage({
+    [SETTINGS_KEY]: JSON.stringify({ version: SETTINGS_VERSION, scanner: { excludedSectors, scanDepth: 250 } }),
+  }));
+  // One stale or repeated id does not clear the user's other exclusions.
+  const repaired = stored(['energy', '', 'nonsense', 'energy', 7, null, 'utilities']);
+  assert.deepEqual(repaired.scanner.excludedSectors, ['energy', 'utilities']);
+  assert.equal(repaired.scanner.scanDepth, 250);
+  // The list is bounded by the sector list, however long the stored one is.
+  // Check the bound first: if it regresses, deepEqual would diff all 50,000
+  // entries and run out of memory instead of failing.
+  const flood = Array.from({ length: 50000 }, (_, i) => (i % 2 ? `sector-${i}` : 'energy'));
+  const kept = stored(flood).scanner.excludedSectors;
+  assert.ok(kept.length <= SECTORS.length, `${kept.length} of ${flood.length} stored ids kept`);
+  assert.deepEqual(kept, ['energy']);
+  // Not a list at all: no exclusions, and never the frozen default array itself.
+  const reset = stored('energy');
+  assert.deepEqual(reset.scanner.excludedSectors, []);
+  reset.scanner.excludedSectors.push('energy');
+  assert.deepEqual(DEFAULT_SETTINGS.scanner.excludedSectors, []);
+
+  for (const excludedSectors of [['energy', 'nonsense'], ['energy', 'energy'], [''], ['Energy'], flood]) {
+    assert.throws(
+      () => parseSettingsImport(JSON.stringify({ scanner: { excludedSectors } })),
+      /scanner\.excludedSectors must be a list of distinct sector ids/,
+      JSON.stringify(excludedSectors).slice(0, 60),
+    );
+  }
+  assert.deepEqual(parseSettingsImport('{"scanner":{"excludedSectors":["photonics","energy"]}}').scanner.excludedSectors, ['photonics', 'energy']);
+});
+
+test('number field drafts commit as whole numbers within the field range', () => {
+  assert.equal(parseNumberDraft('45', 1, 600), 45);
+  assert.equal(parseNumberDraft(' 45 ', 1, 600), 45);
+  assert.equal(parseNumberDraft('045', 0, 100), 45);
+  assert.equal(parseNumberDraft('12.6', 1, 600), 13);
+  assert.equal(parseNumberDraft('1e3', 1, 1000), 1000);
+  // Out of range: clamped at commit time, not on every keystroke.
+  assert.equal(parseNumberDraft('0', 1, 600), 1);
+  assert.equal(parseNumberDraft('2000', 1, 1000), 1000);
+  assert.equal(parseNumberDraft('-5', 0, 100), 0);
+});
+
+test('number field drafts that are empty or not a number commit nothing', () => {
+  // A cleared field used to become the minimum at once, so retyping 45 over 12 gave 145.
+  for (const draft of ['', '   ', '-', 'e', 'abc', '1e400', null, undefined]) {
+    assert.equal(parseNumberDraft(draft, 1, 600), null, JSON.stringify(draft));
+  }
 });

@@ -364,6 +364,7 @@
 }
 .settings-facts dt { font-size: 10px; letter-spacing: 0.7px; text-transform: uppercase; color: var(--text-muted); font-family: var(--font-heading); }
 .settings-facts dd { font-family: var(--font-mono); font-size: 14px; color: var(--text-main); }
+.settings-facts .settings-fact-note { font-family: var(--font-body); font-size: 11px; line-height: 1.5; color: var(--text-muted); }
 .settings-footnote { padding: var(--gap-sm) calc(var(--gap-sm) + 10px) calc(var(--gap-sm) + 4px); font-size: 12px; line-height: 1.6; color: var(--text-muted); }
 
 /* ── backup ── */

@@ -4,6 +4,8 @@
 //
 // Pure module: no DOM, no React. The provider (settings.jsx) and the Settings
 // desk import from here, and tests/settings.test.js exercises it under node:test.
+import { SECTORS } from '../data/sectors.js';
+
 export const SETTINGS_KEY = 'dipAnalyzerSettingsV2';
 export const SETTINGS_VERSION = 2;
 export const APP_VERSION = '2.1.0';
@@ -78,8 +80,8 @@ export const DEFAULT_SETTINGS = deepFreeze({
     historyLimit: 50,
   },
   data: {
-    chartCacheSeconds: 0,     // main.cjs fetches each chart with cache: 'no-store'
-    requestTimeoutSeconds: 12,    // mirrors AbortSignal.timeout(12000) in main.cjs
+    chartCacheSeconds: 0,     // how long a Yahoo chart response is reused; 0 = always refetch
+    requestTimeoutSeconds: 12,    // main.cjs starts with the same 12 s deadline until told otherwise
   },
 });
 
@@ -108,8 +110,12 @@ export const isTransientTheme = (theme) => TRANSIENT_THEMES.includes(theme);
 export const isPersistableTheme = (theme) => THEMES.some(item => item.id === theme) && !isTransientTheme(theme);
 
 // ── validation ────────────────────────────────────────────────────────────
-// Each rule returns a problem string or null; `fallback` is what loadSettings
-// substitutes silently. parseSettingsImport reports the problems instead.
+// Each rule returns a problem string or null. A choice the desk offers from a
+// list must be one of that list, and a whole-number field a whole number in
+// its range; the sliders (glow, volume) take any number in theirs, and a
+// transient theme is never stored. loadSettings silently substitutes the
+// fallback (the default, unless FALLBACKS repairs the value);
+// parseSettingsImport reports the problems instead.
 const number = (min, max, { integer = false } = {}) => (value) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 'must be a number';
   if (integer && !Number.isInteger(value)) return 'must be a whole number';
@@ -118,7 +124,18 @@ const number = (min, max, { integer = false } = {}) => (value) => {
 };
 const oneOf = (allowed, describe = (v) => JSON.stringify(v)) => (value) => allowed.includes(value) ? null : `must be one of ${allowed.map(describe).join(', ')}`;
 const boolean = (value) => typeof value === 'boolean' ? null : 'must be true or false';
-const stringList = (value) => Array.isArray(value) && value.every(item => typeof item === 'string') ? null : 'must be a list of sector ids';
+const SECTOR_IDS = SECTORS.map(sector => sector.id);
+const isSectorId = (value) => SECTOR_IDS.includes(value);
+const sectorList = (value) => (
+  Array.isArray(value) && value.every(isSectorId) && new Set(value).size === value.length
+    ? null
+    : `must be a list of distinct sector ids, each one of ${SECTOR_IDS.map(id => JSON.stringify(id)).join(', ')}`
+);
+
+// A stale or repeated sector id must not clear the user's other exclusions.
+const FALLBACKS = {
+  'scanner.excludedSectors': (value) => (Array.isArray(value) ? [...new Set(value)].filter(isSectorId) : []),
+};
 
 const RULES = {
   'appearance.theme': (value) => {
@@ -128,10 +145,10 @@ const RULES = {
   'appearance.density': oneOf(DENSITIES.map(item => item.id)),
   'appearance.motion': oneOf(MOTIONS.map(item => item.id)),
   'appearance.glow': number(0, 1),
-  'scanner.excludedSectors': stringList,
-  'scanner.refreshMinutes': number(0, 24 * 60),
-  'scanner.reuseSeconds': number(0, 3600),
-  'scanner.scanDepth': number(1, 10000, { integer: true }),
+  'scanner.excludedSectors': sectorList,
+  'scanner.refreshMinutes': oneOf(REFRESH_MINUTES),
+  'scanner.reuseSeconds': oneOf(REUSE_SECONDS),
+  'scanner.scanDepth': oneOf(SCAN_DEPTHS),
   'scanner.defaultRating': oneOf(RATING_FILTERS),
   'scanner.sort': oneOf(SORTS.map(item => item.id)),
   'futures.defaultGroup': oneOf(FUTURES_GROUP_IDS),
@@ -142,16 +159,25 @@ const RULES = {
   'alerts.breakout': boolean,
   'alerts.breakdown': boolean,
   'alerts.trend': boolean,
-  'alerts.minScore': number(0, 100),
+  'alerts.minScore': number(0, 100, { integer: true }),
   'alerts.historyLimit': number(1, 1000, { integer: true }),
-  'data.chartCacheSeconds': number(0, 3600),
-  'data.requestTimeoutSeconds': number(1, 600),
+  'data.chartCacheSeconds': oneOf(CHART_CACHE_SECONDS),
+  'data.requestTimeoutSeconds': number(1, 600, { integer: true }),
 };
 
 const readPath = (object, path) => path.split('.').reduce((cursor, key) => (isRecord(cursor) ? cursor[key] : undefined), object);
 
+// What a number field on the desk commits when the user leaves it or presses
+// Enter: the draft as a whole number clamped to the field's range, or null when
+// it is empty or not a number, in which case the field keeps its saved value.
+export const parseNumberDraft = (draft, min, max) => {
+  const text = typeof draft === 'string' ? draft.trim() : '';
+  const value = text === '' ? NaN : Math.round(Number(text));
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : null;
+};
+
 // Returns { settings, problems }: `settings` is the document with every
-// invalid value replaced by its default; `problems` lists what was replaced.
+// invalid value replaced by its fallback; `problems` lists what was replaced.
 export const normalizeSettings = (document) => {
   let settings = mergeKnown(DEFAULT_SETTINGS, document);
   const problems = [];
@@ -160,12 +186,9 @@ export const normalizeSettings = (document) => {
     const problem = rule(value);
     if (problem) {
       problems.push(`${path} ${problem}`);
-      settings = setPath(settings, path.split('.'), readPath(DEFAULT_SETTINGS, path));
+      settings = setPath(settings, path.split('.'), FALLBACKS[path] ? FALLBACKS[path](value) : readPath(DEFAULT_SETTINGS, path));
     }
   }
-  // Source facts describe the running app, not user-editable preferences.
-  // Older exports may contain stale facts; refresh them after validation.
-  settings.data = mergeKnown(DEFAULT_SETTINGS.data, {});
   settings.version = SETTINGS_VERSION;
   return { settings, problems };
 };

@@ -3,7 +3,7 @@ import { Palette, ScanSearch, ChartNoAxesCombined, Bell, Database, Archive, Info
 import { useSettings } from '../state/settingsContext.js';
 import {
   APP_VERSION, CHART_CACHE_SECONDS, DEFAULT_SETTINGS, DENSITIES, FUTURES_TIMEFRAME_IDS, GLOW_STEP, MOTIONS, RATING_FILTERS,
-  REFRESH_MINUTES, REUSE_SECONDS, SCAN_DEPTHS, SORTS, THEMES, isTransientTheme, parseSettingsImport, serializeSettings,
+  REFRESH_MINUTES, REUSE_SECONDS, SCAN_DEPTHS, SORTS, THEMES, isTransientTheme, parseNumberDraft, parseSettingsImport, serializeSettings,
 } from '../state/settingsSchema.js';
 import { SECTORS } from '../data/sectors.js';
 import { FUTURES_DELAY_MINUTES, FUTURES_GROUPS, FUTURES_TIMEFRAMES } from '../services/futures.js';
@@ -32,10 +32,6 @@ const formatGlow = (value) => `${value.toFixed(2)} = ${trim(value / GLOW_STEP)}�
 const formatPercent = (value) => `${Math.round(value * 100)}%`;
 const formatMinutes = (value) => (value === 0 ? 'Off' : `${value} min`);
 const formatSeconds = (value) => (value === 0 ? 'Off' : value % 60 === 0 ? `${value / 60} min` : `${value} s`);
-const clampInt = (value, min, max, fallback) => {
-  const n = Math.round(Number(value));
-  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
-};
 
 const prefersReducedMotion = () => typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -104,6 +100,26 @@ function Slider({ id, value, min = 0, max = 1, step = 0.01, onChange, format, de
       <input id={id} type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} aria-describedby={describedBy} aria-valuetext={format(value)} style={{ '--fill': `${((value - min) / (max - min)) * 100}%` }} />
       <output id={outputId} htmlFor={id} className="slider-value">{format(value)}</output>
     </div>
+  );
+}
+
+// Typing edits a local draft; blur or Enter commits it, clamped to the range.
+// Nothing takes effect mid-edit (a cleared field, the 4 on the way to 45), and
+// Escape or a draft that is empty or not a number restores the saved value.
+function NumberField({ id, value, min, max, onCommit, className }) {
+  const [draft, setDraft] = useState(null); // null: show the saved value
+  const commit = () => {
+    if (draft === null) return;
+    const next = parseNumberDraft(draft, min, max);
+    setDraft(null);
+    if (next !== null && next !== value) onCommit(next);
+  };
+  const onKeyDown = (e) => {
+    if (e.key === 'Enter') commit();
+    else if (e.key === 'Escape') setDraft(null);
+  };
+  return (
+    <input id={id} className={className} type="number" min={min} max={max} step={1} inputMode="numeric" value={draft ?? value} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={onKeyDown} />
   );
 }
 
@@ -191,14 +207,16 @@ export default function SettingsPage() {
   // ── backup state ──
   const exported = useMemo(() => serializeSettings(settings), [settings]);
   const exportRef = useRef(null);
-  const [copyState, setCopyState] = useState(null); // 'copied' | 'manual'
+  const [copyState, setCopyState] = useState(null); // 'copied' | 'manual' | 'partial'
   const [importText, setImportText] = useState('');
   const [importError, setImportError] = useState(null);
   const [importNote, setImportNote] = useState(null);
   const [resetArmed, setResetArmed] = useState(false);
 
+  // 'copied' confirms and fades. 'manual' and 'partial' ask the user to act,
+  // so they stay while the export box keeps focus.
   useEffect(() => {
-    if (!copyState) return undefined;
+    if (copyState !== 'copied') return undefined;
     const timer = setTimeout(() => setCopyState(null), 2700);
     return () => clearTimeout(timer);
   }, [copyState]);
@@ -208,6 +226,8 @@ export default function SettingsPage() {
     return () => clearTimeout(timer);
   }, [resetArmed]);
 
+  // A refused write (no clipboard, or permission denied) leaves the export box
+  // focused with everything selected, so Ctrl+C copies it.
   const copyExport = async () => {
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
@@ -219,6 +239,13 @@ export default function SettingsPage() {
       setCopyState('manual');
     }
   };
+  const settleManualCopy = (next) => setCopyState(state => (state === 'manual' || state === 'partial' ? next : state));
+  // Chromium fires copy wherever the caret is, so a copy by hand confirms only
+  // when the whole export is selected; otherwise nothing or part of it was copied.
+  const onExportCopy = (e) => {
+    const box = e.currentTarget;
+    settleManualCopy(box.selectionStart === 0 && box.selectionEnd === box.value.length ? 'copied' : 'partial');
+  };
 
   const applyImport = () => {
     setImportNote(null);
@@ -226,7 +253,7 @@ export default function SettingsPage() {
       const next = parseSettingsImport(importText);
       replace(next);
       setImportError(null);
-      setImportNote('Settings applied. Preferences replaced the current document; source facts use the current app defaults. Unknown keys were ignored.');
+      setImportNote('Settings applied. Preferences replaced the current document. Unknown keys were ignored.');
     } catch (error) {
       setImportError(error.message);
     }
@@ -356,21 +383,21 @@ export default function SettingsPage() {
             <Field label="Volume" hint="Relative loudness of the alert tone." htmlFor={ids.volume}>
               <Slider id={ids.volume} value={alerts.volume} min={0} max={1} step={0.01} onChange={(value) => update('alerts.volume', value)} format={formatPercent} />
             </Field>
-            <Field label="Alert types" hint="Which technical events raise an alert." labelId={ids.types}>
+            <Field label="Alert types" hint="Which technical events raise an alert. Trend covers bullish and bearish trend alerts." labelId={ids.types}>
               <div className="checkbox-row" role="group" aria-labelledby={ids.types}>
                 <Checkbox id={`${uid}-type-breakout`} checked={alerts.breakout} onChange={(checked) => update('alerts.breakout', checked)} tone="success">Breakout</Checkbox>
                 <Checkbox id={`${uid}-type-breakdown`} checked={alerts.breakdown} onChange={(checked) => update('alerts.breakdown', checked)} tone="danger">Breakdown</Checkbox>
                 <Checkbox id={`${uid}-type-trend`} checked={alerts.trend} onChange={(checked) => update('alerts.trend', checked)} tone="info">Trend</Checkbox>
               </div>
             </Field>
-            <Field label="Minimum score" hint="Only names scoring at or above this raise an alert (0–100)." htmlFor={ids.minScore}>
+            <Field label="Minimum score" hint="Minimum score applies to Breakout and Bullish alerts; breakdown and bearish warnings are raised regardless of score." htmlFor={ids.minScore}>
               <div className="number-with-range">
                 <input type="range" min={0} max={100} step={1} value={alerts.minScore} aria-label="Minimum score slider" onChange={(e) => update('alerts.minScore', Number(e.target.value))} style={{ '--fill': `${alerts.minScore}%` }} />
-                <input id={ids.minScore} type="number" min={0} max={100} step={1} inputMode="numeric" value={alerts.minScore} onChange={(e) => update('alerts.minScore', clampInt(e.target.value, 0, 100, DEFAULT_SETTINGS.alerts.minScore))} />
+                <NumberField id={ids.minScore} min={0} max={100} value={alerts.minScore} onCommit={(value) => update('alerts.minScore', value)} />
               </div>
             </Field>
             <Field label="History limit" hint="How many past alerts the history drawer keeps (1–1000)." htmlFor={ids.history}>
-              <input id={ids.history} className="settings-number" type="number" min={1} max={1000} step={1} inputMode="numeric" value={alerts.historyLimit} onChange={(e) => update('alerts.historyLimit', clampInt(e.target.value, 1, 1000, DEFAULT_SETTINGS.alerts.historyLimit))} />
+              <NumberField id={ids.history} className="settings-number" min={1} max={1000} value={alerts.historyLimit} onCommit={(value) => update('alerts.historyLimit', value)} />
             </Field>
           </Section>
 
@@ -380,12 +407,16 @@ export default function SettingsPage() {
               <Segmented name={`${uid}-chart-cache-choice`} value={data.chartCacheSeconds} options={CHART_CACHE_SECONDS.map(value => ({ id: value, label: formatSeconds(value) }))} onChange={(value) => update('data.chartCacheSeconds', value)} labelledBy={ids.chartCache} />
             </Field>
             <Field label="Request timeout" hint="One deadline per provider request, retries included (1–600 s). The desktop app applies it immediately." htmlFor={ids.timeout}>
-              <input id={ids.timeout} className="settings-number" type="number" min={1} max={600} step={1} inputMode="numeric" value={data.requestTimeoutSeconds} onChange={(e) => update('data.requestTimeoutSeconds', clampInt(e.target.value, 1, 600, DEFAULT_SETTINGS.data.requestTimeoutSeconds))} />
+              <NumberField id={ids.timeout} className="settings-number" min={1} max={600} value={data.requestTimeoutSeconds} onCommit={(value) => update('data.requestTimeoutSeconds', value)} />
             </Field>
             <dl className="settings-facts">
               <div><dt>Finviz screener delay</dt><dd>1 min</dd></div>
               <div><dt>Finviz futures delay</dt><dd>{FUTURES_DELAY_MINUTES} min</dd></div>
-              <div><dt>Yahoo Finance delay</dt><dd>As reported by the provider with each quote</dd></div>
+              <div>
+                <dt>Yahoo Finance delay</dt>
+                <dd>Not reported by Yahoo’s chart endpoint</dd>
+                <dd className="settings-fact-note">Technical alerts use only quotes whose own timestamp is at most 5 minutes old.</dd>
+              </div>
             </dl>
             <p className="settings-footnote">Retrieval time (when this app fetched the data) and source quote time (when the provider says the quote was struck) are always shown separately, and neither is ever estimated. Unavailable data is shown as unavailable.</p>
           </Section>
@@ -393,7 +424,7 @@ export default function SettingsPage() {
           {/* 6 ── Backup */}
           <Section id="backup" title="Backup" blurb={SECTIONS[5].blurb} headingRef={bindHeading('backup')}>
             <Field label="Export" hint="The current document as JSON. Seizure Mode is written as the default theme." htmlFor={ids.exportBox} wide>
-              <textarea id={ids.exportBox} ref={exportRef} className="settings-json" readOnly value={exported} rows={10} spellCheck={false} />
+              <textarea id={ids.exportBox} ref={exportRef} className="settings-json" readOnly value={exported} rows={10} spellCheck={false} onCopy={onExportCopy} onBlur={() => settleManualCopy(null)} />
               <div className="settings-actions">
                 <button type="button" className="btn btn-outline" onClick={copyExport}>
                   {copyState === 'copied' ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
@@ -402,6 +433,7 @@ export default function SettingsPage() {
                 <span className="settings-status" role="status" aria-live="polite">
                   {copyState === 'copied' && 'Copied to the clipboard.'}
                   {copyState === 'manual' && 'Clipboard unavailable — the text is selected; copy it manually.'}
+                  {copyState === 'partial' && 'Not all of the text was selected — select all of it and copy again.'}
                 </span>
               </div>
             </Field>
