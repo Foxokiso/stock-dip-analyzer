@@ -16,7 +16,7 @@ The most important problems:
 - **Drifted quote-page parser (U45).** Finviz no longer publishes a '52W Range' label, so the stock page's 52-week strip never renders, and all 10 headlines on a live page were credited to the hosting domain instead of the publisher. The parser had no fixture, test or live probe.
 - **Also high or widely reported.** The Overview "Sell" chip is unreadable at about 1.2:1 contrast (U35). Because preloadable caches a failed chunk import, one failed warm-up load leaves stock links dead with the renderer at 100% CPU, and with no error boundary a single render error blanks the window (U58). Building a new `Intl.DateTimeFormat` for every price bar costs about 3.4 s of main-thread time per depth-500 scan (U39).
 
-After de-duplication there are 86 issues: 5 high, 34 medium, 35 low and 12 endorsed features. The pull request that carries this report fixes 67 of them and partly fixes 3 more, including two endorsed features that harden existing behaviour: binding the Finviz grid by its stable column ids (U27) and Dependabot (U79). Each partial fix leaves a follow-up: a separate release build/publish job with provenance attestation (U10), passing the quote's own session to the breakout rule (U41), and a `build_exe.bat` that does not run the toolchain as Administrator (U77). The other 16 issues stay proposals: ten endorsed feature proposals and six confirmed findings whose fixes are left for separate work (an app:// protocol, Electron fuses, embeddable native CMake, replacing recharts, an accessibility gate, and the Vite 8 and ESLint 10 majors). Seven decisions in the fix work change documented or user-visible behaviour and need the owner's review; they are set out below.
+After de-duplication there are 86 issues: 5 high, 34 medium, 35 low and 12 endorsed features. The pull request that carries this report fixes 67 of them and partly fixes 3 more, including two endorsed features that harden existing behaviour: binding the Finviz grid by its stable column ids (U27) and Dependabot (U79). Each partial fix leaves a follow-up: a separate release build/publish job with provenance attestation (U10), passing the quote's own session to the breakout rule (U41), and a `build_exe.bat` that does not run the toolchain as Administrator (U77). A final review of the whole change then found 27 problems in the fixes themselves. All 27 were confirmed, and all but one are fixed in this pull request (see "Implementation in this pull request"). The other 16 issues stay proposals: ten endorsed feature proposals and six confirmed findings whose fixes are left for separate work (an app:// protocol, Electron fuses, embeddable native CMake, replacing recharts, an accessibility gate, and the Vite 8 and ESLint 10 majors). Seven decisions in the fix work change documented or user-visible behaviour and need the owner's review; they are set out below.
 
 ## How the scan worked
 
@@ -197,7 +197,7 @@ The new rule makes a quote eligible when its price is positive, at least 15 dail
 Once alerts can fire, three alert rules matter, and they change too (B2-6, C1-7):
 
 - Alerts are rising-edge: raised when a condition appears, silent while it persists, and re-armed when it clears or a new exchange day starts. The old key `${symbol}-${type}-${quotedAt}` changes with every trade, so one unchanged condition raised 5 alerts over 5 one-minute refreshes.
-- The minimum score gates only buy-side alerts (breakout, bullish). The score measures buy-side strength: at the default of 60 the gate passed 0 of 8 amber breakdowns, 27 of 67 breakdowns and 9 of 34 bearish warnings, but every bullish and breakout alert.
+- The minimum score gates only Bullish alerts. The score measures buy-side strength: at the default of 60 a gate on every type passed 0 of 8 amber breakdowns, 27 of 67 breakdowns and 9 of 34 bearish warnings. *Corrected during implementation:* the plan also gated Breakout. That figure was measured under the old breakout rule. Under the corrected rule (U41) a fresh one-month closing high has no dip or bounce to score, so a breakout scores about 40-50 in practice. A default gate of 60 would therefore have dropped every breakout, which the final review found. The Minimum score now gates Bullish alerts only.
 - Bursts collapse to at most 3 toasts plus one "+N more" toast, with at most one sound per 2 s and one reused AudioContext. A depth-100 burst produced 100 toasts in a 7,548 px stack, 100 sound restarts and, for amber alerts, up to 63 AudioContexts alive at once.
 
 The Settings text for alerts and for Yahoo's delay is reworded to match.
@@ -230,7 +230,7 @@ Guests now run in an in-memory 'research' partition with deny-all permissions. A
 
 ## Implementation in this pull request
 
-The fixes were built by 14 groups in three waves. Each group owned a separate set of files, so no two groups ever edited the same file:
+The fixes were built in three waves by 14 groups, followed by a final review and four more groups. Each group owned a separate set of files, so no two groups ever edited the same file:
 
 - **Wave 1, ten groups:**
   - dependencies and CI;
@@ -248,6 +248,12 @@ The fixes were built by 14 groups in three waves. Each group owned a separate se
   - the browser regression scripts;
   - consistency across the pages.
 - **Wave 3, one group:** lint coverage, eslint-plugin-react-hooks 7.1.1, and CI.
+- **Final, four groups:**
+  - code follow-ups found by the documentation fact-checks;
+  - alerts and the Overview;
+  - the app shell, accessibility and styles;
+  - the main process, native and tooling.
+  The last three fixed the final review's findings.
 
 Each group worked in its own git worktree from the integration branch. It added tests that fail without its fix, and ran the unit, lint, build, native and browser checks.
 
@@ -257,11 +263,11 @@ An independent reviewer, who had not written the code, then read the group's who
 - re-ran every check;
 - tried mutants against the new tests.
 
-Twelve of the 14 reviews requested changes, with 28 must-fix findings in all. Each group fixed them in a further round before its work was squash-merged as one commit. The documentation was rewritten last and checked by three independent fact-checkers, for accuracy, staleness and honesty.
+Fifteen of the 18 reviews requested changes, with 31 must-fix findings in all. Each group fixed them in a further round before its work was squash-merged as one commit. The documentation was rewritten in three passes. Each pass was checked by independent fact-checkers for accuracy, staleness and honesty.
 
 **Verification at the head of this pull request**
 
-- **Unit tests.** `npm test`: 305 tests pass, against 116 at the base. They also pass under `TZ=America/New_York` with `LANG=de_DE.UTF-8`, which CI now repeats.
+- **Unit tests.** `npm test`: 319 tests pass, against 116 at the base. They also pass under `TZ=America/New_York` with `LANG=de_DE.UTF-8`, which CI now repeats.
 - **Lint.** ESLint now applies its recommended rules to main.cjs, preload.cjs, the scripts and the tests as well as the renderer. It is clean with `--max-warnings 0`.
 - **Native.** 7 CTest suites pass, against 6 at the base; the new one is a locale regression. The marketdata parity suite runs 15,296 cases plus its time-zone re-runs. Where a Turkish locale is available, it also runs 1,749 zone-name cases under it.
 - **Browser regressions.** `npm run test:ui` passes against the dev server and against `vite preview` of the production build, with no CSP violations. CI runs it on Linux against both, and on Windows.
@@ -269,7 +275,34 @@ Twelve of the 14 reviews requested changes, with 28 must-fix findings in all. Ea
   - Linux tests, lint, build and browser regressions;
   - Windows tests and NSIS packaging;
   - native parity on Ubuntu, on Windows and under ASan/UBSan.
+- **The real app.** `npm run test:live` passes against the real Electron 45.2.1 app, in dev mode on Linux under a virtual display, with live provider data:
+  - every desk loads its data;
+  - the TradingView chart completes its handshake inside its sandboxed frame;
+  - the Finviz research viewer runs without Node, in the in-memory research session;
+  - Copy reaches the clipboard;
+  - there are no page errors and no warnings.
+  The packaged build was not run (dev mode carries no CSP).
 - **`npm audit`.** 0 high advisories, against 10 at the base. There are 20 moderate advisories, all from one minimatch advisory in eslint and electron-builder, and 0 in production dependencies.
+
+**Final review**
+
+After the three waves, five independent reviewers read the whole diff from 022402f, each through one lens:
+
+- security;
+- data integrity;
+- UI and accessibility;
+- tests and CI;
+- integration across groups.
+
+For each lens, an adversarial verifier then tried to refute every finding by reproducing it.
+
+- **All 27 findings were confirmed.** Four were rated major, covering three problems:
+  - breakout alerts could never pass the default Minimum score (see decision 1);
+  - the alert type chosen for a symbol could hide a condition the user had enabled;
+  - a desk opened from a scrolled page opened part-way down, with its focused heading off-screen.
+- **26 are fixed in this pull request.** Five were already fixed when the review reported, by the code follow-ups from the documentation fact-checks and by the second documentation pass. The others were fixed by the last three groups, each with its own adversarial review, and by the final documentation pass.
+- **One is not.** Code running in the app window can steer an attached research viewer through the `<webview>` API to a non-HTTPS page and read it back. The proposed main-process guard would crash Chromium, so the README states the limit and the fix stays a proposal (see the near-term table).
+- **Four rejected findings were re-checked.** The scan had rejected them on premises this branch changed. Three still hold: A2-8, B3-11 and C2-5. C4-9 no longer applies, because alerts are now keyed by symbol and type.
 
 **Found during implementation**
 
@@ -283,6 +316,7 @@ Twelve of the 14 reviews requested changes, with 28 must-fix findings in all. Ea
 - **Legacy scan depths.** Validating the scan depth against the presets (U19) would have turned the v1 default depth of 20, and other legacy depths, into 100 on upgrade. That is five times the requests. Whole depths from 1 to 500 are now kept.
 - **Black-holed scoring.** When every Yahoo request hung, a depth-500 scan ran for about 12.5 minutes of timeouts with Refresh disabled. A scan now stops requesting charts after 16 failures in a row: 23 requests instead of 500.
 - **Windows clipboard.** Text copied on Windows comes back with CRLF line breaks. The browser check folds them to LF before comparing.
+- **The first real Electron run** found two bugs in `test:live` itself, not in the app. Its in-page probe never saw the TradingView frame being revealed, because the reveal is an attribute change. Its research-viewer probe also called `getURL()` from a timer that fired after the run had left the page. Both are fixed.
 
 **Other behaviour changes**
 
@@ -310,6 +344,8 @@ Sixteen issues are proposals: this change does not implement them. For the ten f
 | U78 | Vite 8 and ESLint 10 | — | M | Vite 8 builds 4–5x faster with slightly smaller chunks and passed a 7-route production smoke test. ESLint 10 needs eslint-plugin-react-hooks 7.1.1, which this pull request adopts (A3-11). |
 | U10 follow-up | release.yml build/publish split and provenance attestation | — | — | Needs new third-party actions whose pinned SHAs could not be verified from the sandbox. Releases already wait for the CI and native suites, and signing secrets reach only the installer step. |
 | U41 follow-up | Pass the quote's own session to the breakout rule | — | S | `analyzeStock` receives only closes and a price, so it takes the last bar as the current session. When a provider series lacks the quote's own bar, yesterday's close is left out of the prior high. Fixing it means passing session information from `getYahooQuote` through the scan store, the stock page and Oil Watch. |
+| Final review (security-2) | Research viewers that code in the app window cannot steer | — | M | The HTTPS lock covers navigations a viewer's own page starts and server redirects, not loads started through the `<webview>` API. A guard on 'did-start-navigation' that stops the load would crash Chromium. The options are main-process-owned viewers (WebContentsView, so `webviewTag` can be turned off) or refusing file: and http: loads on the research session. Neither could be tested without an Electron binary when this was reviewed. |
+| Small follow-ups | The alert drawer covers its own toggle and toasts; a focused toast that expires drops focus to the page; unit tests for the error boundary's new reset contract | — | S | Found in the last reviews, all minor; the first two predate this change. |
 | U77 follow-up | Run `build_exe.bat` without elevation | — | S | In electron-builder 26.18.1 an unsigned NSIS build should no longer need the winCodeSign archive, but no standard-user Windows build has confirmed it yet. |
 
 ### Medium-term
@@ -357,7 +393,7 @@ The C5 finder folded OS notifications into its alerts finding (C5-1), since they
 
 ## Limitations
 
-- **No running Electron app.** Main-process behaviour (window-open handling, webview attachment, permissions, redirects) was established from the Electron 45 sources and typings and exercised through vm harnesses around main.cjs. The webview popup finding (A2-4) was verified from source but not executed. The clipboard failure behind U13 could not be reproduced in headless Chromium, which allowed the write; it rests on the Electron 45 typings and reports from other Electron projects. Cross-window behaviour and the save dialog that a CSV export would open (U85) were not tested.
+- **No running Electron app during the scan.** The scan established main-process behaviour (window-open handling, webview attachment, permissions, redirects) from the Electron 45 sources and typings, and exercised it through vm harnesses around main.cjs. At the end of this pull request the real app was run (see Implementation). The webview popup finding (A2-4) was verified from source but not executed. The clipboard failure behind U13 could not be reproduced in headless Chromium, which allowed the write; it rests on the Electron 45 typings and reports from other Electron projects. Cross-window behaviour and the save dialog that a CSV export would open (U85) were not tested.
 - **Windows packaging.** Everything ran on Linux. Windows packaging, including whether electron-builder 26.18.1 avoids the original EPERM failure, is validated only by the windows-installer CI workflow.
 - **Browser and fonts.** Playwright 1.64 expects Chromium build 1248; the sandbox had build 1243 (Chrome for Testing 153), which the agents launched explicitly. The two differ in one behaviour that matters here: 153 keeps a failed module import failed, while 156 (Playwright's build, and the Chromium in Electron 45) fetches it again. The narrow-viewport check in verify-ui depends on installed fonts: Inter, Liberation Sans and DejaVu Sans overflow at 390 px, Carlito does not.
 - **Shared machine.** Timings come from a shared 4-CPU VM under load from other agents (load averages from 3.5 to about 11), so absolute timings are indicative only: C4 gives ranges over several runs and C2 claims only relative ordering, while single figures elsewhere come from one or a few runs.
@@ -371,7 +407,7 @@ A completeness review of the scan named the gaps below. Leads are unverified and
 
 **Not exercised**
 
-- **Electron.** The app never ran in Electron and no workflow runs `npm run test:live`, yet most planned security fixes (gesture-gated guest popups, the 'research' partition, the redirect lock, the clipboard exception, the TradingView iframe handshake) change Electron-only behaviour. Before release, run the PR's installer through a short manual checklist, and run `npm run test:live` (verify-live-electron.mjs, which now fails on what it measures, U70) against the packaged build.
+- **Electron.** During the scan the app never ran in Electron, yet most planned security fixes (gesture-gated guest popups, the 'research' partition, the redirect lock, the clipboard exception, the TradingView iframe handshake) change Electron-only behaviour. *Partly exercised since:* `npm run test:live` passes against the real Electron 45.2.1 app in dev mode on Linux. That covers the research partition, the guest without Node, the clipboard exception and the TradingView handshake. Still unexercised: the gesture-gated popups, autoplay, the packaged build and its CSP. Before release, run the PR's installer through a short manual checklist, and run `npm run test:live` against the packaged build (`ELECTRON_EXE`).
 - **Windows.** No install, upgrade over a 2.1.0 profile, uninstall or standard-user `build_exe.bat` run, so U17 and U19 first meet real profiles on upgrade, and decision 3 rests on reading electron-builder's source. The configured AppImage and mac targets are never built.
 - **Market hours.** No equity or futures data was captured during a US session, so decision 1's quote-age window (also sensitive to PC clock skew), U41's breakout rule, U47's tolerance and U31's re-arm were designed on closed-market data.
 - **Provider volume.** Every scale test used stubbed providers, so nothing measured how Finviz, Yahoo or Google respond from one IP at the rates the settings allow (about 25 Finviz pages and 500 Yahoo charts a minute at depth 500 with a 1-minute refresh). U20's new stop rule also relies on Finviz behaviour past the last result that was never observed.
@@ -379,8 +415,8 @@ A completeness review of the scan named the gaps below. Leads are unverified and
 
 **Unverified claims and premises**
 
-- U13, U03, U04 and U08 rest on Electron or Chromium source, typings or other projects' reports, and their fixes add untested assumptions ('input-event' on guest webContents, a partition forced in `will-attach-webview`, the 'clipboard-sanitized-write' permission name). U01's verifiers disagree on its brotli rationale, so its severity rests on the Chromium backports.
-- C4-9, B3-11, C2-5 and A2-8 were rejected on premises that U30, U17 and U81 remove, and U37's planned pause while hidden would silence the newly working alerts whenever the window is minimised. Re-check these on the integrated branch.
+- U13, U03, U04 and U08 rest on Electron or Chromium source, typings or other projects' reports, and their fixes add untested assumptions ('input-event' on guest webContents, a partition forced in `will-attach-webview`, the 'clipboard-sanitized-write' permission name). *Since observed in the real app:* the forced partition (U04) and the clipboard exception (U13). The 'input-event' popup gate (U03) and U08 remain unexercised. U01's verifiers disagree on its brotli rationale, so its severity rests on the Chromium backports.
+- C4-9, B3-11, C2-5 and A2-8 were rejected on premises that U30, U17 and U81 remove, and U37's planned pause while hidden would silence the newly working alerts whenever the window is minimised. Re-check these on the integrated branch. *Re-checked by the final review:* A2-8, B3-11 and C2-5 still hold, and C4-9 no longer applies. The Overview keeps scanning while hidden whenever an alert type is enabled, and a browser regression guards it.
 
 **Leads (unverified)**
 
