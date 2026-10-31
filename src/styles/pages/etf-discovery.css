@@ -307,8 +307,9 @@
 }
 /* The chart container is filled by the TradingView iframe, whose own canvas
    takes the same roles (ground --bg-card, grid --line, scale text --text-muted,
-   series --secondary) resolved from the cascade in Discovery.jsx. While it is
-   empty (loading, retry) the container shows a quiet --line grid on the ink. */
+   series --secondary) resolved from the cascade in src/utils/tradingView.js,
+   which also sizes the frame. While it is empty (loading, retry) the container
+   shows a quiet --line grid on the ink. */
 .discovery-page .discovery-chart {
   position: relative;
   height: 550px;
@@ -325,21 +326,6 @@
   transition: border-color var(--transition-normal);
 }
 .discovery-page .discovery-chart-panel:hover .discovery-chart { border-color: var(--line-strong); }
-.discovery-page .discovery-chart iframe {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border: 0;
-}
-/* Token probe used by Discovery.jsx to read the chart roles; never painted. */
-.discovery-page .discovery-token-probe {
-  position: absolute;
-  width: 0;
-  height: 0;
-  overflow: hidden;
-  visibility: hidden;
-  pointer-events: none;
-}
 /* Any SVG chart rendered inside the panel (recharts or hand-drawn) takes the
    brief's chart roles: --secondary series, --line grid, --text-muted ticks. */
 .discovery-page .discovery-chart-panel svg .recharts-cartesian-grid line,
