@@ -208,7 +208,7 @@ The score's RSI is Cutler's simple RSI over the last 14 changes of the documente
 
 ### 3. electron-builder: the exact pin moves from 26.8.1 to 26.18.1 (U02)
 
-The project documents its exact electron-builder pin at 26.8.1 as a workaround for a newer build that failed with EPERM while renaming `win-unpacked.tmp`, and README:65 says the remaining advisories are moderate and never run on a user's machine. The lockfile history shows the failing build used 26.15.3, which renamed the extracted directory exactly once. 26.15.4 (2026-06-16) added `moveDirAtomic`, which retries ENOENT, EPERM, EBUSY and EXDEV five times and then falls back to copy and delete, and 26.18.1 still has it (A3-2). The pin, meanwhile, keeps all 7 high advisories in the builder chain. One of them, GHSA-7g7r-gx96-252g (CVE-2026-54672, CVSS 7.8), is in the AppImage launcher that the configured Linux target generates: its `LD_LIBRARY_PATH` puts the launch directory on the library search path, and that script does run on users' machines (A1-10). On a scratch lockfile, 26.18.1 cleared all 7. Windows packaging cannot run in the sandbox, so the windows-installer workflow validates it on the PR. A verifier notes that the copy-and-delete fallback does not retry the delete, so a file held open by antivirus could still fail a local build; the machine that originally hit EPERM is the decisive test.
+The project documents its exact electron-builder pin at 26.8.1 as a workaround for a newer build that failed with EPERM while renaming `win-unpacked.tmp`, and README:65 says the remaining advisories are moderate and never run on a user's machine. The lockfile history shows the failing build used 26.15.3, which renamed the extracted directory exactly once. 26.15.4 (2026-06-16) added `moveDirAtomic`, which tries the rename up to five times (four retries) on ENOENT, EPERM, EBUSY and EXDEV and then falls back to copy and delete, and 26.18.1 still has it (A3-2). The pin, meanwhile, keeps all 7 high advisories in the builder chain. One of them, GHSA-7g7r-gx96-252g (CVE-2026-54672, CVSS 7.8), is in the AppImage launcher that the configured Linux target generates: its `LD_LIBRARY_PATH` puts the launch directory on the library search path, and that script does run on users' machines (A1-10). On a scratch lockfile, 26.18.1 cleared all 7. Windows packaging cannot run in the sandbox, so the windows-installer workflow validates it on the PR. A verifier notes that the copy-and-delete fallback does not retry the delete, so a file held open by antivirus could still fail a local build; the machine that originally hit EPERM is the decisive test.
 
 ### 4. TradingView: a sandboxed iframe instead of tv.js in the app document (U06, U07)
 
@@ -261,7 +261,7 @@ Twelve of the 14 reviews requested changes, with 28 must-fix findings in all. Ea
 
 **Verification at the head of this pull request**
 
-- **Unit tests.** `npm test`: 304 tests pass, against 116 at the base. They also pass under `TZ=America/New_York` with `LANG=de_DE.UTF-8`, which CI now repeats.
+- **Unit tests.** `npm test`: 305 tests pass, against 116 at the base. They also pass under `TZ=America/New_York` with `LANG=de_DE.UTF-8`, which CI now repeats.
 - **Lint.** ESLint now applies its recommended rules to main.cjs, preload.cjs, the scripts and the tests as well as the renderer. It is clean with `--max-warnings 0`.
 - **Native.** 7 CTest suites pass, against 6 at the base; the new one is a locale regression. The marketdata parity suite runs 15,296 cases plus its time-zone re-runs. Where a Turkish locale is available, it also runs 1,749 zone-name cases under it.
 - **Browser regressions.** `npm run test:ui` passes against the dev server and against `vite preview` of the production build, with no CSP violations. CI runs it on Linux against both, and on Windows.
@@ -274,8 +274,8 @@ Twelve of the 14 reviews requested changes, with 28 must-fix findings in all. Ea
 **Found during implementation**
 
 - **Chromium versions differ on failed chunk imports.** CI's Chromium 156, which is also the Chromium in Electron 45, fetches a module again after a failed import. The sandbox's Chromium 153 keeps the failure.
-  - In the shipped app, a failed idle warm-up of the stock page's chunk therefore recovers on the first visit.
-  - The error panel's Reload is needed only when the chunk still cannot be loaded.
+  - In the shipped app, the first visit after a failed idle warm-up can therefore still load the stock page's chunk. A visit that starts while the failed warm-up is still settling shares its failure, as CI's dev-server run once showed.
+  - When the chunk cannot be loaded, the desk's error panel offers Reload.
   - The browser check now accepts either behaviour and reports which one it saw.
 - **The hidden-window pause would have silenced alerts.** As first planned, U37 meant a minimised window would never raise the alerts that U30 makes possible.
   - The Overview scan therefore keeps running while the window is hidden whenever an alert type is enabled.
@@ -286,7 +286,7 @@ Twelve of the 14 reviews requested changes, with 28 must-fix findings in all. Ea
 
 **Other behaviour changes**
 
-- **Hidden window.** Desks pause auto-refresh while the window is hidden and skip the refreshes that fall due. They run one catch-up refresh when the window is shown again (U37, with the Overview exception above).
+- **Hidden window.** Desks pause auto-refresh while the window is hidden and skip the refreshes that fall due. They run one catch-up refresh when the window is shown again (U37, with the Overview exception above). The Futures desk keeps its own visible-only timer and has no catch-up.
 - **Seizure Mode** is no longer in the header theme list (U63).
   - It starts from Settings → Appearance after a photosensitivity warning.
   - Its drone follows the alert sound and volume settings and can be muted.
@@ -385,5 +385,5 @@ A completeness review of the scan named the gaps below. Leads are unverified and
 **Leads (unverified)**
 
 - **Forced colors.** Under Windows High Contrast every keyboard focus ring may vanish, because all focus styles are `outline: none` plus a box-shadow and no rule targets forced colors. This was seen only in Chromium's forced-colors emulation, and the U33, U61 and U63 fixes reuse the same ring. *Addressed in this pull request:* focus shows as a system Highlight outline under forced colors, checked in the same emulation.
-- **U58 recovery.** The plan lets the next render retry a failed chunk import, but four verifiers found that Chromium caches the failure. Stock links may stay dead unless the error boundary's Reload reloads the window, through `location.reload()` or Vite's `vite:preloadError`. *Resolved:* the error panel's Reload reloads the window. The verifiers' Chromium 153 does keep the failure, but Chromium 156, which Electron 45 ships and CI uses, fetches the chunk again, so a failed warm-up recovers on the first visit (see Implementation).
+- **U58 recovery.** The plan lets the next render retry a failed chunk import, but four verifiers found that Chromium caches the failure. Stock links may stay dead unless the error boundary's Reload reloads the window, through `location.reload()` or Vite's `vite:preloadError`. *Resolved:* the error panel's Reload reloads the window. The verifiers' Chromium 153 does keep the failure, but Chromium 156, which Electron 45 ships and CI uses, fetches the chunk again, so the first visit after a failed warm-up can still load it (see Implementation).
 - **Electron defaults.** Research webviews may autoplay media without a click, and nothing handles `render-process-gone`. *Partly addressed:* research webviews now need a click or key press before media plays with sound; `render-process-gone` is still unhandled.
