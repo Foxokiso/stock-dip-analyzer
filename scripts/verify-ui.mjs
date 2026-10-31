@@ -239,7 +239,8 @@ await backup.addInitScript(()=>{
 await backup.goto(baseUrl+'/#/settings');
 const exportBox=backup.getByLabel('Export',{exact:true});
 const copyStatus=backup.locator('.settings-field',{has:exportBox}).locator('.settings-status');
-const clipboardText=()=>backup.evaluate(()=>navigator.clipboard.readText());
+// Windows' clipboard hands copied text back with CRLF line breaks.
+const clipboardText=()=>backup.evaluate(()=>navigator.clipboard.readText()).then(text=>text.replace(/\r\n/g,'\n'));
 const exportText=await exportBox.inputValue();
 await backup.evaluate(()=>window.__seedClipboard('SENTINEL'));
 await backup.getByRole('button',{name:'Copy',exact:true}).click();
@@ -382,25 +383,49 @@ await sectors.getByRole('button',{name:'Refresh quotes',exact:true}).click();
 await sectors.waitForTimeout(700);
 assert.deepEqual(await scannedScopes(),['any','sec_consumercyclical','sec_consumerdefensive']);
 await sectors.close();
-// U58: when the stock page's chunk fails to load (here its first request, during the
-// idle warm-up), the desk shows its error panel once, without an uncaught error, and
-// the header and navigation stay usable. Go to Overview leaves it; Reload recovers it.
+// U58: the stock page's chunk fails to load during the idle warm-up, and the first visit
+// imports it again. Chromium that fetches a failed module again (the 156 Electron 45
+// ships) renders the page; older Chromium keeps the failed fetch, so the desk shows its
+// error panel, and Reload recovers it.
+const STOCK_CHUNK=/\/StockDetails[^/]*\.jsx?(\?|$)/;
+const deskErrorOn=page=>page.getByRole('alert').filter({has:page.getByRole('heading',{name:'This desk hit an error',exact:true})});
+const warmFailure=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+let warmRequests=0;
+await warmFailure.route(STOCK_CHUNK,route=>(warmRequests++===0?route.abort():route.continue()));
+await warmFailure.goto(baseUrl+'/#/');
+for (let i=0;i<100&&warmRequests===0;i++) await warmFailure.waitForTimeout(50);
+assert.equal(warmRequests,1,'the stock page chunk is warmed up after startup');
+await warmFailure.goto(baseUrl+'/#/stock/AAPL');
+const stockDesk=warmFailure.locator('main .stock-details');
+await stockDesk.or(deskErrorOn(warmFailure)).first().waitFor();
+const failedImportRefetched=await stockDesk.count()===1;
+if (failedImportRefetched) assert.equal(warmRequests,2,'the first visit fetched the chunk again');
+else {
+ await deskErrorOn(warmFailure).getByRole('button',{name:'Reload',exact:true}).click();
+ await stockDesk.waitFor();
+}
+await warmFailure.close();
+// While the chunk cannot be fetched at all, the desk shows its error panel once, without
+// an uncaught error, and the header and navigation stay usable. Go to Overview leaves it;
+// once the chunk can load again, Reload recovers it.
 const chunk=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
 const boundaryLogs=[];
 chunk.on('console',message=>{ if (message.type()==='error'&&message.text().startsWith('Render error caught by an error boundary')) boundaryLogs.push(message.text()); });
 let chunkRequests=0;
-await chunk.route(/\/StockDetails[^/]*\.jsx?(\?|$)/,route=>(chunkRequests++===0?route.abort():route.continue()));
+let chunkBlocked=true;
+await chunk.route(STOCK_CHUNK,route=>{ chunkRequests++; return chunkBlocked?route.abort():route.continue(); });
 await chunk.goto(baseUrl+'/#/');
 for (let i=0;i<100&&chunkRequests===0;i++) await chunk.waitForTimeout(50);
 assert.equal(chunkRequests,1,'the stock page chunk is warmed up after startup');
 await chunk.goto(baseUrl+'/#/stock/AAPL');
-const deskError=chunk.getByRole('alert').filter({has:chunk.getByRole('heading',{name:'This desk hit an error',exact:true})});
+const deskError=deskErrorOn(chunk);
 await deskError.waitFor();
 assert.equal(await chunk.getByRole('navigation',{name:'Main navigation',exact:true}).count(),1);
 assert.equal(boundaryLogs.length,1,'the failed desk is logged once');
 await deskError.getByRole('button',{name:'Go to Overview',exact:true}).click();
 await chunk.locator('main .dashboard').waitFor();
 await chunk.goto(baseUrl+'/#/stock/AAPL');
+chunkBlocked=false;
 await deskError.getByRole('button',{name:'Reload',exact:true}).click();
 await chunk.locator('main .stock-details').waitFor();
 await chunk.close();
@@ -416,5 +441,5 @@ for (const route of ROUTES.filter(route=>route.root)) {
 await noStorage.close();
 assert.deepEqual(errors,[]);
 assert.deepEqual(cspViolations,[],'Content Security Policy violations');
-console.log(JSON.stringify({routes:ROUTES.length,widths:[1440,390],instruments:59,rates:8,cached:59,legacyBridge:true,dataSettings:{chartCacheSeconds:300,requestTimeoutSeconds:45},plugTicks:axis.ticks,plugFill:Number(axis.fill.toFixed(2)),pageErrors:errors,cspViolations,screenshots:artifactDir},null,2));
+console.log(JSON.stringify({routes:ROUTES.length,widths:[1440,390],instruments:59,rates:8,cached:59,legacyBridge:true,failedImportRefetched,dataSettings:{chartCacheSeconds:300,requestTimeoutSeconds:45},plugTicks:axis.ticks,plugFill:Number(axis.fill.toFixed(2)),pageErrors:errors,cspViolations,screenshots:artifactDir},null,2));
 await browser.close();
