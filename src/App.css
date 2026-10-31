@@ -22,6 +22,7 @@ main { flex: 1; }
 .workspace-header { margin-bottom: calc(var(--gap) + var(--gap-xs)); }
 .workspace-topbar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: var(--gap);
@@ -78,7 +79,7 @@ main { flex: 1; }
 }
 .brand-light { font-weight: 350; color: var(--text-muted); }
 .workspace-brand sup {
-  margin-left: 6px;
+  margin-left: 1px; /* the space before <sup> makes up the 6px gap and keeps "PRO" a word */
   font-size: 8px;
   font-weight: 700;
   letter-spacing: 1px;
@@ -96,8 +97,8 @@ main { flex: 1; }
   letter-spacing: 0.5px;
 }
 
-/* ── preferences ── */
-.workspace-preferences { display: flex; align-items: center; gap: calc(var(--gap-sm) + var(--radius)); }
+/* ── preferences: wrap instead of overflowing (narrow windows, zoom, wide fonts) ── */
+.workspace-preferences { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-xs) calc(var(--gap-sm) + var(--radius)); }
 .workspace-source-note {
   display: flex;
   gap: var(--gap-xs);
@@ -126,6 +127,7 @@ main { flex: 1; }
   display: flex;
   align-items: center;
   gap: var(--gap-xs);
+  min-width: 0;
   font-size: 11px;
   color: var(--text-muted);
 }
@@ -136,6 +138,7 @@ main { flex: 1; }
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   padding: 7px 24px 7px 9px;
+  min-width: 0;
   max-width: 150px;
   font-size: 11px;
   cursor: pointer;
@@ -231,7 +234,7 @@ main { flex: 1; }
 }
 @media (max-width: 600px) {
   .app-container { padding: 0 14px 22px; }
-  .workspace-topbar { flex-wrap: wrap; gap: 17px; padding-top: 19px; }
+  .workspace-topbar { gap: 17px; padding-top: 19px; }
   .workspace-preferences { justify-content: space-between; width: 100%; }
   .workspace-nav .nav-link { padding: 9px 11px; font-size: 11px; }
   .workspace-header { margin-bottom: 25px; }

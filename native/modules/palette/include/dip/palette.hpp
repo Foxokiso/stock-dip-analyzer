@@ -73,7 +73,7 @@ inline constexpr std::array<Token, kTokenCount> kTokens{{
     {"line-strong"   , ""              , {0.4, 0.05, 270.0}    , 10, "#3d4663", 0x3D4663u, false},
     {"text-main"     , ""              , {0.965, 0.012, 90.0}  , 30, "#f6f3eb", 0xF6F3EBu, false},
     {"text-muted"    , ""              , {0.7, 0.03, 270.0}    , 10, "#979eb2", 0x979EB2u, false},
-    {"text-faint"    , ""              , {0.52, 0.03, 270.0}   , 10, "#62687b", 0x62687Bu, false},
+    {"text-faint"    , ""              , {0.64, 0.03, 270.0}   , 10, "#858c9f", 0x858C9Fu, false},
     {"ink"           , ""              , {0.1, 0.015, 270.0}   , 10, "#020307", 0x020307u, false},
     {"primary"       , "pierce-magenta", {0.7, 0.25, 324.0}    , 12, "#e556f3", 0xE556F3u, false},
     {"primary-x"     , "pierce-green"  , {0.84, 0.24, 144.0}   , 32, "#49f054", 0x49F054u, false},
