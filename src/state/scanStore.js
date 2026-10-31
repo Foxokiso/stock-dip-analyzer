@@ -90,25 +90,31 @@ export const dispatchAlertsFromAnalysis = (symbol, analysis, quote) => {
         bearish: trend === 'bearish' && trendAlertEligible,
     };
     const day = exchangeDayOf(quote);
-    let type = null;
-    for (const candidate of ALERT_TYPES) {
-        const key = `${symbol}|${candidate}`;
-        if (!active[candidate]) { alertStates.delete(key); continue; }
-        if (alertStates.get(key) !== day) type ??= candidate; // one alert even if several turn true at once
+    const raised = []; // conditions that turned true, in precedence order
+    for (const type of ALERT_TYPES) {
+        const key = `${symbol}|${type}`;
+        if (!active[type]) { alertStates.delete(key); continue; }
+        if (alertStates.get(key) !== day) raised.push(type); // raised whether or not the user's settings show it
         alertStates.set(key, day);
     }
-    if (!type) return;
+    if (raised.length === 0) return;
 
     const price = formatPrice(currentPrice);
-    const amber = type === 'breakdown' && dipPercentage >= 15;
-    const message = {
-        breakout: `Price ${price} is above its prior one-month closing high.`,
-        breakdown: `Price ${price} is no more than 0.5% above the lowest close since its one-month closing high${amber ? `, ${dipPercentage.toFixed(1)}% below that high` : ''}.`,
-        bullish: `EMA5 is above EMA10 and price is more than 1% above EMA5: ${price}.`,
-        bearish: `EMA5 is below EMA10 and price is more than 1% below EMA5: ${price}.`,
-    }[type];
+    const conditions = raised.map((type) => {
+        const amber = type === 'breakdown' && dipPercentage >= 15;
+        const message = {
+            breakout: `Price ${price} is above its prior one-month closing high.`,
+            breakdown: `Price ${price} is no more than 0.5% above the lowest close since its one-month closing high${amber ? `, ${dipPercentage.toFixed(1)}% below that high` : ''}.`,
+            bullish: `EMA5 is above EMA10 and price is more than 1% above EMA5: ${price}.`,
+            bearish: `EMA5 is below EMA10 and price is more than 1% below EMA5: ${price}.`,
+        }[type];
+        return { type, color: amber ? 'amber' : 'blue', message };
+    });
+    // One alert per symbol and refresh, even if several conditions turn true at
+    // once. It lists them all, so the alert layer can show the first one the
+    // user's alert settings allow; its own type, colour and message are the first's.
     window.dispatchEvent(new CustomEvent('stock-alert', {
-        detail: { symbol, type, color: amber ? 'amber' : 'blue', message, timestamp: Date.now(), quotedAt: quote.quotedAt, source: quote.source, delayMinutes: quote.delayMinutes,
+        detail: { symbol, ...conditions[0], conditions, timestamp: Date.now(), quotedAt: quote.quotedAt, source: quote.source, delayMinutes: quote.delayMinutes,
             score: Number.isFinite(analysis.score) ? analysis.score : null },
     }));
 };

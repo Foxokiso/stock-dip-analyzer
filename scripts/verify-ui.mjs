@@ -367,18 +367,22 @@ await sectors.waitForTimeout(700);
 assert.deepEqual(await scannedScopes(),['any','sec_consumercyclical','sec_consumerdefensive']);
 await sectors.close();
 // U58: the stock page's chunk fails to load during the idle warm-up, and the first visit
-// imports it again. Chromium that fetches a failed module again (the 156 Electron 45
-// ships) renders the page; older Chromium keeps the failed fetch, so the desk shows its
-// error panel, and Reload recovers it. A production build modulepreloads the chunk and
-// imports it at once, so there a re-fetching Chromium already retries during the warm-up.
+// imports it again once the warm-up import has failed: a visit that starts while it is
+// still failing shares its failure, whatever the browser. Chromium that fetches a failed
+// module again (the 156 Electron 45 ships) then renders the page; older Chromium keeps
+// the failed fetch, so the desk shows its error panel, and Reload recovers it. A
+// production build modulepreloads the chunk and imports it at once, so there a
+// re-fetching Chromium already retries during the warm-up.
 const STOCK_CHUNK=/\/StockDetails[^/]*\.jsx?(\?|$)/;
 const deskErrorOn=page=>page.getByRole('alert').filter({has:page.getByRole('heading',{name:'This desk hit an error',exact:true})});
 const warmFailure=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
 let warmRequests=0;
 await warmFailure.route(STOCK_CHUNK,route=>(warmRequests++===0?route.abort():route.continue()));
+const warmFailed=warmFailure.waitForEvent('requestfailed',{predicate:request=>STOCK_CHUNK.test(request.url()),timeout:10000}).then(()=>true,()=>false);
 await warmFailure.goto(baseUrl+'/#/');
-for (let i=0;i<100&&warmRequests===0;i++) await warmFailure.waitForTimeout(50);
-assert.ok(warmRequests>=1,'the stock page chunk is warmed up after startup');
+assert.ok(await warmFailed&&warmRequests>=1,'the stock page chunk is warmed up after startup');
+// The page learns of the failure about when the script does; its import rejects just after.
+await warmFailure.waitForTimeout(250);
 await warmFailure.goto(baseUrl+'/#/stock/AAPL');
 const stockDesk=warmFailure.locator('main .stock-details');
 await stockDesk.or(deskErrorOn(warmFailure)).first().waitFor();

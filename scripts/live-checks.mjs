@@ -4,15 +4,22 @@
 // unless dataOptional turns them into warnings for a run during a provider
 // outage, when only the security checks are wanted. Errors whose stack points
 // at a third-party script (TradingView's chart) are warnings; errors with no
-// source count as the app's.
+// source count as the app's. Provider redirects the main process refused are
+// warnings too.
 
 const SANDBOX = 'allow-scripts allow-same-origin';
-// A request the main process refuses is an app bug, not provider noise: an
-// invalid chart symbol, a host off the allowlist, a redirect off it. Desks log
-// some to the console; the main process logs every handler rejection. (The
-// harness's own refused-host probe is never collected: the main-process log
-// filter leaves out its "Refused request" wording.)
-const REFUSED = /Refused (chart request|request|redirect)/;
+// A request the main process refuses is an app bug, not provider noise: the app
+// asked for an invalid chart symbol, range or interval, or a host off the
+// allowlist. Desks log some to the console; the main process logs every handler
+// rejection. (The harness's own refused-host probe is never collected: the
+// main-process log filter leaves out its "Refused request" wording.)
+const REFUSED_REQUEST = /Refused (chart )?request/;
+// A refused redirect is the provider's answer to a request the app was allowed
+// to make: Yahoo sending its chart URL to a consent or captcha page, or a
+// Finviz or Google News hop off the allowlist. The desks report it like any
+// provider failure, so it is noise; a desk it leaves without data still fails
+// the live-data checks.
+const REFUSED_REDIRECT = /Refused redirect/;
 
 /**
  * The script an uncaught page error came from: the URL of the first stack frame
@@ -35,7 +42,7 @@ export function errorSource(stack) {
 export function liveFailures(report, { packaged = false, dataOptional = false } = {}) {
   const failures = [];
   const data = [];
-  const thirdParty = [];
+  const noise = []; // third-party page errors and refused provider redirects: reported, never failures
   const fail = (condition, message) => { if (condition) failures.push(message); };
   const missingData = (condition, message) => { if (condition) data.push(message); };
 
@@ -71,9 +78,12 @@ export function liveFailures(report, { packaged = false, dataOptional = false } 
   const pageErrors = report.pageErrors || [];
   const appErrors = pageErrors.filter(fromApp);
   fail(appErrors.length > 0, `page errors: ${appErrors.length}, first ${appErrors[0]?.message} (${appErrors[0]?.source || 'no source'})`);
-  for (const { message, source } of pageErrors.filter(error => !fromApp(error))) thirdParty.push(`page error in ${source}: ${message}`);
-  const refused = [...(report.consoleErrors || []), ...(report.mainProcessErrors || [])].filter(line => REFUSED.test(line));
+  for (const { message, source } of pageErrors.filter(error => !fromApp(error))) noise.push(`page error in ${source}: ${message}`);
+  const logged = [...(report.consoleErrors || []), ...(report.mainProcessErrors || [])];
+  const refused = logged.filter(line => REFUSED_REQUEST.test(line));
   fail(refused.length > 0, `refused requests: ${refused.length}, first ${refused[0]}`);
+  const redirects = logged.filter(line => REFUSED_REDIRECT.test(line));
+  if (redirects.length > 0) noise.push(`refused redirects: ${redirects.length}, first ${redirects[0]}`);
 
   const overview = report.overview || {};
   missingData(overview.firstRow == null, 'overview: no live screener row appeared');
@@ -89,5 +99,5 @@ export function liveFailures(report, { packaged = false, dataOptional = false } 
   missingData(returnVisit.firstRow == null && returnVisit.playwrightRow == null, 'return visit: no Overview row on returning');
   missingData(!(returnVisit.rows > 0), 'return visit: the Overview showed no rows');
 
-  return dataOptional ? { failures, warnings: [...thirdParty, ...data] } : { failures: [...failures, ...data], warnings: thirdParty };
+  return dataOptional ? { failures, warnings: [...noise, ...data] } : { failures: [...failures, ...data], warnings: noise };
 }

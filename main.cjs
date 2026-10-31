@@ -321,9 +321,10 @@ function createWindow() {
         backgroundColor: '#0b0a10',
         webPreferences: {
             // The renderer is sandboxed and isolated; preload.cjs exposes the
-            // three provider channels and nothing else. It loads a remote
-            // charting script and embeds third-party sites, so it must never
-            // hold Node or Electron APIs.
+            // three provider channels and nothing else. It runs only the app's
+            // own scripts but embeds third-party pages (TradingView's chart in
+            // a sandboxed iframe, the research sites in webviews), so it must
+            // never hold Node or Electron APIs.
             preload: path.join(__dirname, 'preload.cjs'),
             contextIsolation: true,
             nodeIntegration: false,

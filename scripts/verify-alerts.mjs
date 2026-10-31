@@ -129,7 +129,7 @@ for (const viewport of [{width:1440,height:900},{width:390,height:844}]) {
  assert.equal(stops.fully,0,`the history toggle hid a focused control at ${viewport.width} px`);
  await tab.close();
 }
-const silent=(tab,settings={})=>tab.addInitScript(settings=>localStorage.setItem('dipAnalyzerSettingsV2',JSON.stringify({version:2,...settings,alerts:{sound:false}})),settings);
+const silent=(tab,settings={})=>tab.addInitScript(settings=>localStorage.setItem('dipAnalyzerSettingsV2',JSON.stringify({version:2,...settings,alerts:{...settings.alerts,sound:false}})),settings);
 // U59: in Alien Fractal the alert layer stays in the viewport however far a long
 // desk is scrolled. A filter on <body> made it the containing block of fixed
 // elements, which put the toggle and toasts at the end of the page and the drawer
@@ -159,11 +159,13 @@ await fractal.getByRole('button',{name:'Alert history',exact:true}).click();
 assert.ok(await inViewport(fractal.getByRole('button',{name:'Close alert history',exact:true})),'the history drawer\'s close button leaves the viewport');
 await fractal.close();
 // C1 end to end. The Overview scans the recorded losers page and scores the two rows
-// that have recorded charts, PTHS and CETX: both at a one-month breakdown, scored 15.
-// With the browser clock two minutes after their 2026-10-30 close, each raises one
-// alert although the minimum score is 60, which gates buy-side alerts only (C1.3), and
-// a refresh that finds the same conditions stays silent (C1.2). Six minutes after the
-// close the quotes are stale and the same scan raises nothing (C1.1).
+// that have recorded charts, PTHS and CETX: both at a one-month breakdown, scored 15,
+// with a bearish trend that turns true together with it. With the browser clock two
+// minutes after their 2026-10-30 close, each raises one alert although the minimum
+// score is 60, which gates buy-side alerts only (C1.3), and a refresh that finds the
+// same conditions stays silent (C1.2). With Breakdown alerts off, each alert is the
+// bearish trend instead. Six minutes after the close the quotes are stale and the
+// same scan raises nothing (C1.1).
 const losers={urls:{'https://finviz.com/screener/stocks?v=111&o=change&r=1':await fixture('ui/finviz-losers-r1-2026-10-31.html')},
  charts:{'PTHS 1mo 1d':await fixture('ui/yahoo-chart-PTHS-1mo-2026-10-30.json'),'CETX 1mo 1d':await fixture('ui/yahoo-chart-CETX-1mo-2026-10-30.json')}};
 const closedAt=Date.parse('2026-10-30T20:00:00Z');
@@ -171,10 +173,10 @@ const closedAt=Date.parse('2026-10-30T20:00:00Z');
 const scanned=(tab,runs)=>tab.waitForFunction(runs=>window.__calls.filter(([channel,symbol])=>channel==='fetch-yahoo-chart'&&symbol==='CETX').length===runs
  &&document.querySelectorAll('.dash-row').length===20&&!document.querySelector('.dash-spinner'),runs);
 const raised=tab=>tab.evaluate(()=>JSON.parse(localStorage.getItem('dipAnalyzerAlertHistory')||'[]').map(({symbol,type,color,score})=>`${symbol} ${type} ${color} ${score}`).sort());
-const scanAt=async minutesAfterClose=>{
+const scanAt=async(minutesAfterClose,settings)=>{
  const tab=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
  await tab.clock.install({time:closedAt+minutesAfterClose*60000});
- await silent(tab);
+ await silent(tab,settings);
  await stubBridge(tab,losers);
  await tab.goto(baseUrl+'/#/');
  await scanned(tab,1);
@@ -182,8 +184,9 @@ const scanAt=async minutesAfterClose=>{
  return tab;
 };
 const alerted=['CETX breakdown amber 15','PTHS breakdown amber 15'];
+const recorded=tab=>tab.waitForFunction(()=>JSON.parse(localStorage.getItem('dipAnalyzerAlertHistory')||'[]').length>=2,null,{timeout:5000}).catch(()=>{});
 const fresh=await scanAt(2);
-await fresh.waitForFunction(()=>JSON.parse(localStorage.getItem('dipAnalyzerAlertHistory')||'[]').length>=2,null,{timeout:5000}).catch(()=>{});
+await recorded(fresh);
 assert.deepEqual(await raised(fresh),alerted,'fresh quotes at a breakdown raised these alerts');
 assert.deepEqual((await fresh.locator('.alert-toast .alert-symbol').allTextContents()).map(text=>text.trim()).sort(),['$CETX','$PTHS']);
 await fresh.getByRole('button',{name:'Refresh quotes',exact:true}).click();
@@ -191,12 +194,18 @@ await scanned(fresh,2);
 await fresh.waitForTimeout(500);
 assert.deepEqual(await raised(fresh),alerted,'a refresh repeated an alert whose condition held');
 await fresh.close();
+const bearish=['CETX bearish blue 15','PTHS bearish blue 15'];
+const trendOnly=await scanAt(2,{alerts:{breakdown:false}});
+await recorded(trendOnly);
+assert.deepEqual(await raised(trendOnly),bearish,'with Breakdown alerts off, the bearish trend that turned true with each breakdown raised these alerts');
+assert.deepEqual((await trendOnly.locator('.alert-toast .alert-toast-tag').allTextContents()).map(text=>text.trim()),['BEARISH','BEARISH']);
+await trendOnly.close();
 const stale=await scanAt(6);
 await stale.waitForTimeout(500);
 assert.deepEqual(await raised(stale),[],'a quote older than five minutes raised an alert');
 assert.equal(await stale.locator('.alert-toast').count(),0);
 await stale.close();
-const result={...(await counts()),history:entries.length,clip,obscured,c1:{fresh:alerted,stale:[]},errors,cspViolations};
+const result={...(await counts()),history:entries.length,clip,obscured,c1:{fresh:alerted,trendOnly:bearish,stale:[]},errors,cspViolations};
 console.log(result);
 await browser.close();
 assert.deepEqual(errors,[]);

@@ -27,6 +27,13 @@ const TAG_FOR_TYPE = { breakout: 'BREAKOUT', breakdown: 'BREAKDOWN', bullish: 'B
 // The minimum score is a buy-side threshold. Breakdown and bearish warnings come
 // from low-scoring setups, so they are raised whatever the score.
 const SCORE_GATED_TYPES = new Set(['breakout', 'bullish']);
+const allows = (prefs, type, score) => {
+    // Type gate: only breakout / breakdown / trend alerts the user has enabled.
+    const gate = SETTING_FOR_TYPE[type];
+    if (!gate || !prefs[gate]) return false;
+    // Score gate, buy side only, where the emitter attached a score.
+    return !(SCORE_GATED_TYPES.has(type) && score !== null && score < prefs.minScore);
+};
 
 // Semantic tone: amber → warning, up moves → success, down moves → danger, else info.
 const toneOf = ({ color, type }) => {
@@ -223,14 +230,15 @@ const LiveAlerts = () => {
             const detail = e.detail || {};
             const prefs = settingsRef.current;
 
-            // Type gate: only breakout / breakdown / trend alerts the user has enabled.
-            const gate = SETTING_FOR_TYPE[detail.type];
-            if (!gate || !prefs[gate]) return;
-            // Score gate, buy side only, where the emitter attached a score.
+            // A scan's alert lists every condition that turned true together, in
+            // precedence order. The first one these settings allow is shown, so a
+            // type switched off never hides the next; other alerts name one condition.
             const score = finite(detail.score);
-            if (SCORE_GATED_TYPES.has(detail.type) && score !== null && score < prefs.minScore) return;
+            const shown = (Array.isArray(detail.conditions) ? detail.conditions : [detail])
+                .find(condition => condition && allows(prefs, condition.type, score));
+            if (!shown) return;
 
-            const newAlert = toAlert({ ...detail, id: crypto.randomUUID(), timestamp: finite(detail.timestamp) ?? Date.now() });
+            const newAlert = toAlert({ ...detail, type: shown.type, color: shown.color, message: shown.message, id: crypto.randomUUID(), timestamp: finite(detail.timestamp) ?? Date.now() });
             if (!newAlert) return;
 
             // The history keeps every alert, toasted or not, up to the history length.

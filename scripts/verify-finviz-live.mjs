@@ -91,15 +91,15 @@ const STOCK_PAGE_STATS = ['Market Cap', 'P/E', 'Forward P/E', 'EPS (ttm)', ['Div
   }
 }
 
-// Futures JSON API used by the Futures desk.
+// Futures JSON API used by the Futures desk, which also answers without a redirect.
 {
   const started = performance.now();
   try {
-    const response = await fetch('https://finviz.com/api/futures_all?timeframe=i5', { headers: { ...HEADERS, Accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
+    const response = await fetch('https://finviz.com/api/futures_all?timeframe=i5', { headers: { ...HEADERS, Accept: 'application/json' }, redirect: 'follow', signal: AbortSignal.timeout(15000) });
     const text = await response.text();
     const snapshot = parseFinvizFutures(text, { fetchedAt: new Date().toISOString(), timeframe: 'i5', sourceUrl: 'https://finviz.com/api/futures_all?timeframe=i5' });
     const available = snapshot.quotes.filter(quote => quote.price !== null).length;
-    line('futures api', response.ok && available > 0, `HTTP ${response.status}, ${snapshot.quotes.length} instruments, ${available} priced, ${Math.round(performance.now() - started)} ms`);
+    line('futures api', response.ok && available > 0 && !response.redirected, `HTTP ${response.status}, ${snapshot.quotes.length} instruments, ${available} priced, ${Math.round(performance.now() - started)} ms${response.redirected ? `, redirected to ${response.url}` : ''}`);
   } catch (error) {
     line('futures api', false, String(error.message || error).slice(0, 120));
   }

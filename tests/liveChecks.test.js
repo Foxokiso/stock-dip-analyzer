@@ -86,7 +86,6 @@ test('page errors, CSP violations, refused requests and a refused clipboard fail
         // A hung renderer never hands over its list, and none read is not none seen.
         [r => { r.cspError = 'Error: the renderer did not answer within 5 s'; }, /csp: the violations could not be read \(Error: the renderer did not answer within 5 s\)/],
         [r => { r.consoleErrors.push("Failed to analyze BRK B Error: Refused chart request: \"BRK B\" is not a valid ticker symbol."); }, /refused requests: 1, first Failed to analyze BRK B/],
-        [r => { r.consoleErrors.push('Error loading Finviz data: Error: Refused redirect to https://evil.example.'); }, /refused requests: 1/],
         // The wording main.cjs refuses a host off the allowlist with.
         [r => { r.consoleErrors.push('Error loading X: Refused request: only HTTPS requests to finviz.com, www.finviz.com, news.google.com are allowed.'); }, /refused requests: 1, first Error loading X: Refused request: only HTTPS/],
         [r => { r.mainProcessErrors.push("Error occurred in handler for 'fetch-yahoo-chart': Error: Refused chart request: \"^VIX X\" is not a valid ticker symbol."); }, /refused requests: 1, first Error occurred in handler/],
@@ -98,6 +97,28 @@ test('page errors, CSP violations, refused requests and a refused clipboard fail
         assert.equal(failures.length, 1, `${expected}: ${failures}`);
         assert.match(failures[0], expected);
     }
+});
+
+// fetch-yahoo-chart refuses every redirect, so a Yahoo consent or captcha page
+// is logged as "Refused redirect to <origin>." by the desk and the main process.
+test('a redirect the main process refused is provider noise: a warning, never a failure', () => {
+    const consent = withChange(r => {
+        r.consoleErrors.push('Failed to analyze AAPL Error: Refused redirect to https://consent.yahoo.com.');
+        r.mainProcessErrors.push('Yahoo Fetch error: Error: Refused redirect to https://consent.yahoo.com.',
+            "Error occurred in handler for 'fetch-yahoo-chart': Error: Refused redirect to https://consent.yahoo.com.");
+    });
+    const warning = 'refused redirects: 3, first Failed to analyze AAPL Error: Refused redirect to https://consent.yahoo.com.';
+    assert.deepEqual(liveFailures(consent), { failures: [], warnings: [warning] });
+    assert.deepEqual(liveFailures(consent, { dataOptional: true }), { failures: [], warnings: [warning] });
+    // A fetch-url hop off the allowlist is also the provider's answer to an allowed request.
+    const offList = withChange(r => {
+        r.consoleErrors.push('Error loading Finviz data: Error: Refused redirect to https://elite.finviz.com.');
+        r.mainProcessErrors.push('Fetch error: Error: Refused redirect to https://consent.google.com.');
+    });
+    assert.deepEqual(liveFailures(offList), { failures: [], warnings: ['refused redirects: 2, first Error loading Finviz data: Error: Refused redirect to https://elite.finviz.com.'] });
+    // A refused request beside them still fails the run: the app asked for something wrong.
+    consent.consoleErrors.push('Failed to analyze BRK B Error: Refused chart request: "BRK B" is not a valid ticker symbol.');
+    assert.deepEqual(liveFailures(consent), { failures: ['refused requests: 1, first Failed to analyze BRK B Error: Refused chart request: "BRK B" is not a valid ticker symbol.'], warnings: [warning] });
 });
 
 test('an error thrown in a third-party frame is only a warning; one from the app still fails the run', () => {

@@ -684,6 +684,27 @@ test('conditions turning true together raise one alert, and one already seen sta
     assert.deepEqual(events.map(event => `${event.symbol} ${event.type}`), ['XYZ breakdown', 'XYZ bearish', 'ABC bearish']);
 });
 
+test('the one alert lists every condition that turned true with it, in precedence order, so a filtered one does not hide the next', (t) => {
+    const events = listenForAlerts(t);
+    setClock(t, '2026-10-30T14:01:00Z');
+    const quote = freshQuote('2026-10-30T14:00:00Z');
+    const deep = { dipPercentage: 18, currentPrice: 82 };
+    dispatchAlertsFromAnalysis('XYZ', conditions({ isBreakdown: true, trend: 'bearish', ...deep }), quote);
+    assert.equal(events.length, 1, 'one alert per symbol and refresh');
+    assert.deepEqual(events[0].conditions, [
+        { type: 'breakdown', color: 'amber', message: 'Price $82.00 is no more than 0.5% above the lowest close since its one-month closing high, 18.0% below that high.' },
+        { type: 'bearish', color: 'blue', message: 'EMA5 is below EMA10 and price is more than 1% below EMA5: $82.00.' },
+    ]);
+    assert.deepEqual({ type: events[0].type, color: events[0].color, message: events[0].message }, events[0].conditions[0]);
+    // Both are marked as raised, whichever one the alert layer shows.
+    dispatchAlertsFromAnalysis('XYZ', conditions({ isBreakdown: true, trend: 'bearish', ...deep }), quote);
+    assert.equal(events.length, 1);
+    // Only conditions that turned true are listed: here the breakdown, not the bearish trend that held.
+    dispatchAlertsFromAnalysis('XYZ', conditions({ trend: 'bearish', ...deep }), quote);
+    dispatchAlertsFromAnalysis('XYZ', conditions({ isBreakdown: true, trend: 'bearish', ...deep }), quote);
+    assert.deepEqual(events.map(event => event.conditions.map(condition => condition.type)), [['breakdown', 'bearish'], ['breakdown']]);
+});
+
 test('alert messages describe the observed condition and carry the quote provenance and score', (t) => {
     const events = listenForAlerts(t);
     setClock(t, '2026-10-30T14:01:00Z');
@@ -747,6 +768,7 @@ test('a scan raises one alert per symbol whose condition turned true, and a refr
     assert.deepEqual(events.map(event => event.symbol).sort(), scan.stocks.map(stock => stock.symbol).sort());
     assert.ok(events.every(event => event.type === 'breakdown' && event.color === 'amber' && event.quotedAt === '2026-10-30T14:00:00.000Z'
         && event.score === scan.stocks.find(stock => stock.symbol === event.symbol).recoveryProbability));
+    assert.ok(events.every(event => event.conditions.map(condition => condition.type).join() === 'breakdown,bearish'), 'the bearish trend that turned true with each breakdown is listed');
     // A refresh a minute later: new trades, the same conditions.
     clock('2026-10-30T14:02:00Z');
     quotedAt += 60;
