@@ -7,6 +7,7 @@ import { formatCompact, formatPct, formatPrice, formatQuoteTime } from '../utils
 import { useSettings } from '../state/settingsContext.js';
 import { getScan, scanAge, scanKey, startScan, useScan } from '../state/scanStore.js';
 import { getInvoke } from '../utils/bridge.js';
+import { useVisibleInterval } from '../utils/useVisibleInterval.js';
 import '../styles/pages/dashboard.css';
 
 // ─── Stable module-level constants — not React dependencies ──────────────────
@@ -100,7 +101,7 @@ const COLUMNS = [
     { id: 'trend', label: 'Trend', align: 'center', width: 50 },
     { id: 'spark', label: '15 bars', align: 'center', width: 106 },
     { id: 'rating', label: 'Rating', sortKey: 'score', align: 'center', width: 144 },
-    { id: 'expand', label: '', align: 'center', width: 44 },
+    { id: 'expand', label: 'Score breakdown', hiddenLabel: true, align: 'center', width: 44 },
 ];
 const COLUMN_COUNT = COLUMNS.length;
 const COMPANY_MIN_WIDTH = 176;
@@ -116,6 +117,9 @@ const VERDICT_CLASS = {
 };
 
 // ─── Small presentational helpers ─────────────────────────────────────────────
+// Distance below the 1-month closing high; a stock at its high reads 0.0 %, not -0.0 %.
+const dipText = (pct) => (pct.toFixed(1) === '0.0' ? '0.0%' : `-${pct.toFixed(1)}%`);
+
 const Sparkline = ({ data }) => {
     if (!data || data.length < 2) return <span className="text-muted">—</span>;
     const w = 90, h = 26, pad = 2;
@@ -141,8 +145,17 @@ const RangeBar = ({ low, high, price }) => {
     }
     const pct = Math.max(0, Math.min(1, (price - low) / (high - low)));
     const tone = pct >= 0.5 ? 'ok' : pct >= 0.25 ? 'warn' : 'bad';
+    // The bar's width and colour carry the position; the label says it, as on the stock page.
+    const position = price > high ? 'above the 52-week high'
+        : price < low ? 'below the 52-week low'
+        : `${Math.round(pct * 100)}% of the 52-week range`;
     return (
-        <div className="dash-range" title={`52W: ${formatPrice(low)} – ${formatPrice(high)}`}>
+        <div
+            className="dash-range"
+            role="img"
+            aria-label={`${position}, ${formatPrice(low)} to ${formatPrice(high)}`}
+            title={`52W: ${formatPrice(low)} – ${formatPrice(high)} · ${position}`}
+        >
             <div className={`dash-range-fill dash-range-fill--${tone}`} style={{ width: `${(pct * 100).toFixed(1)}%` }} />
         </div>
     );
@@ -163,8 +176,9 @@ const StockRow = memo(({ stock, expanded, onToggle }) => {
     const rsi = analysis?.rsi ?? null;
     const rsiTone = rsi === null ? 'is-muted' : rsi <= 30 ? 'is-up' : rsi >= 70 ? 'is-down' : 'is-muted';
     const trend = analysis?.trend || null;
-    const hasChange = Number.isFinite(stock.changePercentage);
-    const changeTone = (stock.changePercentage ?? 0) >= 0 ? 'up' : 'down';
+    const dip = analysis ? dipText(analysis.dipPercentage) : null;
+    // An unchanged quote is flat, as on Oil Watch and the Futures desk.
+    const changeTone = stock.changePercentage > 0 ? 'up' : stock.changePercentage < 0 ? 'down' : null;
     const stockPath = `/stock/${stock.symbol}`;
 
     return (
@@ -185,13 +199,11 @@ const StockRow = memo(({ stock, expanded, onToggle }) => {
                 </td>
                 <td className="numeric dash-price">{formatPrice(stock.price)}</td>
                 <td className="numeric">
-                    {hasChange
+                    {changeTone
                         ? <span className={`dash-delta dash-delta--${changeTone}`}>{formatPct(stock.changePercentage)}</span>
                         : <span className="is-muted">{formatPct(stock.changePercentage)}</span>}
                 </td>
-                <td className={`numeric ${analysis ? 'is-down' : 'is-muted'}`}>
-                    {analysis ? `-${analysis.dipPercentage.toFixed(1)}%` : '—'}
-                </td>
+                <td className={`numeric ${dip && dip !== '0.0%' ? 'is-down' : 'is-muted'}`}>{dip ?? '—'}</td>
                 <td className="numeric is-muted">{formatCompact(stock.volume)}</td>
                 <td className="numeric is-muted">{formatCompact(stock.marketCap)}</td>
                 <td className="centered">
@@ -290,7 +302,7 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
     const excludedKey = excludedSectors.join(',');
     const scanParams = useMemo(() => scanParamsOf(scope, excludedKey), [scope, excludedKey]);
     const key = scanKey(scanParams);
-    const { stocks, loading, error, phase: scanPhase } = useScan(key);
+    const { stocks, loading, error, retained } = useScan(key);
     const reuseSeconds = settings.scanner.reuseSeconds;
     const chartCacheSeconds = settings.data.chartCacheSeconds;
     const invoke = useMemo(() => getInvoke(), []);
@@ -338,13 +350,14 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
         rescan();
     }, [key, reuseSeconds, rescan]);
 
-    useEffect(() => {
-        if (autoRefreshInterval <= 0) return;
-        const intervalId = setInterval(() => {
-            if (!getScan(key).loading) rescan();
-        }, autoRefreshInterval * 60 * 1000);
-        return () => clearInterval(intervalId);
-    }, [autoRefreshInterval, key, rescan]);
+    // Auto-refresh pauses while the window is hidden, as on every desk, unless an
+    // alert type is enabled: this scan is what raises alerts, and they matter
+    // most while the window is in the background. A new scope is scanned (or
+    // adopted) by the effect above, so its schedule restarts there (resetKey).
+    const alertsCanFire = settings.alerts.breakout || settings.alerts.breakdown || settings.alerts.trend;
+    useVisibleInterval(() => {
+        if (!getScan(key).loading) rescan();
+    }, autoRefreshInterval, { whileHidden: alertsCanFire, resetKey: key });
 
     const displayStocks = useMemo(() => {
         const term = searchTerm.toLowerCase();
@@ -384,7 +397,8 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
         ? knownChanges.reduce((sum, stock) => sum + stock.changePercentage, 0) / knownChanges.length
         : null;
     const buySignals = stocks.filter(s => (s.recoveryProbability ?? 0) >= 60).length;
-    const zombieCount = stocks.filter(s => s.isZombie).length;
+    // Strong Sell rows (score below 20), toned like their rating chips.
+    const lowScoreCount = stocks.filter(s => s.isZombie).length;
     const scoredCount = stocks.filter(stock => stock.analysis).length;
     // Only actual losers qualify — an all-green basket must not crown a "dip".
     const deepestDip = stocks.reduce((worst, s) =>
@@ -404,10 +418,10 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
             {/* Header Area */}
             <div className="flex-between dash-head">
                 <div>
-                    <h2>
+                    <h1 tabIndex={-1}>
                         Market Dips Analysis
                         {loading && <RefreshCw size={20} className="dash-spinner" aria-hidden="true" />}
-                    </h2>
+                    </h1>
                     <p className="text-muted">Finviz stock quotes • delayed 1 minute • Yahoo Finance technical history.</p>
                 </div>
 
@@ -472,7 +486,8 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                 </button>
             </div>
             {error && <p role="alert" className="data-notice">{error}</p>}
-            {loading && scanPhase === 'quotes' && stocks.length > 0 && <p role="status" className="data-notice">Refreshing · previous scan retained with its original quote and retrieval times.</p>}
+            {/* Shown while rows of the previous run are still on screen, whatever the scan's phase. */}
+            {loading && retained > 0 && <p role="status" className="data-notice">Refreshing · previous scan retained with its original quote and retrieval times.</p>}
 
             {/* Summary stat tiles */}
             <div className="dash-stats">
@@ -480,10 +495,10 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                 <StatTile
                     label="Avg Day Δ"
                     value={avgDayChange === null ? '—' : formatPct(avgDayChange)}
-                    tone={avgDayChange === null ? undefined : avgDayChange >= 0 ? 'up' : 'down'}
+                    tone={avgDayChange > 0 ? 'up' : avgDayChange < 0 ? 'down' : undefined}
                 />
                 <StatTile label="Buy signals (scored)" value={scoredCount ? buySignals : '—'} tone={buySignals > 0 ? 'up' : undefined} />
-                <StatTile label="Low scores" value={scoredCount ? zombieCount : '—'} tone={zombieCount > 0 ? 'muted' : undefined} />
+                <StatTile label="Low scores" value={scoredCount ? lowScoreCount : '—'} tone={lowScoreCount > 0 ? 'down' : undefined} />
                 <StatTile
                     label="Deepest Dip"
                     value={deepestDip ? `${deepestDip.symbol} ${formatPct(deepestDip.changePercentage)}` : '—'}
@@ -517,7 +532,8 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                                         aria-sort={active ? (sortDir === 'desc' ? 'descending' : 'ascending') : undefined}
                                     >
                                         {/* No-break space: a wrapped header keeps the arrow with its last word. */}
-                                        {col.label}{active ? (sortDir === 'desc' ? '\u00a0▼' : '\u00a0▲') : ''}
+                                        {col.hiddenLabel ? <span className="visually-hidden">{col.label}</span> : col.label}
+                                        {active ? (sortDir === 'desc' ? '\u00a0▼' : '\u00a0▲') : ''}
                                     </th>
                                 );
                             })}

@@ -227,7 +227,7 @@
   gap: var(--gap-xs) var(--gap-sm);
   margin-bottom: var(--gap-sm);
 }
-.stock-details .sd-panel h3 {
+.stock-details .sd-panel h2 {
   display: flex;
   align-items: center;
   gap: var(--gap-xs);
@@ -238,7 +238,7 @@
   letter-spacing: -0.01em;
   color: var(--text-main);
 }
-.stock-details .sd-panel h3 svg { flex-shrink: 0; }
+.stock-details .sd-panel h2 svg { flex-shrink: 0; }
 .stock-details .sd-icon--primary { color: var(--primary); }
 .stock-details .sd-icon--secondary { color: var(--secondary); }
 .stock-details .sd-icon--warning { color: var(--warning); }
@@ -431,6 +431,10 @@
   background: linear-gradient(90deg, var(--sd-wash-bad-46), var(--sd-wash-warn-46), var(--sd-wash-ok-46));
   box-shadow: inset 0 0 0 1px var(--line);
 }
+/* Forced colours drop the gradient and the inset hairline; a system-colour border keeps the track. */
+@media (forced-colors: active) {
+  .stock-details .sd-range-track { border: 1px solid CanvasText; }
+}
 .stock-details .sd-range-marker {
   position: absolute;
   top: 50%;
@@ -603,13 +607,17 @@
   letter-spacing: 0.02em;
   color: var(--text-faint);
 }
+/* A headline, not a section title: Seizure Mode's rule for h1-h3 stays off it. */
 .stock-details .sd-news-title {
   margin: 0;
+  padding: 0;
+  border: 0;
   font-family: var(--font-body);
   font-size: 13px;
   font-weight: 500;
   line-height: 1.45;
   letter-spacing: 0;
+  text-transform: none;
 }
 .stock-details .sd-news-title a {
   border-radius: var(--radius-sm);

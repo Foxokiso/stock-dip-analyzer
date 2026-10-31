@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { parseFinvizScreener } from '../utils/finviz';
 import { getInvoke } from '../utils/bridge.js';
 import { formatPrice, formatPct, formatCompact, formatQuoteTime } from '../utils/format';
+import { startVisibleInterval } from '../utils/useVisibleInterval.js';
 import '../styles/pages/etf-discovery.css';
 
 const CATEGORIES = [
@@ -37,7 +38,8 @@ const ETFAwards = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
             await Promise.all(CATEGORIES.map(async (category) => {
                 if (cancelled) return;
                 try {
-                    const url = `https://finviz.com/screener.ashx?v=${category.view}&f=ind_exchangetradedfund&o=${category.order}`;
+                    // Finviz's canonical ETF screener URL, so no redirect hops.
+                    const url = `https://finviz.com/screener/etf?v=${category.view}&f=etf_sectype_exchangetradedfund&o=${category.order}`;
                     const html = await invoke('fetch-url', url);
                     const fetchedAt = new Date().toISOString();
                     const rows = parseFinvizScreener(html, { view: category.view, fetchedAt }).slice(0, 10);
@@ -50,15 +52,15 @@ const ETFAwards = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
             if (!cancelled) setLoading(false);
         };
         fetchEtfs();
-        const timer = autoRefreshInterval > 0 ? setInterval(fetchEtfs, autoRefreshInterval * 60 * 1000) : null;
-        return () => { cancelled = true; if (timer) clearInterval(timer); };
+        const stopTimer = startVisibleInterval(fetchEtfs, autoRefreshInterval);
+        return () => { cancelled = true; stopTimer(); };
     }, [autoRefreshInterval]);
 
     const hasRatingFilter = !['All', 'Bullish', 'Bearish'].includes(globalFilter);
     return (
         <div className="etf-awards-page">
             <div className="page-heading flex-between">
-                <div><p className="eyebrow">Fund research</p><h2><Trophy size={24} /> ETF leaders</h2><p className="text-muted">Finviz rankings with the corresponding return or dividend yield displayed.</p></div>
+                <div><p className="eyebrow">Fund research</p><h1 tabIndex={-1}><Trophy size={24} /> ETF leaders</h1><p className="text-muted">Finviz rankings with the corresponding return or dividend yield displayed.</p></div>
                 <a href="https://etfdb.com/" target="_blank" rel="noopener noreferrer" className="btn btn-outline"><ExternalLink size={16} /> ETF Database</a>
             </div>
             <div className="source-banner"><span>Finviz · US equities delayed 1 minute · Quote timestamp not supplied</span>{loading && <span className="etf-fetch-status" role="status"><RefreshCw size={13} className="spin" /> Fetching rankings…</span>}</div>
@@ -70,7 +72,7 @@ const ETFAwards = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                     const rows = hasRatingFilter ? [] : list.rows.filter(etf => globalFilter === 'All' || (globalFilter === 'Bullish' ? etf.change > 0 : etf.change < 0));
                     return (
                         <section key={key} className={`glass-panel etf-leader-panel${list.stale ? ' data-stale' : ''}`}>
-                            <h3><Icon size={18} />{title}</h3>
+                            <h2><Icon size={18} />{title}</h2>
                             <p className="source-meta">{list.fetchedAt ? `Fetched ${formatQuoteTime(list.fetchedAt)}` : 'No verified data loaded'}{list.stale ? ' · Stale' : ''}</p>
                             {list.error && <p className="data-notice" role="status">{list.error}{list.stale ? ' Showing the last successful list.' : ''}</p>}
                             {rows.length === 0 && <div className="desk-empty">{loading && !list.fetchedAt ? 'Fetching rankings…' : list.error && !list.fetchedAt ? 'Rankings unavailable.' : 'No funds match the current filter.'}</div>}

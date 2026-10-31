@@ -303,6 +303,14 @@
 .theme-card.is-selected::after { opacity: var(--glow-intensity); }
 .theme-card:has(input:focus-visible) { box-shadow: var(--focus-ring); }
 .theme-card.is-selected:has(input:focus-visible) { box-shadow: var(--focus-ring), inset 0 0 0 1px var(--primary); }
+/* Forced colours drop the rings above; the custom controls' native inputs are
+   invisible, so their visible part takes the system-colour outline instead. */
+@media (forced-colors: active) {
+  .segmented-option:has(input:focus-visible),
+  .theme-card:has(input:focus-visible),
+  .switch input:focus-visible + .switch-track,
+  .checkbox input:focus-visible + .checkbox-box { outline: 2px solid Highlight; outline-offset: 2px; }
+}
 /* The strip: that theme's ink, primary and complement. The theme class on the
    swatch scopes its tokens; the legacy themes pair primary with secondary
    because they define no --primary-x of their own. */
@@ -316,26 +324,13 @@
   overflow: hidden;
   border: 1px solid var(--line);
 }
-.theme-swatch.theme-majestic, .theme-swatch.theme-anime, .theme-swatch.theme-seizure { --swatch-b: var(--secondary); }
+.theme-swatch.theme-majestic, .theme-swatch.theme-anime { --swatch-b: var(--secondary); }
 .theme-swatch-ink { background: var(--bg-dark); }
 .theme-swatch-a { background: var(--swatch-a); }
 .theme-swatch-b { background: var(--swatch-b); }
 .theme-card-text { display: flex; flex-direction: column; gap: 3px; }
 .theme-card-text strong { font-family: var(--font-heading); font-size: 13px; font-weight: 600; color: var(--text-main); }
 .theme-card-text small { font-size: 11px; line-height: 1.45; color: var(--text-muted); }
-.theme-card-text em {
-  align-self: flex-start;
-  margin-top: 3px;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-style: normal;
-  font-size: 9px;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-  color: var(--warning);
-  background: var(--settings-wash-warn-07);
-  border: 1px solid color-mix(in oklch, var(--warning) 27%, transparent);
-}
 
 /* ── disclosures, facts, notes ── */
 .settings-disclosure {

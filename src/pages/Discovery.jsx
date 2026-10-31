@@ -6,6 +6,7 @@ import { getInvoke } from '../utils/bridge.js';
 import { formatPrice, formatPct, formatCompact, formatQuoteTime } from '../utils/format';
 import { mountTradingViewWidget } from '../utils/tradingView';
 import { useSettings } from '../state/settingsContext.js';
+import { startVisibleInterval } from '../utils/useVisibleInterval.js';
 import '../styles/pages/etf-discovery.css';
 
 const normalizeSector = (sector) => sector.toLowerCase().replace(/[^a-z]/g, '');
@@ -70,8 +71,8 @@ const Discovery = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
             }
         };
         fetchDiscoveryList();
-        const timer = autoRefreshInterval > 0 ? setInterval(fetchDiscoveryList, autoRefreshInterval * 60 * 1000) : null;
-        return () => { cancelled = true; if (timer) clearInterval(timer); };
+        const stopTimer = startVisibleInterval(fetchDiscoveryList, autoRefreshInterval);
+        return () => { cancelled = true; stopTimer(); };
     }, [autoRefreshInterval]);
 
     const hasRatingFilter = !['All', 'Bullish', 'Bearish'].includes(globalFilter);
@@ -79,7 +80,7 @@ const Discovery = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
     return (
         <div className="discovery-page">
             <div className="page-heading flex-between">
-                <div><p className="eyebrow">Market exploration</p><h2><Compass size={24} /> Discovery</h2><p className="text-muted">Unusual volume and monthly volatility, with TradingView chart research.</p></div>
+                <div><p className="eyebrow">Market exploration</p><h1 tabIndex={-1}><Compass size={24} /> Discovery</h1><p className="text-muted">Unusual volume and monthly volatility, with TradingView chart research.</p></div>
                 <a href="https://www.stockfetcher.com/" target="_blank" rel="noopener noreferrer" className="btn btn-outline"><Compass size={14} /> StockFetcher</a>
             </div>
             <div className="source-banner"><span>Finviz · US equities delayed 1 minute · Quote timestamp not supplied</span><span className="discovery-banner-time">{fetchedAt ? `Fetched ${formatQuoteTime(fetchedAt)}${stale ? ' · Stale' : ''}` : 'No verified quotes loaded'}</span></div>
@@ -87,13 +88,13 @@ const Discovery = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
             {hasRatingFilter && <p className="data-notice">Discovery results do not carry recovery ratings. Select All Ratings, Bullish, or Bearish to view the scan.</p>}
             <div className="discovery-grid">
                 <section className="glass-panel discovery-chart-panel">
-                    <h3><BarChart2 size={18} /> TradingView · {activeWidgetSymbol}</h3>
+                    <h2><BarChart2 size={18} /> TradingView · {activeWidgetSymbol}</h2>
                     <p className="source-meta">Chart data and quote delay are supplied by TradingView.</p>
                     {chartError?.symbol === activeWidgetSymbol && <div className="data-notice" role="status"><span>{chartError.message}</span><button type="button" className="btn btn-outline" onClick={() => setChartRetry(previous => previous + 1)}>Retry chart</button></div>}
                     <div id="tv_discovery_chart" ref={chartContainerRef} className="discovery-chart" />
                 </section>
                 <section className={`glass-panel discovery-results-panel${stale ? ' data-stale' : ''}`}>
-                    <h3><Zap size={18} /> Unusual volume {loading && <RefreshCw size={13} className="spin" />}</h3>
+                    <h2><Zap size={18} /> Unusual volume {loading && <RefreshCw size={13} className="spin" />}</h2>
                     <p className="text-muted">Select a ticker to inspect its chart.</p>
                     {stocks.length === 0 && <div className="desk-empty">{loading ? 'Scanning the market…' : error && !fetchedAt ? 'Scanner unavailable.' : 'No tickers match the current filters.'}</div>}
                     {stocks.map(stock => {

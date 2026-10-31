@@ -26,7 +26,7 @@
 
 /* ── Heading row: title, reference link, search + filter fields ───────── */
 .dashboard .flex-between.dash-head { margin-bottom: var(--gap); gap: var(--gap-sm); }
-.dashboard .dash-head h2 {
+.dashboard .dash-head h1 {
   display: flex;
   align-items: center;
   gap: var(--gap-xs);
@@ -97,10 +97,13 @@
 .dashboard .dash-reference { color: var(--primary); }
 
 /* ── Search and filter fields ─────────────────────────────────────────── */
-.dashboard .flex-center.dash-controls { gap: var(--gap-sm); }
+/* The row wraps, and min-width: 0 lets a field (and its selects) narrow below
+   its longest option, so a 320 px window does not scroll sideways. */
+.dashboard .flex-center.dash-controls { gap: var(--gap-sm); min-width: 0; }
 .dashboard .dash-field {
   display: flex;
   align-items: center;
+  min-width: 0;
   gap: var(--gap-xs);
   padding: 8px 13px;
   border-radius: var(--radius);
@@ -211,7 +214,6 @@
 }
 .dashboard .dash-stat--up .dash-stat-value { color: var(--success); }
 .dashboard .dash-stat--down .dash-stat-value { color: var(--danger); }
-.dashboard .dash-stat--muted .dash-stat-value { color: var(--text-muted); }
 
 /* ── Table panel ──────────────────────────────────────────────────────── */
 .dashboard .dash-table-panel {
@@ -295,6 +297,10 @@
 .dashboard .is-up { color: var(--success); }
 .dashboard .is-down { color: var(--danger); }
 .dashboard .is-muted { color: var(--text-muted); }
+/* The selected row's primary wash is the lightest row ground: there, down text
+   takes the lifted danger and the faint meta lines muted ink, to keep 4.5:1. */
+.dashboard .dash-row.is-expanded .is-down { color: var(--dash-danger-lift); }
+.dashboard .dash-row.is-expanded .dash-meta:not(.dash-meta--stale) { color: var(--text-muted); }
 
 .dashboard .dash-symbol {
   font-family: var(--font-mono);
@@ -321,7 +327,8 @@
 .dashboard .dash-meta--stale { color: var(--warning); }
 .dashboard .dash-price { font-weight: 600; color: var(--text-main); }
 
-/* Up / down badges: role text on the matching 14 % wash. */
+/* Up / down badges: role text on the matching 14 % wash. Down takes the lifted
+   danger of the Sell chips; plain danger on its wash is below 4.5:1 here. */
 .dashboard .dash-delta,
 .dashboard .dash-trend {
   display: inline-block;
@@ -333,7 +340,7 @@
 .dashboard .dash-delta--up,
 .dashboard .dash-trend--up { color: var(--success); background: var(--wash-ok-14); }
 .dashboard .dash-delta--down,
-.dashboard .dash-trend--down { color: var(--danger); background: var(--wash-bad-14); }
+.dashboard .dash-trend--down { color: var(--dash-danger-lift); background: var(--wash-bad-14); }
 .dashboard .dash-trend { min-width: 22px; font-size: 10px; text-align: center; }
 
 /* 52-week position bar: the fill width is data and stays inline. */
@@ -351,6 +358,11 @@
 .dashboard .dash-range-fill--ok { background: var(--success); }
 .dashboard .dash-range-fill--warn { background: var(--warning); }
 .dashboard .dash-range-fill--bad { background: var(--danger); }
+/* Forced colours paint track and fill in the page colour; system colours keep the bar. */
+@media (forced-colors: active) {
+  .dashboard .dash-range { border: 1px solid CanvasText; }
+  .dashboard .dash-range-fill { background: CanvasText; }
+}
 
 /* Sparkline: stroke follows the bar direction. */
 .dashboard .dash-spark { display: inline-block; vertical-align: middle; }

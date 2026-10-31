@@ -37,13 +37,13 @@ const prefersReducedMotion = () => typeof window.matchMedia === 'function' && wi
 
 // ── small building blocks ─────────────────────────────────────────────────
 
-function Section({ id, title, blurb, onReset, children, headingRef }) {
+function Section({ id, title, blurb, onReset, children }) {
   const headingId = `settings-${id}-title`;
   return (
     <section id={`settings-${id}`} className="settings-section glass-panel" aria-labelledby={headingId} data-section={id}>
       <header className="settings-section-head">
         <div>
-          <h2 id={headingId} ref={headingRef} tabIndex={-1}>{title}</h2>
+          <h2 id={headingId} tabIndex={-1}>{title}</h2>
           <p>{blurb}</p>
         </div>
         {onReset && (
@@ -142,7 +142,6 @@ function Checkbox({ id, checked, onChange, children, tone }) {
 }
 
 function ThemeCard({ theme, selected, onSelect, name }) {
-  const transient = isTransientTheme(theme.id);
   return (
     <label className={`theme-card${selected ? ' is-selected' : ''}`} title={theme.blurb}>
       <input type="radio" name={name} value={theme.id} checked={selected} onChange={() => onSelect(theme.id)} className="visually-hidden" />
@@ -156,7 +155,6 @@ function ThemeCard({ theme, selected, onSelect, name }) {
       <span className="theme-card-text">
         <strong>{theme.label}</strong>
         <small>{theme.blurb}</small>
-        {transient && <em>Not saved</em>}
       </span>
     </label>
   );
@@ -168,7 +166,6 @@ export default function SettingsPage() {
   const { settings, update, reset, replace } = useSettings();
   const uid = useId();
   const [active, setActive] = useState(SECTIONS[0].id);
-  const headingRefs = useRef({});
   const deskRef = useRef(null);
 
   // Track which section is in view for the index.
@@ -196,13 +193,14 @@ export default function SettingsPage() {
     const motion = settings.appearance.motion;
     const smooth = motion === 'full' || (motion === 'system' && !prefersReducedMotion());
     section.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' });
-    headingRefs.current[id]?.focus({ preventScroll: true });
+    document.getElementById(`settings-${id}-title`)?.focus({ preventScroll: true });
     setActive(id);
   }, [settings.appearance.motion]);
 
-  const bindHeading = (id) => (node) => { headingRefs.current[id] = node; };
-
   const { appearance, scanner, futures, alerts, data } = settings;
+  // A saved depth that is not a preset (one migrated from v1, or imported) is
+  // listed with them, so one option is always selected; the Overview does the same.
+  const depthOptions = SCAN_DEPTHS.includes(scanner.scanDepth) ? SCAN_DEPTHS : [...SCAN_DEPTHS, scanner.scanDepth].sort((a, b) => a - b);
 
   // ── backup state ──
   const exported = useMemo(() => serializeSettings(settings), [settings]);
@@ -286,7 +284,7 @@ export default function SettingsPage() {
       <div className="page-heading">
         <div>
           <div className="eyebrow"><span className="eyebrow-line" aria-hidden="true" />WORKSPACE / PREFERENCES</div>
-          <h2>Settings</h2>
+          <h1 tabIndex={-1}>Settings</h1>
           <p className="text-muted">Everything here is saved as one document the moment it changes. Each section says what it affects and can be reset on its own.</p>
         </div>
       </div>
@@ -311,12 +309,19 @@ export default function SettingsPage() {
 
         <div className="settings-content">
           {/* 1 ── Appearance */}
-          <Section id="appearance" title="Appearance" blurb={SECTIONS[0].blurb} onReset={() => reset('appearance')} headingRef={bindHeading('appearance')}>
-            <Field label="Theme" hint="Selected on every desk immediately. Seizure Mode runs for 20 seconds and is never saved." labelId={ids.theme} wide>
+          <Section id="appearance" title="Appearance" blurb={SECTIONS[0].blurb} onReset={() => reset('appearance')}>
+            <Field label="Theme" hint="Selected on every desk immediately. Seizure Mode starts only after a photosensitivity warning, runs for 20 seconds and is never saved." labelId={ids.theme} wide>
               <div className="theme-grid" role="radiogroup" aria-labelledby={ids.theme}>
-                {THEMES.map(theme => (
+                {THEMES.filter(theme => !isTransientTheme(theme.id)).map(theme => (
                   <ThemeCard key={theme.id} theme={theme} name={`${uid}-theme-choice`} selected={appearance.theme === theme.id} onSelect={(id) => update('appearance.theme', id)} />
                 ))}
+              </div>
+              {/* A button, not a card: arrowing through the cards selects each one,
+                  and the workspace answers this request with its warning dialog. */}
+              <div className="settings-actions">
+                <button type="button" className="btn btn-outline" onClick={() => update('appearance.theme', 'theme-seizure')}>
+                  <AlertTriangle size={14} aria-hidden="true" />Run Seizure Mode…
+                </button>
               </div>
             </Field>
             <Field label="Density" hint="Compact tightens every gap and table row by 27 %." labelId={ids.density}>
@@ -331,7 +336,7 @@ export default function SettingsPage() {
           </Section>
 
           {/* 2 ── Scanner */}
-          <Section id="scanner" title="Scanner" blurb={SECTIONS[1].blurb} onReset={() => reset('scanner')} headingRef={bindHeading('scanner')}>
+          <Section id="scanner" title="Scanner" blurb={SECTIONS[1].blurb} onReset={() => reset('scanner')}>
             <Field label="Excluded sectors" hint="Checked sectors are left out of broad “any sector” scans on the Overview, ETF rankings and Discovery desks." labelId={ids.sectors} wide>
               <div className="checkbox-grid" role="group" aria-labelledby={ids.sectors}>
                 {SECTORS.map(sector => (
@@ -348,7 +353,7 @@ export default function SettingsPage() {
               <Segmented name={`${uid}-reuse-choice`} value={scanner.reuseSeconds} options={REUSE_SECONDS.map(value => ({ id: value, label: formatSeconds(value) }))} onChange={(value) => update('scanner.reuseSeconds', value)} labelledBy={ids.reuse} />
             </Field>
             <Field label="Scan depth" hint="Names fetched from the Finviz screener per scan. Each one needs its own Yahoo chart request, so deeper scans take proportionally longer and hold more rows in memory." labelId={ids.depth}>
-              <Segmented name={`${uid}-depth-choice`} value={scanner.scanDepth} options={SCAN_DEPTHS.map(value => ({ id: value, label: `Top ${value}` }))} onChange={(value) => update('scanner.scanDepth', value)} labelledBy={ids.depth} />
+              <Segmented name={`${uid}-depth-choice`} value={scanner.scanDepth} options={depthOptions.map(value => ({ id: value, label: `Top ${value}` }))} onChange={(value) => update('scanner.scanDepth', value)} labelledBy={ids.depth} />
             </Field>
             <Field label="Default rating filter" hint="What the header rating filter starts on when the app opens." htmlFor={ids.rating}>
               <Select id={ids.rating} value={scanner.defaultRating} options={RATING_FILTERS.map(id => ({ id, label: RATING_LABELS[id] ?? id }))} onChange={(id) => update('scanner.defaultRating', id)} />
@@ -359,7 +364,7 @@ export default function SettingsPage() {
           </Section>
 
           {/* 3 ── Futures */}
-          <Section id="futures" title="Futures" blurb={SECTIONS[2].blurb} onReset={() => reset('futures')} headingRef={bindHeading('futures')}>
+          <Section id="futures" title="Futures" blurb={SECTIONS[2].blurb} onReset={() => reset('futures')}>
             <Field label="Default market group" hint="The category the board opens on." htmlFor={ids.group}>
               <Select id={ids.group} value={futures.defaultGroup} options={[{ id: 'all', label: 'All markets' }, ...FUTURES_GROUPS.map(group => ({ id: group.id, label: group.label }))]} onChange={(id) => update('futures.defaultGroup', id)} />
             </Field>
@@ -376,11 +381,11 @@ export default function SettingsPage() {
           </Section>
 
           {/* 4 ── Alerts */}
-          <Section id="alerts" title="Alerts" blurb={SECTIONS[3].blurb} onReset={() => reset('alerts')} headingRef={bindHeading('alerts')}>
-            <Field label="Sound" hint="Plays a short tone when an alert arrives." labelId={ids.sound}>
+          <Section id="alerts" title="Alerts" blurb={SECTIONS[3].blurb} onReset={() => reset('alerts')}>
+            <Field label="Sound" hint="Plays a short tone when an alert arrives. Off also silences the Seizure Mode drone." labelId={ids.sound}>
               <Switch id={`${uid}-sound-switch`} checked={alerts.sound} onChange={(checked) => update('alerts.sound', checked)}>Alert sound {alerts.sound ? 'on' : 'off'}</Switch>
             </Field>
-            <Field label="Volume" hint="Relative loudness of the alert tone." htmlFor={ids.volume}>
+            <Field label="Volume" hint="Relative loudness of the alert tone. Below the default it also quietens the Seizure Mode drone." htmlFor={ids.volume}>
               <Slider id={ids.volume} value={alerts.volume} min={0} max={1} step={0.01} onChange={(value) => update('alerts.volume', value)} format={formatPercent} />
             </Field>
             <Field label="Alert types" hint="Which technical events raise an alert. Trend covers bullish and bearish trend alerts." labelId={ids.types}>
@@ -402,7 +407,7 @@ export default function SettingsPage() {
           </Section>
 
           {/* 5 ── Data & sources */}
-          <Section id="data" title="Data & sources" blurb={SECTIONS[4].blurb} onReset={() => reset('data')} headingRef={bindHeading('data')}>
+          <Section id="data" title="Data & sources" blurb={SECTIONS[4].blurb} onReset={() => reset('data')}>
             <Field label="Chart cache" hint="How long a Yahoo chart response is reused by Overview scoring, the stock page and Oil Watch. A reused quote keeps its original retrieval time; the Market Pulse strip always fetches live." labelId={ids.chartCache}>
               <Segmented name={`${uid}-chart-cache-choice`} value={data.chartCacheSeconds} options={CHART_CACHE_SECONDS.map(value => ({ id: value, label: formatSeconds(value) }))} onChange={(value) => update('data.chartCacheSeconds', value)} labelledBy={ids.chartCache} />
             </Field>
@@ -422,7 +427,7 @@ export default function SettingsPage() {
           </Section>
 
           {/* 6 ── Backup */}
-          <Section id="backup" title="Backup" blurb={SECTIONS[5].blurb} headingRef={bindHeading('backup')}>
+          <Section id="backup" title="Backup" blurb={SECTIONS[5].blurb}>
             <Field label="Export" hint="The current document as JSON. Seizure Mode is written as the default theme." htmlFor={ids.exportBox} wide>
               <textarea id={ids.exportBox} ref={exportRef} className="settings-json" readOnly value={exported} rows={10} spellCheck={false} onCopy={onExportCopy} onBlur={() => settleManualCopy(null)} />
               <div className="settings-actions">
@@ -456,7 +461,7 @@ export default function SettingsPage() {
           </Section>
 
           {/* 7 ── About */}
-          <Section id="about" title="About" blurb={SECTIONS[6].blurb} headingRef={bindHeading('about')}>
+          <Section id="about" title="About" blurb={SECTIONS[6].blurb}>
             <div className="settings-about">
               <p className="settings-about-title"><strong>Dip Analyzer PRO</strong> <span className="settings-version">v{APP_VERSION}</span></p>
               <p>The interface is built on the 27 system: every hue sits on a grid of 27° steps in OKLCH, so hue k and hue k + 20 are exact complements and each pierce pair (magenta/green, cyan/red, violet/yellow, amber/blue) cuts through the ink instead of blending into it. Tints, washes and timing are the same base multiplied by 0.73, 0.46 and 0.27 — nothing is picked by eye.</p>

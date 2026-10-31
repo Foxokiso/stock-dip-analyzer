@@ -6,8 +6,8 @@ import { LayoutDashboard } from 'lucide-react';
 export default function NotFound() {
     const { pathname } = useLocation();
     return (
-        <div className="desk-empty glass-panel not-found">
-            <h1>Page not found</h1>
+        <div className="desk-empty glass-panel">
+            <h1 tabIndex={-1}>Page not found</h1>
             <p>Nothing in the workspace lives at <code>{pathname}</code>.</p>
             <Link to="/"><LayoutDashboard size={14} aria-hidden="true" />Go to Overview</Link>
         </div>

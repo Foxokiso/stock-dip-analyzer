@@ -10,6 +10,7 @@ import { fetchYahooChart } from '../utils/chartCache';
 import { mapPool } from '../utils/pool';
 import { getInvoke } from '../utils/bridge.js';
 import { useSettings } from '../state/settingsContext.js';
+import { startVisibleInterval } from '../utils/useVisibleInterval.js';
 import '../styles/pages/oil-watch.css';
 
 const BASKET_CONCURRENCY = 8;
@@ -72,11 +73,14 @@ const RATING_TONE = { 'Strong Buy': 'strong-buy', Buy: 'buy', Hold: 'hold', Sell
 
 // An unchanged quote (0 or -0) is flat, as on the Futures desk and in the Bullish/Bearish filter.
 const signTone = (value) => value > 0 ? 'oil-up' : value < 0 ? 'oil-down' : 'oil-flat';
+// Distance below the 1-month closing high; a ticker at its high reads 0.0 %, not -0.0 %.
+const dipText = (pct) => (pct.toFixed(1) === '0.0' ? '0.0%' : `-${pct.toFixed(1)}%`);
 
 // ─── One row of a ticker board ───────────────────────────────────────────────
 const BoardRow = ({ row, expanded, onToggle }) => {
     const a = row.analysis;
     const verdict = a ? getVerdict(a.score, a.isZombie) : null;
+    const dip = a ? dipText(a.dipPercentage) : null;
     // The tone follows the verdict on every page: Strong Sell is danger, never a muted grey.
     const ratingTone = verdict ? RATING_TONE[verdict.label] || 'muted' : null;
     const rsiTone = a?.rsi == null ? 'oil-flat' : a.rsi <= 30 ? 'oil-up' : a.rsi >= 70 ? 'oil-down' : 'oil-flat';
@@ -98,7 +102,7 @@ const BoardRow = ({ row, expanded, onToggle }) => {
                     {row.stale && <div className="quote-meta oil-stale">Stale</div>}
                 </td>
                 <td className={`numeric ${signTone(row.changePct)}`}>{formatPct(row.changePct)}</td>
-                <td className={`numeric ${a ? 'oil-down' : 'oil-flat'}`}>{a ? `-${a.dipPercentage.toFixed(1)}%` : '—'}</td>
+                <td className={`numeric ${dip && dip !== '0.0%' ? 'oil-down' : 'oil-flat'}`}>{dip ?? '—'}</td>
                 <td className={`numeric ${rsiTone}`}>{a?.rsi != null ? a.rsi.toFixed(0) : '—'}</td>
                 <td className={`centered ${trendTone}`}>{trendGlyph}</td>
                 <td className="centered">
@@ -149,7 +153,7 @@ const BoardRow = ({ row, expanded, onToggle }) => {
 const TickerBoard = ({ title, icon, tone, rows, loading, expandedRows, onToggle, wide = false }) => (
     <section className={`glass-panel oil-board oil-board--${tone}${wide ? ' oil-board--wide' : ''}`} aria-label={title} aria-busy={loading}>
         <div className="oil-board-head">
-            <h3><span className="oil-board-icon">{icon}</span>{title}</h3>
+            <h2><span className="oil-board-icon">{icon}</span>{title}</h2>
             {loading && <RefreshCw size={14} className="oil-board-spinner oil-spin" role="img" aria-label="Refreshing quotes" />}
         </div>
         <div className="oil-table-scroll">
@@ -244,8 +248,8 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
             inFlight = false;
         };
         loadBasket();
-        const timer = autoRefreshInterval > 0 ? setInterval(loadBasket, autoRefreshInterval * 60 * 1000) : null;
-        return () => { cancelled = true; if (timer) clearInterval(timer); };
+        const stopTimer = startVisibleInterval(loadBasket, autoRefreshInterval);
+        return () => { cancelled = true; stopTimer(); };
     }, [autoRefreshInterval, chartCacheSeconds]);
 
     useEffect(() => {
@@ -280,8 +284,8 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
             }
         };
         loadNews();
-        const timer = autoRefreshInterval > 0 ? setInterval(loadNews, autoRefreshInterval * 60 * 1000) : null;
-        return () => { cancelled = true; if (timer) clearInterval(timer); };
+        const stopTimer = startVisibleInterval(loadNews, autoRefreshInterval);
+        return () => { cancelled = true; stopTimer(); };
     }, [autoRefreshInterval]);
 
     // Same global filter semantics as the other pages.
@@ -311,10 +315,10 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
             <div className="page-heading flex-between oil-heading">
                 <div>
                     <p className="eyebrow"><span className="eyebrow-line" aria-hidden="true" />Energy complex</p>
-                    <h2 className="text-gradient">
+                    <h1 className="text-gradient" tabIndex={-1}>
                         <Droplet size={24} aria-hidden="true" />
                         Oil Watch — Tankers, Refiners &amp; Middle East Flow
-                    </h2>
+                    </h1>
                     <p className="text-muted">
                         Tanker fleet, refiners, and energy ETFs with technical scores and sourced oil headlines.
                     </p>
@@ -362,7 +366,7 @@ const OilWatch = ({ autoRefreshInterval = 0, globalFilter = 'All' }) => {
                 {/* News column */}
                 <section className="glass-panel oil-news-panel oil-board--secondary" aria-label="Middle East Oil Intelligence" aria-busy={newsLoading}>
                     <div className="oil-board-head oil-news-head">
-                        <h3><span className="oil-board-icon"><Newspaper size={18} aria-hidden="true" /></span>Middle East Oil Intelligence</h3>
+                        <h2><span className="oil-board-icon"><Newspaper size={18} aria-hidden="true" /></span>Middle East Oil Intelligence</h2>
                         {newsLoading && <RefreshCw size={14} className="oil-board-spinner oil-spin" role="img" aria-label="Refreshing headlines" />}
                     </div>
                     <p className="oil-news-intro">

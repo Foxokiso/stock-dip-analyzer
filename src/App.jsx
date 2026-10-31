@@ -70,16 +70,15 @@ function Desk({ excludedSectors, autoRefreshInterval, globalFilter }) {
   const announcedPath = useRef(pathname);
 
   // Name the window after the desk. After a route change (not on the first
-  // load, and not again for the same desk) focus moves to the new desk so
-  // keyboard and screen-reader users start there. focus() itself does not
-  // scroll; with focus in the desk, Chromium's scroll anchoring may then shift
-  // the offset while the desk fills in, which keeps the content in view
-  // steadier than it would be without the focus.
+  // load, and not again for the same desk) focus moves to the new desk's h1,
+  // so keyboard and screen-reader users start there and hear its name; <main>
+  // takes it while a desk is still loading. The scroll position is kept.
   useEffect(() => {
     document.title = `${deskTitle(pathname)} — ${APP_TITLE}`;
     if (announcedPath.current === pathname) return;
     announcedPath.current = pathname;
-    mainRef.current?.focus({ preventScroll: true });
+    const main = mainRef.current;
+    (main?.querySelector('h1[tabindex]') ?? main)?.focus({ preventScroll: true });
   }, [pathname]);
 
   return (
@@ -120,11 +119,19 @@ function Workspace() {
     if (theme !== 'theme-seizure') previousThemeRef.current = theme;
   }, [theme]);
 
-  // The header filter starts from, and follows, Settings → Scanner → default rating.
+  // The header filter starts from, and follows, Settings → Scanner → default
+  // rating: a change of that setting replaces the pick, during this render.
   const [globalFilter, setGlobalFilter] = useState(defaultRating);
-  useEffect(() => { setGlobalFilter(defaultRating); }, [defaultRating]);
+  const [filterDefault, setFilterDefault] = useState(defaultRating);
+  if (filterDefault !== defaultRating) {
+    setFilterDefault(defaultRating);
+    setGlobalFilter(defaultRating);
+  }
 
-  // Warm the stock page chunk once the first paint and the initial scan requests are out.
+  // Warm the stock page chunk once the first paint and the initial scan requests
+  // are out. A failed warm-up is retried by the first visit; a failure while a
+  // visit renders stays until the window reloads (see preloadable.js), which the
+  // desk's error panel offers.
   useEffect(() => {
     const warm = () => { StockDetails.preload().catch(() => { /* not cached: the first visit imports again */ }); };
     if (typeof window.requestIdleCallback === 'function') {
@@ -136,9 +143,9 @@ function Workspace() {
   }, []);
 
   // Seizure Mode starts only from its confirmation, which carries the
-  // photosensitivity warning. The header select does not list it; a control
-  // that still selects it directly (the Settings theme cards, where arrowing
-  // checks each card in turn) gets the warning instead and the theme stays.
+  // photosensitivity warning. The header select does not list it, and the
+  // Settings desk offers it as a button outside its theme cards; a request to
+  // switch to it (that button) gets the warning instead and the theme stays.
   const seizureConfirm = useRef(null);
   const seizureConfirmed = useRef(false);
   useLayoutEffect(() => {

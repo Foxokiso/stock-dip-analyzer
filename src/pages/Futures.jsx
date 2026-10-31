@@ -138,7 +138,8 @@ function Futures({ autoRefreshInterval = 0 }) {
             <div className="desk-heading">
                 <div>
                     <div className="eyebrow"><span className="eyebrow-line" /> GLOBAL MARKETS / FUTURES</div>
-                    <h1>See the market <span className="text-muted">before the open.</span></h1>
+                    {/* The tagline is the desk's title; the hidden prefix names the desk for assistive technology. */}
+                    <h1 tabIndex={-1}><span className="visually-hidden">Futures: </span>See the market <span className="text-muted">before the open.</span></h1>
                     <p className="text-muted">One desk for equity indices, energy, metals, rates and currencies.</p>
                 </div>
                 <button className="btn btn-outline" onClick={refresh} disabled={loading}><RefreshCw size={15} className={loading ? 'is-spinning' : ''} />{loading ? 'Retrieving' : 'Refresh quotes'}</button>
@@ -168,7 +169,7 @@ function Futures({ autoRefreshInterval = 0 }) {
             <div className="futures-workspace">
                 <section className="glass-panel futures-board" aria-labelledby="contracts-title">
                     <div className="board-heading"><div><div className="eyebrow">THE MARKET AT A GLANCE</div><h2 id="contracts-title">Futures board</h2></div><span className="board-count">{available.length} available <span>of {quotes.length}</span></span></div>
-                    <div className="futures-toolbar"><div className="category-filter" aria-label="Filter futures category"><button onClick={() => setGroup(DEFAULT_GROUP)} aria-pressed={group === DEFAULT_GROUP}>All markets</button>{FUTURES_GROUPS.map((item) => <button key={item.id} onClick={() => setGroup(item.id)} aria-pressed={group === item.id}>{item.label}</button>)}</div><label className="desk-search"><Search size={15} /><input aria-label="Search futures" placeholder="Find a market" value={query} onChange={(e) => setQuery(e.target.value)} /></label></div>
+                    <div className="futures-toolbar"><div className="category-filter" role="group" aria-label="Filter futures category"><button onClick={() => setGroup(DEFAULT_GROUP)} aria-pressed={group === DEFAULT_GROUP}>All markets</button>{FUTURES_GROUPS.map((item) => <button key={item.id} onClick={() => setGroup(item.id)} aria-pressed={group === item.id}>{item.label}</button>)}</div><label className="desk-search"><Search size={15} /><input aria-label="Search futures" placeholder="Find a market" value={query} onChange={(e) => setQuery(e.target.value)} /></label></div>
                     <div className="futures-table-scroll"><table className="futures-table"><thead><tr><th>Instrument</th><th>Last</th><th>Change %</th><th>Source samples</th><th>Data status</th></tr></thead><tbody>
                         {filtered.map((quote) => <tr key={quote.symbol} className={focused?.symbol === quote.symbol ? 'selected-row' : ''}><td><button className="instrument-button" onClick={() => setSelected(quote.symbol)} aria-pressed={focused?.symbol === quote.symbol}><span className="instrument-symbol">{quote.symbol}</span><span className="instrument-name">{quote.name}</span></button></td><td className="numeric">{nativeNumber(quote.price)}</td><td className="numeric"><Change value={quote.changePct} /></td><td><SourceChart quote={quote} /></td><td><StatusChip quote={quote} title={`Retrieved ${retrievalTime(quote.fetchedAt)}. Quote time unknown.`} /></td></tr>)}
                     </tbody></table></div>

@@ -10,6 +10,7 @@ import { getInvoke } from '../utils/bridge.js';
 import { useSettings } from '../state/settingsContext.js';
 import { finvizQuoteUrl, parseFinvizQuotePage } from '../utils/finvizQuote.js';
 import { mountTradingViewWidget } from '../utils/tradingView';
+import { useVisibleInterval } from '../utils/useVisibleInterval.js';
 import '../styles/pages/stock-details.css';
 
 const RESOURCE_TABS = [
@@ -33,9 +34,7 @@ const InternalResourceViewer = ({ symbol, theme }) => {
         if (activeTab !== 'tradingview' || !container) return;
         // The chart follows the app theme, as on Discovery: a theme switch remounts it.
         return mountTradingViewWidget(container, {
-            autosize: true, symbol, interval: 'D', timezone: 'America/New_York', theme,
-            style: '1', locale: 'en', enable_publishing: false, hide_side_toolbar: false,
-            container_id: 'tv_stockdetail_chart',
+            symbol, interval: 'D', timezone: 'America/New_York', theme, style: '1', locale: 'en', hide_side_toolbar: false,
         }, {
             onReady: () => setChartError(null),
             onError: error => setChartError({ symbol, message: error.message }),
@@ -231,6 +230,18 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
         }
     }
 
+    // Refresh data, Retry and the auto-refresh tick re-run every fetch below. The
+    // loading state is set here, in the same render, rather than by the effects.
+    const refresh = () => {
+        setChartRetry(value => value + 1);
+        setChartLoading(true);
+        setChartError(false);
+        setTechnicalRefreshing(true);
+        setTechnicalError('');
+        setFinvizRefreshing(true);
+        setFinvizError('');
+    };
+
     // Effect A: fetch the price chart whenever symbol or range changes. Only the
     // chart panel waits for it: the header and score (Yahoo 1-month history), the
     // research viewer and the Finviz sections each load and fail on their own.
@@ -238,8 +249,6 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
     // range's never reach it (see above).
     useEffect(() => {
         let cancelled = false;
-        setChartLoading(true);
-        setChartError(false);
 
         const finish = () => {
             if (!cancelled) setChartLoading(false);
@@ -282,8 +291,6 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
     // The score uses a fixed month regardless of the chart's selected display range.
     useEffect(() => {
         let cancelled = false;
-        setTechnicalRefreshing(true);
-        setTechnicalError('');
         const loadTechnical = async () => {
             const electron = getElectron();
             if (!electron) {
@@ -320,17 +327,11 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
         return () => { cancelled = true; };
     }, [symbol, chartRetry, chartCacheSeconds]);
 
-    useEffect(() => {
-        if (autoRefreshInterval <= 0) return;
-        const timer = setInterval(() => setChartRetry(value => value + 1), autoRefreshInterval * 60 * 1000);
-        return () => clearInterval(timer);
-    }, [autoRefreshInterval]);
+    useVisibleInterval(refresh, autoRefreshInterval);
 
     // Finviz statistics and news have their own retrieval time and error state.
     useEffect(() => {
         let cancelled = false;
-        setFinvizRefreshing(true);
-        setFinvizError('');
 
         const loadFinviz = async () => {
             const electron = getElectron();
@@ -452,7 +453,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
 
             <div className="sd-header">
                 <div>
-                    <h1 className="sd-title">
+                    <h1 className="sd-title" tabIndex={-1}>
                         <span className="sd-symbol">{symbol}</span>
                         {!technicalPending && (
                             <>
@@ -482,7 +483,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
                         </p>
                     )}
                 </div>
-                <button type="button" className="btn btn-primary sd-refresh" onClick={() => setChartRetry(value => value + 1)} disabled={chartLoading}>
+                <button type="button" className="btn btn-primary sd-refresh" onClick={refresh} disabled={chartLoading}>
                     <RefreshCw size={14} /> Refresh data
                 </button>
             </div>
@@ -504,10 +505,10 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
 
             <div className="glass-panel sd-panel sd-chart-panel">
                 <div className="sd-panel-head">
-                    <h3>
+                    <h2>
                         Price Action ({rangeLabel})
                         {chartLoading && <RefreshCw size={16} className="sd-spin" />}
-                    </h3>
+                    </h2>
                     <div className="sd-segmented sd-range-switch" role="group" aria-label="Chart range">
                         {RANGES.map(r => (
                             <button
@@ -528,7 +529,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
                         <p>
                             Failed to load {rangeText} chart data for {symbol}.
                         </p>
-                        <button type="button" className="btn btn-outline" onClick={() => setChartRetry(n => n + 1)}>
+                        <button type="button" className="btn btn-outline" onClick={refresh}>
                             Retry
                         </button>
                     </div>
@@ -583,10 +584,10 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
 
             {/* Key Statistics (Finviz snapshot) */}
             <div className="glass-panel sd-panel sd-stats-panel">
-                <h3>
+                <h2>
                     <BarChart3 size={18} className="sd-icon--primary" />
                     Key Statistics (Finviz)
-                </h3>
+                </h2>
                 <p className="sd-meta">Finviz · delayed 1 minute · quote time unavailable · {finvizPending ? 'retrieving…' : `retrieved ${formatQuoteTime(finvizFetchedAt)}`}</p>
                 {finvizFetchedAt && finvizRefreshing && <p className="sd-meta sd-meta--refreshing">Refreshing · previous statistics and headlines retained.</p>}
                 {finvizFetchedAt && finvizStale && <p className="data-notice">Cached statistics and headlines · original retrieval time retained.</p>}
@@ -644,10 +645,10 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
 
             <div className="sd-grid">
                 <div className="glass-panel sd-panel sd-analysis-panel">
-                    <h3>
+                    <h2>
                         <AlertTriangle size={18} className="sd-icon--warning" />
                         Technical Analysis (1M)
-                    </h3>
+                    </h2>
                     <p className="sd-analysis-text">
                         {technicalPending ? (
                             <>Loading the 1-month Yahoo Finance history…</>
@@ -692,7 +693,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
                 </div>
 
                 <div className="glass-panel sd-panel sd-news-panel">
-                    <h3>Recent Headlines (Finviz)</h3>
+                    <h2>Recent Headlines (Finviz)</h2>
                     {news.length === 0 ? (
                         finvizPending
                             ? <p className="sd-empty" role="status">Loading Finviz headlines…</p>
@@ -707,11 +708,11 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
                                             <span className="sd-news-source">{item.source}</span>
                                         )}
                                     </div>
-                                    <h4 className="sd-news-title">
+                                    <h3 className="sd-news-title">
                                         <a href={item.link} target="_blank" rel="noreferrer">
                                             {item.title}
                                         </a>
-                                    </h4>
+                                    </h3>
                                 </li>
                             ))}
                         </ul>

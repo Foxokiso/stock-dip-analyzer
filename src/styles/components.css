@@ -380,6 +380,9 @@
   text-transform: none;
   color: var(--text-faint);
 }
+/* A card too narrow for both (a 320 px window) puts the change under the
+   price instead of past the card's edge. */
+.market-pulse .pulse-values { flex-wrap: wrap; row-gap: var(--gap-xs); }
 .market-pulse .pulse-price {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -396,7 +399,9 @@
   background: color-mix(in oklch, var(--text-muted) 14%, transparent);
 }
 .market-pulse .pulse-change--up   { color: var(--success); background: var(--wash-ok-14); }
-.market-pulse .pulse-change--down { color: var(--danger); background: var(--wash-bad-14); }
+/* Danger lifted 27 % toward white (the link-hover derivation in index.css):
+   plain danger on its wash falls below 4.5:1 on a hovered card. */
+.market-pulse .pulse-change--down { color: oklch(from var(--danger) calc(l + (1 - l) * var(--m3)) c h); background: var(--wash-bad-14); }
 /* Sparkline stroke is currentColor, so the direction class sets the colour. */
 .market-pulse .pulse-sparkline { color: var(--text-muted); }
 .market-pulse .pulse-sparkline--up   { color: var(--success); }

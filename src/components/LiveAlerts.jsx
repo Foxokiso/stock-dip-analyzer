@@ -290,12 +290,14 @@ const LiveAlerts = () => {
 
     return (
         <>
-            {/* Live toasts */}
-            <div className="alert-stack">
+            {/* Live toasts. One persistent live region announces each toast as it
+                arrives; a status region inserted together with its text is often
+                not read. Each toast is read whole, so is a changed "+N more". */}
+            <div className="alert-stack" role="log" aria-label="Live alerts">
                 {alerts.map((alert) => {
                     const tone = toneOf(alert);
                     return (
-                        <div key={alert.id} className={`alert-toast alert-toast--${tone}`} role="status">
+                        <div key={alert.id} className={`alert-toast alert-toast--${tone}`} aria-atomic="true">
                             <div className="alert-toast-head">
                                 <button type="button" className="alert-symbol" onClick={() => openSymbol(alert.symbol)} title="View details">
                                     <ToneIcon tone={tone} size={14} />${alert.symbol}
@@ -307,7 +309,7 @@ const LiveAlerts = () => {
                     );
                 })}
                 {overflow > 0 && (
-                    <div className="alert-toast alert-toast--overflow" role="status">
+                    <div className="alert-toast alert-toast--overflow" aria-atomic="true">
                         <button type="button" className="alert-overflow" onClick={openHistory}>
                             +{overflow} more alert{overflow === 1 ? '' : 's'} — open history
                         </button>
