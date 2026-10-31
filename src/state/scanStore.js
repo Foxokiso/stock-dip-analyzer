@@ -30,7 +30,7 @@ export const scanKey = ({ sector = '', excludedSectors = [], targetCount }) =>
     JSON.stringify([sector, sector ? [] : [...excludedSectors].sort(), targetCount]);
 
 // `retained` counts the rows of an earlier run still on screen while a refresh replaces them.
-const EMPTY_SCAN = Object.freeze({ stocks: [], loading: false, phase: null, error: '', startedAt: null, completedAt: null, retained: 0 });
+const EMPTY_SCAN = Object.freeze({ stocks: [], loading: false, error: '', completedAt: null, retained: 0 });
 const scans = new Map();   // key -> scan state
 const runs = new Map();    // key -> latest run id
 const listeners = new Set();
@@ -283,10 +283,7 @@ async function scanScreener(key, { sector, excludedSectors, targetCount }, fetch
     };
     const scheduleFlush = () => { if (flushTimer === null) flushTimer = timers.setTimeout(flushScores, FLUSH_MS); };
 
-    const paging = Promise.all(Array.from({ length: PAGE_CONCURRENCY }, pageWorker)).finally(() => {
-        if (!stale()) patch(key, { phase: 'analysis' });
-        pending.close();
-    });
+    const paging = Promise.all(Array.from({ length: PAGE_CONCURRENCY }, pageWorker)).finally(() => pending.close());
     let attempted = 0, failedCharts = 0, chartFailure = null;
     // Two full rounds of chart slots failing in a row mean Yahoo refuses or
     // cannot be reached, not that the names lack history. The run then stops
@@ -360,7 +357,7 @@ export async function startScan(params, { invoke = null, chartCacheSeconds = 0, 
     runs.set(key, runId);
     const stale = () => runs.get(key) !== runId;
     focusScan(key);
-    patch(key, { loading: true, phase: 'quotes', error: '', startedAt: now(), retained: getScan(key).stocks.length });
+    patch(key, { loading: true, error: '', retained: getScan(key).stocks.length });
     try {
         if (!invoke) throw new Error('Market data requires the desktop app connection. No sample quotes are shown.');
         // A superseded run's request still waiting for a slot is dropped when its turn comes.
@@ -387,7 +384,7 @@ export async function startScan(params, { invoke = null, chartCacheSeconds = 0, 
             });
         }
     } finally {
-        if (!stale()) patch(key, { loading: false, phase: null, retained: 0 });
+        if (!stale()) patch(key, { loading: false, retained: 0 });
     }
     return getScan(key);
 }

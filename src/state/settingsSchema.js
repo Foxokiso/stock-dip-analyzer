@@ -76,7 +76,7 @@ export const DEFAULT_SETTINGS = deepFreeze({
     breakout: true,
     breakdown: true,
     trend: true,
-    minScore: 60,             // Breakout and Bullish alerts need at least this score
+    minScore: 60,             // Bullish alerts need at least this score; no other type is gated
     historyLimit: 50,
   },
   data: {

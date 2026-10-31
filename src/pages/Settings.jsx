@@ -14,7 +14,7 @@ import '../styles/settings.css';
 
 const SECTIONS = [
   { id: 'appearance', label: 'Appearance', icon: Palette, blurb: 'Theme, density, motion and glow for every desk.' },
-  { id: 'scanner', label: 'Scanner', icon: ScanSearch, blurb: 'What the Overview, ETF and Discovery scans include, how deep they go and how often they re-run.' },
+  { id: 'scanner', label: 'Scanner', icon: ScanSearch, blurb: 'Sectors the Overview’s any-sector scans and Discovery leave out, how often every desk refreshes, the Overview’s reuse window, depth and sort, and the rating filter the header opens with.' },
   { id: 'futures', label: 'Futures', icon: ChartNoAxesCombined, blurb: 'How the futures desk opens and what it discloses about its delayed Finviz feed.' },
   { id: 'alerts', label: 'Alerts', icon: Bell, blurb: 'Which technical alerts fire, how loud they are and how many are kept.' },
   { id: 'data', label: 'Data & sources', icon: Database, blurb: 'Chart caching, the request deadline and the provider delays every desk discloses.' },
@@ -395,7 +395,7 @@ export default function SettingsPage() {
                 <Checkbox id={`${uid}-type-trend`} checked={alerts.trend} onChange={(checked) => update('alerts.trend', checked)} tone="info">Trend</Checkbox>
               </div>
             </Field>
-            <Field label="Minimum score" hint="Minimum score applies to Breakout and Bullish alerts; breakdown and bearish warnings are raised regardless of score." htmlFor={ids.minScore}>
+            <Field label="Minimum score" hint="Minimum score applies to Bullish alerts only; breakout, breakdown and bearish alerts are raised regardless of score." htmlFor={ids.minScore}>
               <div className="number-with-range">
                 <input type="range" min={0} max={100} step={1} value={alerts.minScore} aria-label="Minimum score slider" onChange={(e) => update('alerts.minScore', Number(e.target.value))} style={{ '--fill': `${alerts.minScore}%` }} />
                 <NumberField id={ids.minScore} min={0} max={100} value={alerts.minScore} onCommit={(value) => update('alerts.minScore', value)} />

@@ -31,6 +31,8 @@ const yahoo = (price = 12) => {
     }] } };
 };
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+// Waits until `condition` holds, a millisecond at a time and for at most a second.
+const until = async (condition) => { for (let i = 0; i < 1000 && !condition(); i++) await wait(1); assert.ok(condition()); };
 const pageOf = (url) => (Number(new URL(url).searchParams.get('r')) - 1) / PAGE_SIZE;
 
 // A fake desktop bridge: `pages(page, url)` returns HTML (or throws), `pageDelay(page, url)`
@@ -85,9 +87,9 @@ test('rows stream in page order before any score, then every row is scored', asy
 
     const firstRows = snapshots.find(snapshot => snapshot.stocks.length > 0);
     assert.ok(firstRows.stocks.every(stock => stock.analysis === null), 'rows are shown before their scores arrive');
-    assert.ok(snapshots.some(snapshot => snapshot.phase === 'quotes'));
-    assert.ok(snapshots.some(snapshot => snapshot.phase === 'analysis'));
     assert.ok(snapshots.every(snapshot => snapshot.retained === 0), 'a first scan has nothing to retain');
+    // Every field of the scan state is one the Overview reads.
+    assert.deepEqual([...new Set(snapshots.flatMap(Object.keys))].sort(), ['completedAt', 'error', 'loading', 'retained', 'stocks']);
     assert.ok(peak() > 1 && peak() <= HYDRATE_CONCURRENCY, `scoring ran ${peak()} wide`);
     assert.equal(calls.charts.length, 40, 'one chart request per row');
     assert.deepEqual([...calls.charts].sort(), scan.stocks.map(stock => stock.symbol).sort(), 'each symbol is scored exactly once');
@@ -327,16 +329,24 @@ test('focusScan reorders requests already waiting for a chart slot', async (t) =
     assert.equal(await servedFirst({ focus: true }), 'O'.repeat(HYDRATE_CONCURRENCY), 'the older run, focused while its requests wait, is served first');
 });
 
-test('a superseded run never sends the requests it still had waiting for a slot', async () => {
+test('a superseded run never sends the requests it still had waiting for a slot', async (t) => {
     let tag = 'T';
     const pages = (page, url) => (page > 0 ? table([]) : url.includes('sec_energy') ? losersPage(0, { tag: 'S', sector: 'Energy' }) : losersPage(0, { tag }));
-    const { invoke, calls } = bridge({ pages, chartDelay: 30 });
-    const busy = startScan(params(20, { sector: 'energy' }), { invoke }); // holds every chart slot
-    await wait(10);
-    const superseded = startScan(params(20), { invoke });               // its charts queue behind
-    await wait(5);
+    // The busy scope holds every chart slot until the gate opens (at the latest when the test ends).
+    let open;
+    const gate = new Promise(resolve => { open = resolve; });
+    t.after(open);
+    const { invoke, calls } = bridge({ pages, yahooFor: (symbol) => (symbol.startsWith('S') ? gate.then(() => yahoo()) : yahoo()) });
+    const key = scanKey(params(20));
+    const listed = (prefix) => getScan(key).stocks.length === 20 && getScan(key).stocks.every(stock => stock.symbol.startsWith(prefix));
+    const busy = startScan(params(20, { sector: 'energy' }), { invoke });
+    await until(() => calls.charts.length === HYDRATE_CONCURRENCY);
+    const superseded = startScan(params(20), { invoke }); // its rows' charts queue behind
+    await until(() => listed('T'));
     tag = 'U';
     const latest = startScan(params(20), { invoke });
+    await until(() => listed('U'));
+    open();
     const [, , scan] = await Promise.all([busy, superseded, latest]);
     assert.ok(scan.stocks.every(stock => stock.symbol.startsWith('U') && stock.analysis));
     assert.equal(calls.charts.filter(symbol => symbol.startsWith('T')).length, 0);
@@ -497,8 +507,6 @@ test('too little history everywhere is not a provider failure', async () => {
 // Each chart request settles in one timer turn, so they settle in screener order.
 const timedOut = () => { throw new Error('Request timed out after 12 s'); };
 const stoppedEarly = (reason, skipped) => `Yahoo Finance scoring failed for ${CHART_FAILURE_CUTOFF} names in a row: ${reason} Scoring stopped early, so technical scores are unavailable for ${skipped} more names.`;
-// Waits until `condition` holds, a millisecond at a time and for at most a second.
-const until = async (condition) => { for (let i = 0; i < 1000 && !condition(); i++) await wait(1); assert.ok(condition()); };
 
 test('a deep scan whose Yahoo requests keep failing stops scoring instead of waiting out every request', async () => {
     const { invoke, calls } = bridge({ pages: fullPage, yahooFor: timedOut });

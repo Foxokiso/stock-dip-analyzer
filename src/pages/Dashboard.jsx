@@ -244,7 +244,7 @@ const StockRow = memo(({ stock, expanded, onToggle }) => {
                     <td colSpan={COLUMN_COUNT}>
                         {stock.analysis ? (
                             <div>
-                                <p className="dash-detail-meta">Technical score · fixed 1-month daily series · {stock.analysis.quote.source} quote {formatPrice(stock.analysis.currentPrice)} as of {formatQuoteTime(stock.analysis.quote.quotedAt)} · {stock.analysis.quote.delayMinutes === null ? 'delay unknown' : `${stock.analysis.quote.delayMinutes} min delay`}</p>
+                                <p className="dash-detail-meta">Technical score · fixed 1-month daily series · {stock.analysis.quote.source} quote {formatPrice(stock.analysis.currentPrice)} as of {formatQuoteTime(stock.analysis.quote.quotedAt)} · {stock.analysis.quote.delayMinutes === null ? 'delay unknown' : `${stock.analysis.quote.delayMinutes} min delay`} · retrieved {formatQuoteTime(stock.analysis.quote.fetchedAt)}</p>
                                 <div className="dash-factors">
                                     {stock.analysis.factors.map((f) => {
                                         const tone = f.points > 0 ? 'up' : f.points < 0 ? 'down' : 'flat';
@@ -486,7 +486,7 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                 </button>
             </div>
             {error && <p role="alert" className="data-notice">{error}</p>}
-            {/* Shown while rows of the previous run are still on screen, whatever the scan's phase. */}
+            {/* Shown for as long as rows of the previous run are still on screen. */}
             {loading && retained > 0 && <p role="status" className="data-notice">Refreshing · previous scan retained with its original quote and retrieval times.</p>}
 
             {/* Summary stat tiles */}

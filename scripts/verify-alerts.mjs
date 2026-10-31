@@ -1,4 +1,5 @@
-// Browser regressions for the alert UI; recorded source data only, never in runtime views.
+// Browser regressions for the alert UI, on recorded source data (one chart carries
+// test-only closes); none of it reaches a runtime view.
 import {chromium} from 'playwright';
 import {readFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
@@ -38,6 +39,7 @@ await page.addInitScript(()=>{
 });
 const counts=()=>page.evaluate(()=>({contexts:window.__contexts,closed:window.__closed,amber:window.__amber,plays:window.__plays}));
 const toasts=()=>page.locator('.alert-toast:not(.alert-toast--overflow)').count();
+const focused=()=>page.evaluate(()=>document.activeElement.getAttribute('aria-label')??document.activeElement.tagName);
 await page.goto(baseUrl+'/#/futures');
 await page.getByRole('heading',{name:/See the market/}).waitFor();
 await page.waitForTimeout(500);
@@ -47,7 +49,11 @@ assert.deepEqual(soundRequests,[],'the alert sound is not fetched at startup');
 // A malformed stored entry renders as an entry instead of blanking the window.
 await page.getByRole('button',{name:'Alert history',exact:true}).click();
 await page.locator('.alert-entry',{hasText:'$OLD'}).waitFor();
+// The drawer covers its toggle, so opening it moves focus to its Close button; the Close
+// button goes with the drawer, so closing it returns focus to the toggle.
+assert.equal(await focused(),'Close alert history','focus after the toggle opened the history');
 await page.getByRole('button',{name:'Close alert history',exact:true}).click();
+assert.equal(await focused(),'Alert history','focus after closing the history');
 // One amber alert: one context and one sound; the context is kept for the next amber sound.
 await page.evaluate(()=>window.__alert({symbol:'TEST',type:'breakdown',color:'amber'}));
 await page.waitForTimeout(250);
@@ -79,19 +85,35 @@ await page.waitForFunction(at=>Date.now()-at>=2050,lateAt);
 await page.evaluate(()=>window.__alert({symbol:'AMBER2',type:'breakdown',color:'amber'}));
 await page.waitForTimeout(250);
 assert.deepEqual(await counts(),{contexts:1,closed:0,amber:2,plays:1},'a second amber sound reuses the one audio context');
-// The minimum score gates the buy side only: the score-10 warnings above were raised.
+// The minimum score gates Bullish alerts only: the score-10 warnings above were raised,
+// and so is a breakout under it.
 await page.evaluate(()=>{
  window.__alert({symbol:'LOWBULL',type:'bullish',score:10});
  window.__alert({symbol:'LOWBRK',type:'breakout',score:59});
  window.__alert({symbol:'HIGHBULL',type:'bullish',score:60});
 });
 await page.waitForTimeout(250);
-// The summary opens the history: every raised alert, newest first, up to the history length.
-await page.locator('.alert-overflow').click();
+// The summary opens the history and, as it removes itself, hands focus to the drawer:
+// every raised alert, newest first, up to the history length.
+await page.locator('.alert-overflow').focus();
+await page.keyboard.press('Enter');
 await page.locator('.alert-drawer').waitFor();
+assert.equal(await focused(),'Close alert history','focus after the summary opened the history');
 const entries=(await page.locator('.alert-entry .alert-symbol').allTextContents()).map(text=>text.trim());
-assert.deepEqual(entries,['$HIGHBULL','$AMBER2','$LATE2','$LATE1',...Array.from({length:11},(_,i)=>`$B${12-i}`)]);
+assert.deepEqual(entries,['$HIGHBULL','$LOWBRK','$AMBER2','$LATE2','$LATE1',...Array.from({length:10},(_,i)=>`$B${12-i}`)]);
 assert.equal(await page.locator('.alert-toast--overflow').count(),0,'opening the history clears the summary');
+await page.keyboard.press('Enter');
+await page.locator('.alert-drawer').waitFor({state:'detached'});
+assert.equal(await focused(),'Alert history','focus after closing the history from the keyboard');
+// With the history open already, the summary still hands focus to the drawer.
+await page.keyboard.press('Enter'); // the focused toggle opens the history
+await page.locator('.alert-drawer').waitFor();
+assert.equal(await focused(),'Close alert history','focus after the toggle opened the history from the keyboard');
+await page.evaluate(()=>{ for (let i=1;i<=4;i++) window.__alert({symbol:`OPEN${i}`,type:'breakdown'}); });
+await page.locator('.alert-overflow').focus();
+await page.keyboard.press('Enter');
+await page.locator('.alert-toast--overflow').waitFor({state:'detached'});
+assert.equal(await focused(),'Close alert history','focus after the summary, with the history open already');
 // The floating history toggle never hides a focused control (WCAG 2.4.11): tab through
 // the Overview with the recorded screener page; Yahoo is unavailable, so rows stay unscored.
 const screener=await fixture('finviz-overview-2026.html');
@@ -162,8 +184,8 @@ await fractal.close();
 // that have recorded charts, PTHS and CETX: both at a one-month breakdown, scored 15,
 // with a bearish trend that turns true together with it. With the browser clock two
 // minutes after their 2026-10-30 close, each raises one alert although the minimum
-// score is 60, which gates buy-side alerts only (C1.3), and a refresh that finds the
-// same conditions stays silent (C1.2). With Breakdown alerts off, each alert is the
+// score is 60, which gates Bullish alerts only, and a refresh that finds the same
+// conditions stays silent (C1.2). With Breakdown alerts off, each alert is the
 // bearish trend instead. Six minutes after the close the quotes are stale and the
 // same scan raises nothing (C1.1).
 const losers={urls:{'https://finviz.com/screener/stocks?v=111&o=change&r=1':await fixture('ui/finviz-losers-r1-2026-10-31.html')},
@@ -184,7 +206,7 @@ const scanAt=async(minutesAfterClose,settings)=>{
  return tab;
 };
 const alerted=['CETX breakdown amber 15','PTHS breakdown amber 15'];
-const recorded=tab=>tab.waitForFunction(()=>JSON.parse(localStorage.getItem('dipAnalyzerAlertHistory')||'[]').length>=2,null,{timeout:5000}).catch(()=>{});
+const recorded=(tab,count=2)=>tab.waitForFunction(count=>JSON.parse(localStorage.getItem('dipAnalyzerAlertHistory')||'[]').length>=count,count,{timeout:5000}).catch(()=>{});
 const fresh=await scanAt(2);
 await recorded(fresh);
 assert.deepEqual(await raised(fresh),alerted,'fresh quotes at a breakdown raised these alerts');
@@ -205,7 +227,87 @@ await stale.waitForTimeout(500);
 assert.deepEqual(await raised(stale),[],'a quote older than five minutes raised an alert');
 assert.equal(await stale.locator('.alert-toast').count(),0);
 await stale.close();
-const result={...(await counts()),history:entries.length,clip,obscured,c1:{fresh:alerted,trendOnly:bearish,stale:[]},errors,cspViolations};
+// A breakout raised by a scan at the default minimum score of 60. The dip score keeps a
+// fresh one-month closing high at or under 50 in practice (no dip, no bounce to score),
+// which is why the minimum score gates Bullish alerts only. No recorded chart is at such a high, and no row of the losers page can be (it
+// trades under yesterday's close), so the Photonics basket gets PTHS's recorded response
+// as LITE's chart, with test-only closes: a 20.00 closing high 12 sessions before the
+// 2026-10-30 close of 20.60. The basket's other charts are unavailable.
+const breakoutChart=JSON.parse(losers.charts['PTHS 1mo 1d']);
+{
+ const result=breakoutChart.chart.result[0];
+ result.indicators.quote[0].close=[15,15.5,16,16.4,16.9,17.3,17.8,18.4,18.9,19.5,20,19.6,19.1,18.7,18.4,18.6,18.9,19.1,19.3,19.2,19.5,19.8,20.6];
+ assert.equal(result.indicators.quote[0].close.length,result.timestamp.length);
+ Object.assign(result.meta,{symbol:'LITE',longName:'LITE',shortName:'LITE',regularMarketPrice:20.6});
+}
+const photonics=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+await photonics.clock.install({time:closedAt+2*60000});
+await silent(photonics);
+await photonics.addInitScript(()=>localStorage.setItem('dipAnalyzerSector','photonics'));
+await stubBridge(photonics,{charts:{'LITE 1mo 1d':JSON.stringify(breakoutChart)}});
+await photonics.goto(baseUrl+'/#/');
+await photonics.waitForFunction(()=>window.__calls.some(([channel,symbol])=>channel==='fetch-yahoo-chart'&&symbol==='LITE')
+ &&document.querySelectorAll('.dash-row').length===8&&!document.querySelector('.dash-spinner'));
+assert.equal((await photonics.locator('.dash-row',{hasText:'LITE'}).locator('.dash-verdict').textContent()).trim(),'Hold (50)');
+await recorded(photonics,1);
+const breakout=['LITE breakout blue 50'];
+assert.deepEqual(await raised(photonics),breakout,'a breakout under the minimum score raised this alert');
+assert.deepEqual((await photonics.locator('.alert-toast .alert-toast-tag').allTextContents()).map(text=>text.trim()),['BREAKOUT']);
+await photonics.close();
+// The scan that raises alerts also says where each score came from (data-3). With a
+// 15-minute chart cache, a refresh ten minutes later retrieves the losers page again and
+// reuses the charts: a row shows when its Finviz row was retrieved, and its score
+// breakdown the Yahoo quote time and when that chart was retrieved, each with a zone.
+const reused=await watch(await browser.newPage({viewport:{width:1440,height:1050},timezoneId:'America/New_York',locale:'en-US'}));
+await reused.clock.install({time:closedAt+2*60000});
+await silent(reused,{data:{chartCacheSeconds:900}});
+await stubBridge(reused,losers);
+await reused.goto(baseUrl+'/#/');
+await scanned(reused,1);
+await reused.clock.runFor(10*60000);
+await reused.getByRole('button',{name:'Refresh quotes',exact:true}).click();
+await reused.waitForFunction(url=>window.__calls.filter(([,requested])=>requested===url).length===2&&!document.querySelector('.dash-spinner'),Object.keys(losers.urls)[0]);
+const pths=reused.locator('.dash-row',{hasText:'PTHS'});
+await pths.getByRole('button',{name:'Toggle score breakdown for PTHS',exact:true}).click();
+const provenance={
+ row:(await pths.locator('.dash-meta',{hasText:'Retrieved:'}).textContent()).trim(),
+ score:(await reused.locator('.dash-detail-meta').textContent()).trim(),
+};
+assert.equal(await reused.evaluate(()=>window.__calls.filter(([channel,symbol])=>channel==='fetch-yahoo-chart'&&symbol==='PTHS').length),1,'the refresh reused the cached chart');
+assert.match(provenance.row,/^Retrieved: 10\/30\/2026, 4:12:\d\d\sPM\sEDT$/);
+assert.match(provenance.score,/ quote \$9\.40 as of 10\/30\/2026, 4:00:00\sPM\sEDT · delay unknown · retrieved 10\/30\/2026, 4:02:\d\d\sPM\sEDT$/);
+await reused.close();
+// Alerts while the window is hidden (tests-3). Only the Overview scan raises alerts, so with
+// an alert type on, its auto-refresh keeps running while the window is hidden; with every
+// type off it pauses like every desk and catches up once when the window is shown again.
+// A scan is counted by its request for the losers page.
+const hiddenMinute=async alerts=>{
+ const tab=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+ await tab.clock.install({time:closedAt+2*60000});
+ await silent(tab,{scanner:{refreshMinutes:1},alerts});
+ await stubBridge(tab,losers);
+ await tab.goto(baseUrl+'/#/');
+ await scanned(tab,1);
+ const scans=()=>tab.evaluate(url=>window.__calls.filter(([,requested])=>requested===url).length,Object.keys(losers.urls)[0]);
+ const show=visible=>tab.evaluate(visible=>{
+  Object.defineProperty(document,'visibilityState',{configurable:true,get:()=>(visible?'visible':'hidden')});
+  Object.defineProperty(document,'hidden',{configurable:true,get:()=>!visible});
+  document.dispatchEvent(new Event('visibilitychange'));
+ },visible);
+ await show(false);
+ await tab.clock.runFor(61000);
+ await tab.waitForTimeout(500);
+ const hidden=await scans();
+ await show(true);
+ await tab.waitForTimeout(500);
+ const shown=await scans();
+ await tab.close();
+ return {hidden,shown};
+};
+const whileHidden={alertsOn:await hiddenMinute({}),alertsOff:await hiddenMinute({breakout:false,breakdown:false,trend:false})};
+assert.deepEqual(whileHidden.alertsOn,{hidden:2,shown:2},'with alerts on, the Overview scans while hidden and owes no catch-up');
+assert.deepEqual(whileHidden.alertsOff,{hidden:1,shown:2},'with every alert type off, the Overview pauses while hidden and catches up once');
+const result={...(await counts()),history:entries.length,clip,obscured,c1:{fresh:alerted,trendOnly:bearish,stale:[],breakout},provenance,whileHidden,errors,cspViolations};
 console.log(result);
 await browser.close();
 assert.deepEqual(errors,[]);

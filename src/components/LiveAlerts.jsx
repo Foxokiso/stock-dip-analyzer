@@ -5,6 +5,7 @@ import { History, X, TrendingUp, TrendingDown, AlertTriangle, Activity } from 'l
 // (ffmpeg 6.1.1 reproduces it byte for byte); the 353 KB WAV is not shipped.
 import alienAudio from '../assets/alien_ominous.mp3';
 import { formatQuoteTime } from '../utils/format';
+import { shownCondition } from '../utils/alertGates.js';
 import { useSettings } from '../state/settingsContext.js';
 import { DEFAULT_SETTINGS } from '../state/settingsSchema.js';
 import '../styles/components.css';
@@ -20,20 +21,7 @@ const SOUND_GAP_MS = 2000;
 const BASE_VOLUME = 0.25;      // HTMLAudio alert
 const BASE_AMBER_GAIN = 0.03;  // synthesized amber-alert master gain
 
-// Which Settings → Alerts toggle governs each alert type. Anything else is dropped
-// before it renders or sounds.
-const SETTING_FOR_TYPE = { breakout: 'breakout', breakdown: 'breakdown', bullish: 'trend', bearish: 'trend' };
 const TAG_FOR_TYPE = { breakout: 'BREAKOUT', breakdown: 'BREAKDOWN', bullish: 'BULLISH', bearish: 'BEARISH' };
-// The minimum score is a buy-side threshold. Breakdown and bearish warnings come
-// from low-scoring setups, so they are raised whatever the score.
-const SCORE_GATED_TYPES = new Set(['breakout', 'bullish']);
-const allows = (prefs, type, score) => {
-    // Type gate: only breakout / breakdown / trend alerts the user has enabled.
-    const gate = SETTING_FOR_TYPE[type];
-    if (!gate || !prefs[gate]) return false;
-    // Score gate, buy side only, where the emitter attached a score.
-    return !(SCORE_GATED_TYPES.has(type) && score !== null && score < prefs.minScore);
-};
 
 // Semantic tone: amber → warning, up moves → success, down moves → danger, else info.
 const toneOf = ({ color, type }) => {
@@ -161,6 +149,7 @@ const LiveAlerts = () => {
     const [overflow, setOverflow] = useState(0); // alerts of the current burst beyond them
     const [history, setHistory] = useState(loadHistory);
     const [showHistory, setShowHistory] = useState(false);
+    const [drawerFocus, setDrawerFocus] = useState(0); // requests to focus the drawer, counted
 
     const settingsRef = useRef(alertSettings);
     const audioRef = useRef(null);        // the alert clip, created on the first non-amber sound
@@ -169,6 +158,8 @@ const LiveAlerts = () => {
     const visibleRef = useRef(new Set()); // ids of the visible toasts, read synchronously by the handler
     const burstRef = useRef({ count: 0, timer: null });
     const timersRef = useRef(new Set());
+    const toggleRef = useRef(null);       // the 'Alert history' toggle
+    const drawerCloseRef = useRef(null);  // the drawer's Close button
 
     // The event handler is subscribed once (StrictMode-safe); it reads the live
     // settings through this ref instead of re-subscribing on every change.
@@ -202,9 +193,21 @@ const LiveAlerts = () => {
         setOverflow(0);
     }, []);
 
+    // Opening the history hands focus to the drawer's Close button: the drawer covers
+    // its toggle, and the "+N more" summary removes itself when it opens the history.
+    // Requests are counted, so the drawer takes focus even when it was open already.
+    useEffect(() => {
+        if (drawerFocus > 0) drawerCloseRef.current?.focus();
+    }, [drawerFocus]);
     const openHistory = () => {
         clearOverflow();
         setShowHistory(true);
+        setDrawerFocus(count => count + 1);
+    };
+    // The drawer's controls go with it, so focus returns to the toggle that opens it.
+    const closeHistory = () => {
+        setShowHistory(false);
+        toggleRef.current?.focus();
     };
 
     useEffect(() => {
@@ -230,12 +233,9 @@ const LiveAlerts = () => {
             const detail = e.detail || {};
             const prefs = settingsRef.current;
 
-            // A scan's alert lists every condition that turned true together, in
-            // precedence order. The first one these settings allow is shown, so a
-            // type switched off never hides the next; other alerts name one condition.
-            const score = finite(detail.score);
-            const shown = (Array.isArray(detail.conditions) ? detail.conditions : [detail])
-                .find(condition => condition && allows(prefs, condition.type, score));
+            // The type switches and the minimum score (alertGates.js) pick the
+            // condition shown; an alert they drop is not recorded either.
+            const shown = shownCondition(prefs, detail);
             if (!shown) return;
 
             const newAlert = toAlert({ ...detail, type: shown.type, color: shown.color, message: shown.message, id: crypto.randomUUID(), timestamp: finite(detail.timestamp) ?? Date.now() });
@@ -328,9 +328,10 @@ const LiveAlerts = () => {
             {/* History toggle, floating; the spacer keeps the end of the page clear of it. */}
             <div className="alert-history-spacer" aria-hidden="true" />
             <button
+                ref={toggleRef}
                 type="button"
                 className={`alert-history-toggle${hasWarning ? ' alert-history-toggle--warning' : ''}`}
-                onClick={() => (showHistory ? setShowHistory(false) : openHistory())}
+                onClick={() => (showHistory ? closeHistory() : openHistory())}
                 title="Alert history"
                 aria-label="Alert history"
                 aria-expanded={showHistory}
@@ -344,7 +345,7 @@ const LiveAlerts = () => {
                 <aside className="alert-drawer" aria-label="Alert history">
                     <div className="alert-drawer-head">
                         <h2><History size={20} aria-hidden="true" /> Alert History</h2>
-                        <button type="button" className="alert-drawer-close" onClick={() => setShowHistory(false)} aria-label="Close alert history">
+                        <button ref={drawerCloseRef} type="button" className="alert-drawer-close" onClick={closeHistory} aria-label="Close alert history">
                             <X size={20} aria-hidden="true" />
                         </button>
                     </div>
@@ -361,7 +362,7 @@ const LiveAlerts = () => {
                                             <button
                                                 type="button"
                                                 className="alert-symbol"
-                                                onClick={() => { openSymbol(alert.symbol); setShowHistory(false); }}
+                                                onClick={() => { openSymbol(alert.symbol); closeHistory(); }}
                                                 title="View details"
                                             >
                                                 <ToneIcon tone={tone} size={13} />${alert.symbol}

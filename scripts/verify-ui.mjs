@@ -39,7 +39,7 @@ const ROUTES=[
  {path:'/#/oil',title:'Oil Watch',root:'.oil-watch-page',heading:/Oil Watch/,notices:['Oil Watch quotes require the desktop app connection.','News feed requires the desktop app connection.','Market quotes require the desktop app connection.']},
  {path:'/#/discovery',title:'Discovery',root:'.discovery-page',heading:/Discovery/,notices:['Discovery quotes require the desktop app connection.','Scanner unavailable.']},
  {path:'/#/stock/AAPL',title:'AAPL — Stock',root:'.stock-details',heading:/AAPL/,notices:['Market data requires the desktop app connection. No sample quotes are shown.','Finviz statistics and news require the desktop app connection.','Failed to load 1-month chart data for AAPL.','52-week position unavailable']},
- {path:'/#/settings',title:'Settings',root:'.settings-page',heading:/^Settings$/,notices:['Minimum score applies to Breakout and Bullish alerts; breakdown and bearish warnings are raised regardless of score.','Not reported by Yahoo’s chart endpoint','Technical alerts use only quotes whose own timestamp is at most 5 minutes old.']},
+ {path:'/#/settings',title:'Settings',root:'.settings-page',heading:/^Settings$/,notices:['Minimum score applies to Bullish alerts only; breakout, breakdown and bearish alerts are raised regardless of score.','Not reported by Yahoo’s chart endpoint','Technical alerts use only quotes whose own timestamp is at most 5 minutes old.']},
  {path:'/#/stock/',title:'Page not found',root:null,heading:/Page not found/,notices:[]},
 ];
 for (const viewport of [{width:1440,height:1050},{width:390,height:844}]) {
