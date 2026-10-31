@@ -38,9 +38,16 @@ report fails the parity test it occurs in.
 
 Toolchain: `dip::jsonlite` (and with it `dip::futures`) and the scoring, format and
 marketdata drivers read numbers with floating-point `std::from_chars`, and
-`dip::format` writes them with floating-point `std::to_chars`, so the standard
-library must provide both: libstdc++ 11+ (GCC 11+), MSVC 2019 16.4+ or libc++ 20+.
-libc++ 14 to 19 have `std::to_chars` for `double` but not `std::from_chars`.
+`dip::format` writes them with floating-point `std::to_chars`; `dip::marketdata`
+also needs the C++20 time-zone database (`std::chrono::get_tzdb`, `locate_zone`,
+`zoned_time`, `current_zone`). CMake builds every module, so the core needs GCC 13+
+with libstdc++'s default (C++11) ABI, or MSVC 2019 16.10+. GCC 11 and 12 have the
+number conversions but no time zones, and libstdc++'s old ABI
+(`-D_GLIBCXX_USE_CXX11_ABI=0`) leaves the time zones out. On Windows the
+time-zone calls need Windows 10 version 1903 or later, or Windows Server 2022 or
+later, at run time (see [`modules/marketdata/README.md`](modules/marketdata/README.md)).
+libc++ has floating-point `std::from_chars` only from version 20 and lists its
+time-zone support as partial; CI does not build the core with it.
 
 Or with GCC where CMake is unavailable:
 
@@ -73,7 +80,7 @@ compared. At the time of writing:
 | `scoring_reference_parity` | `src/utils/scoring.js` | 659 |
 | `format_reference_parity` | `src/utils/format.js` | 3,321 |
 | `futures_reference_parity` | `src/services/futures.js` | 634 (560 snapshots, 73 rejections, 1 documented divergence), plus a 150,000-member object parsed in linear time |
-| `marketdata_reference_parity` | `src/utils/marketData.js` | 15,296; then 272 local-time cases re-run under four `TZ` zones and 1,749 zone-name cases re-run under a Turkish `LC_CTYPE` |
+| `marketdata_reference_parity` | `src/utils/marketData.js` | 15,296; then 68 local-time cases re-run under each of four `TZ` zones (272 in all) and 1,749 zone-name cases re-run under a Turkish `LC_CTYPE` |
 | `oilnews_reference_parity` | `src/utils/oilNews.js` | 3,917 |
 | `palette_reference_parity` | `src/styles/tokens.css` | 1,008 |
 | `locale_regression` | — | JSON numbers and the recorded futures fixture under a comma-decimal C locale |
@@ -88,15 +95,20 @@ so the library does not depend on it. `dip::jsonlite` reads numbers with
 rounding, so a comma-decimal locale such as `de_DE.UTF-8` cannot change a parsed
 or printed value; the scoring, format, marketdata and oil-news drivers read their
 input with `std::from_chars` too. `locale_regression` checks the JSON side under
-a comma-decimal locale, and exits with CTest's skip status only when none is
-available. Time-zone names are matched by folding ASCII letters only:
+a comma-decimal locale. Time-zone names are matched by folding ASCII letters only:
 `std::tolower` would leave `I` unfolded under a Turkish `LC_CTYPE` and send
 `europe/istanbul` to the UTC fallback. The marketdata parity script repeats those
 lookups under a Turkish `LC_CTYPE` (`tr_TR.UTF-8` on Linux). On Linux the
 configure step compiles `de_DE.UTF-8` and `tr_TR.UTF-8` into `<build>/locales`
 with `localedef` when glibc's locale sources are installed, so both checks also
-run on CI images that ship no such locale. The Turkish run is skipped, with a
-warning, only where no Turkish locale exists: when the configure step compiled
-one and the driver cannot switch to it, the marketdata suite fails. The
+run on CI images that ship no such locale. Each check is skipped, with a
+message, only where no such locale exists (`locale_regression` exits with CTest's
+skip status): once the configure step has compiled one, a locale the check cannot
+switch to fails it, so a broken setup cannot turn it off. For `locale_regression`,
+CTest then sets `LOCPATH` and `DIP_LOCALE_REQUIRED=1`. The configure step writes
+`de_DE.UTF-8/localedef.stamp` only after `localedef` finishes, so an interrupted
+run is redone by the next configure; configuring does not repair the directory if
+it is damaged later (a deleted file, or files a newer glibc cannot read), and the
+failure says to delete `<build>/locales/de_DE.UTF-8` and configure again. The
 host time zone for local-time `Date.parse` forms is taken from `TZ` the way V8
 takes it; see [`modules/marketdata/README.md`](modules/marketdata/README.md).

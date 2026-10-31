@@ -33,7 +33,13 @@ time (`fetchedAt`) stays separate from the source quote time (`quotedAt`).
 The exchange day uses `std::chrono` (`time_zone::get_info`, i.e. `zoned_time`
 semantics) with the IANA name Yahoo reports. Zone data comes from the **OS ICU
 (`icu.dll`) on Windows/MSVC** and from **tzdata (`/usr/share/zoneinfo`) on
-Linux/libstdc++**; the JavaScript reference uses Node's bundled ICU. Like
+Linux/libstdc++**; the JavaScript reference uses Node's bundled ICU. Building
+the module therefore needs a standard library with the C++20 time-zone database:
+GCC 13+ with libstdc++'s default (C++11) ABI, or MSVC 2019 16.10+. On Windows,
+that zone data needs Windows 10 version 1903 or later, or Windows Server 2022 or
+later, at run time. Microsoft documents a run-time error from the time-zone
+calls on older Windows; the module catches errors from them, so there every zone
+would take the UTC fallback described below (not tried on such a system). Like
 `Intl.DateTimeFormat`, the lookup ignores case and accepts link names
 (`US/Eastern`, `utc`). Case is folded for ASCII letters only, whatever C locale a
 host sets: under a Turkish `LC_CTYPE`, `std::tolower` leaves `I` unfolded, and

@@ -16,4 +16,4 @@ Browser checks deliberately stub desktop IPC with this recorded response to veri
 
 `futures-i5-2026-10-31.json` holds five records (ES, NCF, TIO, UX and ZK) copied verbatim from one live `https://finviz.com/api/futures_all?timeframe=i5` response retrieved on 2026-10-31 at 05:32:57 UTC; its `source`, `retrievedAt` and `note` fields say so. The 5-minute series of TIO, UX and ZK end away from their quotes, NCF's spans months but ends at its quote, and ES's is an ordinary one. `tests/futures.test.js` and `scripts/verify-native-futures.mjs` use them to check the rule that hides a sparkline whose samples do not agree with the quote.
 
-The browser regressions' own recordings (the Overview's first losers page and two Yahoo charts that the alert checks score) live in `ui/` and are described in [`ui/README.md`](ui/README.md).
+The browser regressions' own recordings (the Overview's first losers page and two Yahoo charts that the alert checks score, one of which they also reuse with test-only closes) live in `ui/` and are described in [`ui/README.md`](ui/README.md).

@@ -56,11 +56,15 @@ prints the formatted string:
 
 ## Build and compare
 
-Toolchain: C++20 and a standard library with floating-point `std::to_chars`, plus
-floating-point `std::from_chars` for the driver, which reads its input with it:
-MSVC 2019 16.4+ or libstdc++ 11+ / GCC 11+. libc++ 14+ has the `std::to_chars` the
-library needs, but the driver needs libc++ 20+. Verified warning-free with
-MSVC `/W4 /WX` and GCC 13 `-Wall -Wextra -Werror -pedantic`; no third-party code.
+Toolchain: this module needs C++20 and a standard library with floating-point
+`std::to_chars`, plus floating-point `std::from_chars` for the driver, which reads
+its input with it: MSVC 2019 16.4+ or libstdc++ 11+ / GCC 11+ (libc++ 14+ has the
+`std::to_chars` the library needs, but the driver needs libc++ 20+). The CMake
+commands below configure the whole core, which also builds `dip::marketdata` and
+its C++20 time-zone calls, so they need GCC 13+ with libstdc++'s default ABI or
+MSVC 2019 16.10+ (see [`native/README.md`](../../README.md)). Verified
+warning-free with MSVC `/W4 /WX` and GCC 13 `-Wall -Wextra -Werror -pedantic`; no
+third-party code.
 
 ```bash
 cmake -S native -B artifacts/native-format -G "Visual Studio 18 2026" -A x64

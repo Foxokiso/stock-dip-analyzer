@@ -47,8 +47,9 @@ and 300 seeded mutations through `futures_driver` and compares every snapshot an
 must match rejections). A separate run checks that a 150,000-member object parses in linear
 time. `locale_regression` (native/tests) repeats key fixture values under a comma-decimal C
 locale. On Linux the configure step compiles `de_DE.UTF-8` into the build tree with `localedef`
-when glibc's locale sources are installed, so the test runs on CI images without that locale;
-it is reported as skipped only when no comma-decimal locale is available.
+when glibc's locale sources are installed, so the test runs on CI images without that locale.
+It is reported as skipped only when no comma-decimal locale is available and the build compiled
+none; a compiled locale it cannot switch to fails it (see `native/README.md`).
 
 ## Known divergences
 
