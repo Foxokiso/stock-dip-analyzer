@@ -56,8 +56,10 @@ prints the formatted string:
 
 ## Build and compare
 
-Toolchain: C++20 and a standard library with floating-point `std::to_chars`
-(MSVC 2019 16.4+, libstdc++ 11+ / GCC 11+, libc++ 14+). Verified warning-free with
+Toolchain: C++20 and a standard library with floating-point `std::to_chars`, plus
+floating-point `std::from_chars` for the driver, which reads its input with it:
+MSVC 2019 16.4+ or libstdc++ 11+ / GCC 11+. libc++ 14+ has the `std::to_chars` the
+library needs, but the driver needs libc++ 20+. Verified warning-free with
 MSVC `/W4 /WX` and GCC 13 `-Wall -Wextra -Werror -pedantic`; no third-party code.
 
 ```bash

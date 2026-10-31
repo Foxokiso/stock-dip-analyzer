@@ -38,10 +38,22 @@ All tokens are in `src/styles/tokens.css`. Use them; never hard-code hex values 
 
 - Up / bullish / success → `--success` (green). Down / bearish / danger → `--danger` (red).
   Caution / delayed / cached → `--warning` (amber). Informational → `--info` (cyan).
+  An unchanged value (0.00 %, `-0` included) is flat: muted, with no arrow.
+- Ratings take their tone from the verdict label on every desk: Strong Buy and Buy →
+  `--success`, Hold → `--warning`, Sell and Strong Sell → `--danger`. `getVerdict`
+  returns the label only, and no rating has a grey override.
 - Primary actions use `--primary` on `--ink` text. Selected rows use `--wash-p-14` with a
   2 px inset `--primary` edge. Hover is `--bg-card-hover` plus a hairline shift to
   `--line-strong`; no transforms on table rows (they created compositor layers before).
 - Text on dark: `--text-main` body, `--text-muted` labels, `--text-faint` captions.
+  `--text-faint` is the one text role not derived by multiplication: `--text-muted` × 0.73
+  fell below the 4.5:1 WCAG AA minimum for captions (quote and retrieval times, delay
+  notes, table headers), so it is raised to `oklch(0.64 0.03 270)` in Pierce/27, which
+  Alien Fractal and Seizure Mode inherit, and to `#848e98` in Modern. Both keep captions
+  at 4.5:1 or better on the page and card grounds.
+- Small `--danger` text on a danger wash or a selected row is lifted 27 % toward white,
+  `oklch(from var(--danger) calc(l + (1 - l) * var(--m3)) c h)`, the derivation the link
+  hover colour uses, so it keeps 4.5:1 at rest, hovered and selected.
 
 ## Silk rules
 
@@ -50,10 +62,16 @@ All tokens are in `src/styles/tokens.css`. Use them; never hard-code hex values 
    bouncy easings, no `transform: translateY(-3px)` hover jumps.
 3. Glows are `box-shadow: var(--glow-p)` (or `-px`, `-s`) and scale with
    `--glow-intensity` where the component applies it: `opacity: var(--glow-intensity)`.
-4. Focus is `box-shadow: var(--focus-ring)`; never remove it.
+4. Focus is `box-shadow: var(--focus-ring)`; never remove it. Forced colours (Windows
+   High Contrast) drop every box-shadow, so there `:focus-visible` also gets a 2 px
+   `Highlight` outline (`src/index.css`); custom controls must not suppress it.
 5. `prefers-reduced-motion` and the in-app Motion setting both zero the durations;
    components must not assume an animation ran.
 6. Other themes (Modern, Alien Fractal, Seizure) must keep working: only use role tokens.
+7. Theme effects (Alien Fractal's breathing hue, Seizure Mode's dimming) run on fixed
+   background and overlay layers. Never put a `filter` on `<body>` or on any other
+   ancestor of fixed elements: it becomes their containing block and pulls the alert
+   toasts, the alert history button and its drawer out of the viewport.
 
 ## Settings are the source of truth
 
@@ -62,9 +80,17 @@ Constants and the document shape live in `src/state/settingsSchema.js` (`DEFAULT
 `THEMES`, `loadSettings`, `serializeSettings`, `parseSettingsImport`); the provider is
 `src/state/settings.jsx`; sector ids are in `src/data/sectors.js`.
 Sections: `appearance` (theme, density, motion, glow), `scanner` (excludedSectors,
-refreshMinutes, scanDepth, defaultRating, sort), `futures` (defaultGroup, timeframe,
+refreshMinutes, reuseSeconds, scanDepth, defaultRating, sort), `futures` (defaultGroup, timeframe,
 showDelayNotice), `alerts` (sound, volume, breakout, breakdown, trend, minScore,
-historyLimit), `data` (chartCacheSeconds, requestTimeoutSeconds — informational).
+historyLimit), `data` (chartCacheSeconds, requestTimeoutSeconds). The `data` values are
+live, persisted preferences like the rest: Overview scoring, the stock page and Oil Watch
+reuse a Yahoo chart response for `chartCacheSeconds`, and the main process applies
+`requestTimeoutSeconds`, which is sent before the first render and on every change.
+Every value must be one the desk offers (any whole scan depth from 1 to 500 is kept):
+`loadSettings` replaces anything else with its default, repairing the excluded-sector
+list instead, and `parseSettingsImport` reports every such value and applies nothing.
+Seizure Mode (`theme-seizure`) is transient: it starts only from Settings → Appearance
+→ Run Seizure Mode… behind a photosensitivity warning, and is never stored or exported.
 Pages read what they need directly from `useSettings()`; App.jsx keeps passing the
 legacy props too.
 
