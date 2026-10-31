@@ -19,6 +19,8 @@
   /* Danger lifted 27 % toward white (the link-hover derivation in index.css):
      the darkest role, so its chip text needs the lift to stay above 4.5:1. */
   --dash-danger-lift: oklch(from var(--danger) calc(l + (1 - l) * var(--m3)) c h);
+  /* Muted ink lifted the same way (the Futures recipe), for the expanded row. */
+  --dash-muted-lift: oklch(from var(--text-muted) calc(l + (1 - l) * var(--m3)) c h);
 }
 
 /* ── Market pulse strip ───────────────────────────────────────────────── */
@@ -298,9 +300,10 @@
 .dashboard .is-down { color: var(--danger); }
 .dashboard .is-muted { color: var(--text-muted); }
 /* The selected row's primary wash is the lightest row ground: there, down text
-   takes the lifted danger and the faint meta lines muted ink, to keep 4.5:1. */
+   takes the lifted danger and the muted and faint text the lifted muted ink, to
+   keep 4.5:1 (plain muted ink fell short in Alien Fractal). */
 .dashboard .dash-row.is-expanded .is-down { color: var(--dash-danger-lift); }
-.dashboard .dash-row.is-expanded .dash-meta:not(.dash-meta--stale) { color: var(--text-muted); }
+.dashboard .dash-row.is-expanded :is(.dash-company, .dash-meta:not(.dash-meta--stale), .is-muted, .text-muted) { color: var(--dash-muted-lift); }
 
 .dashboard .dash-symbol {
   font-family: var(--font-mono);
@@ -341,6 +344,9 @@
 .dashboard .dash-trend--up { color: var(--success); background: var(--wash-ok-14); }
 .dashboard .dash-delta--down,
 .dashboard .dash-trend--down { color: var(--dash-danger-lift); background: var(--wash-bad-14); }
+/* The expanded row's wash under that wash took it just below 4.5:1, so there the
+   down badges sit on the darkest opaque surface, as the verdict chips always do. */
+.dashboard .dash-row.is-expanded :is(.dash-delta--down, .dash-trend--down) { background: linear-gradient(var(--wash-bad-14), var(--wash-bad-14)) var(--bg-dark); }
 .dashboard .dash-trend { min-width: 22px; font-size: 10px; text-align: center; }
 
 /* 52-week position bar: the fill width is data and stays inline. */

@@ -170,6 +170,7 @@ export function mountTradingViewWidget(container, options, {
         frame.removeEventListener('load', requestReady);
         clearTimeout(readyTimer);
         frame.style.opacity = '';
+        frame.inert = false;
         onReady();
     };
     container.replaceChildren();
@@ -191,8 +192,11 @@ export function mountTradingViewWidget(container, options, {
         // Transparent until TradingView answers, so the container keeps its
         // placeholder while loading and a failed load never shows a blank error
         // page. Opacity, not visibility: Chromium throttles hidden cross-origin
-        // frames, which could keep the chart from ever getting ready.
+        // frames, which could keep the chart from ever getting ready. Inert until
+        // then as well, so Tab never stops on (and assistive technology never
+        // reads) a frame nobody can see.
         frame.style.cssText = 'display: block; width: 100%; height: 100%; border: 0; opacity: 0;';
+        frame.inert = true;
         frame.src = buildTradingViewEmbedUrl({
             ...chartPaletteOptions(resolveChartPalette(container)),
             ...options,

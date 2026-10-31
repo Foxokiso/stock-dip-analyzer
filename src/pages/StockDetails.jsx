@@ -327,7 +327,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
         return () => { cancelled = true; };
     }, [symbol, chartRetry, chartCacheSeconds]);
 
-    useVisibleInterval(refresh, autoRefreshInterval);
+    useVisibleInterval(refresh, autoRefreshInterval, { resetKey: symbol });
 
     // Finviz statistics and news have their own retrieval time and error state.
     useEffect(() => {

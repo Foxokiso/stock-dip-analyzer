@@ -157,6 +157,17 @@ test('readiness is accepted only from TradingView and only for this frame', (t) 
     assert.equal(frame.style.opacity, '');
 });
 
+test('the frame stays out of the focus order until TradingView answers', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const { view, frame } = mount(t, { symbol: 'AAPL' });
+    // Tab must not stop on, and assistive technology must not read, a frame nobody can see.
+    assert.equal(frame.style.opacity, '0');
+    assert.equal(frame.inert, true);
+    postMessageEvent(view, TRADINGVIEW_ORIGIN, readyReply(hashOf(frame.src).frameElementId));
+    assert.equal(frame.style.opacity, '');
+    assert.equal(frame.inert, false);
+});
+
 test('the frame is also asked on its load event, as tv.js does', (t) => {
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const { view, frame, posted } = mount(t, { symbol: 'AAPL' });
@@ -179,11 +190,13 @@ test('a frame that never answers reports an error, and a late answer clears it',
     t.mock.timers.tick(1);
     assert.equal(events.length, 1);
     assert.match(events[0], /did not load.*retry/i);
-    // A failed frame stays transparent over the container's placeholder.
+    // A failed frame stays transparent over the container's placeholder, and out of the focus order.
     assert.equal(frame.style.opacity, '0');
+    assert.equal(frame.inert, true);
     postMessageEvent(view, TRADINGVIEW_ORIGIN, readyReply(hashOf(frame.src).frameElementId));
     assert.equal(events.at(-1), 'ready');
     assert.equal(frame.style.opacity, '');
+    assert.equal(frame.inert, false);
 });
 
 test('symbols TradingView would read as a spread report the chart as unavailable', (t) => {

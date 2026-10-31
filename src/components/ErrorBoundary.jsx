@@ -5,26 +5,29 @@ import { AlertTriangle, LayoutDashboard, RotateCw } from 'lucide-react';
 // boundary React unmounts the whole root, header and navigation included, and
 // leaves an empty window. `fallback` renders in its place with { error, reset };
 // a change of `resetKey` clears the error (the routed desk passes the pathname,
-// so leaving a failed desk renders the next one normally).
+// so leaving a failed desk renders the next one normally), and `onReset` runs
+// once reset() has rendered the part again.
 export default class ErrorBoundary extends Component {
-    state = { error: null };
+    state = { error: null, resetKey: this.props.resetKey };
 
     static getDerivedStateFromError(error) {
         return { error };
+    }
+
+    // The render that first sees a new key clears the error, so the next desk is
+    // in the same commit as the route change (and its h1 can take focus there).
+    // An error caught while rendering the new key belongs to it and is kept;
+    // clearing that would render the failing desk a second time and catch (and
+    // log) the same failure twice.
+    static getDerivedStateFromProps({ resetKey }, state) {
+        return resetKey === state.resetKey ? null : { error: null, resetKey };
     }
 
     componentDidCatch(error, info) {
         console.error('Render error caught by an error boundary:', error, info.componentStack);
     }
 
-    componentDidUpdate(previous, previousState) {
-        // Only an error caught before the key changed is cleared. One caught while
-        // rendering the new key belongs to it; clearing that would render the
-        // failing desk a second time and catch (and log) the same failure twice.
-        if (previousState.error && previous.resetKey !== this.props.resetKey) this.setState({ error: null });
-    }
-
-    reset = () => this.setState({ error: null });
+    reset = () => this.setState({ error: null }, this.props.onReset);
 
     render() {
         const { error } = this.state;

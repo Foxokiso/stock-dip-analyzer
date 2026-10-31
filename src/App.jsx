@@ -63,6 +63,19 @@ const AlertsError = () => (
   </p>
 );
 
+// The desk's h1 takes focus, so keyboard and screen-reader users start there and
+// hear its name; <main> takes it while a desk is still loading.
+const focusDesk = (main) => (main?.querySelector('h1[tabindex]') ?? main)?.focus();
+
+// Seizure Mode's controls leave with the mode, so focus inside them would fall
+// to the page. It goes back to the control that started the mode while that is
+// still shown (Settings' Run Seizure Mode…), and otherwise to the desk's h1.
+const leaveSeizureControls = (controls, opener) => {
+  if (!controls?.contains(document.activeElement)) return;
+  if (opener?.isConnected && opener !== document.body) opener.focus();
+  else focusDesk(document.querySelector('main'));
+};
+
 // The routed desk. Its boundary resets when the route changes.
 function Desk({ excludedSectors, autoRefreshInterval, globalFilter }) {
   const { pathname } = useLocation();
@@ -70,20 +83,20 @@ function Desk({ excludedSectors, autoRefreshInterval, globalFilter }) {
   const announcedPath = useRef(pathname);
 
   // Name the window after the desk. After a route change (not on the first
-  // load, and not again for the same desk) focus moves to the new desk's h1,
-  // so keyboard and screen-reader users start there and hear its name; <main>
-  // takes it while a desk is still loading. The scroll position is kept.
-  useEffect(() => {
+  // load, and not again for the same desk) the new desk opens at the top, not
+  // at the previous desk's scroll offset, and its h1 takes focus. A layout
+  // effect, so no frame of the new desk is painted at the old offset.
+  useLayoutEffect(() => {
     document.title = `${deskTitle(pathname)} — ${APP_TITLE}`;
     if (announcedPath.current === pathname) return;
     announcedPath.current = pathname;
-    const main = mainRef.current;
-    (main?.querySelector('h1[tabindex]') ?? main)?.focus({ preventScroll: true });
+    window.scrollTo(0, 0);
+    focusDesk(mainRef.current);
   }, [pathname]);
 
   return (
     <main ref={mainRef} tabIndex={-1}>
-      <ErrorBoundary resetKey={pathname} fallback={DeskError}>
+      <ErrorBoundary resetKey={pathname} fallback={DeskError} onReset={() => focusDesk(mainRef.current)}>
         <Suspense fallback={<div className="desk-empty" role="status">Opening workspace…</div>}>
           <Routes>
             <Route path="/" element={<>
@@ -148,6 +161,9 @@ function Workspace() {
   // switch to it (that button) gets the warning instead and the theme stays.
   const seizureConfirm = useRef(null);
   const seizureConfirmed = useRef(false);
+  // The control that asked for the mode, and the mode's own controls.
+  const seizureOpener = useRef(null);
+  const seizureControls = useRef(null);
   useLayoutEffect(() => {
     if (theme !== 'theme-seizure') {
       seizureConfirmed.current = false;
@@ -155,7 +171,10 @@ function Workspace() {
     }
     if (seizureConfirmed.current) return;
     update('appearance.theme', previousThemeRef.current);
-    if (!seizureConfirm.current?.open) seizureConfirm.current?.showModal();
+    if (!seizureConfirm.current?.open) {
+      seizureOpener.current = document.activeElement;
+      seizureConfirm.current?.showModal();
+    }
   }, [theme, update]);
 
   const [droneMuted, setDroneMuted] = useState(false);
@@ -165,12 +184,18 @@ function Workspace() {
     setDroneMuted(false);
     setTheme('theme-seizure');
   };
-  const endSeizureMode = () => setTheme(previousThemeRef.current);
+  const endSeizureMode = () => {
+    leaveSeizureControls(seizureControls.current, seizureOpener.current);
+    setTheme(previousThemeRef.current);
+  };
 
   // 20 Second Reversion
   useEffect(() => {
     if (theme !== 'theme-seizure' || !seizureConfirmed.current) return undefined;
-    const timer = setTimeout(() => update('appearance.theme', previousThemeRef.current), 20000);
+    const timer = setTimeout(() => {
+      leaveSeizureControls(seizureControls.current, seizureOpener.current);
+      update('appearance.theme', previousThemeRef.current);
+    }, 20000);
     return () => clearTimeout(timer);
   }, [theme, update]);
 
@@ -288,7 +313,7 @@ function Workspace() {
           </div>
         )}
         {theme === 'theme-seizure' && (
-          <div className="seizure-controls" role="group" aria-label="Seizure Mode">
+          <div className="seizure-controls" ref={seizureControls} role="group" aria-label="Seizure Mode">
             {droneVolume > 0 && (
               <button type="button" className="btn btn-outline" aria-pressed={droneMuted} onClick={() => setDroneMuted(muted => !muted)}>
                 <VolumeX size={15} aria-hidden="true" />Mute drone

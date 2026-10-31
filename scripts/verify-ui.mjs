@@ -324,6 +324,27 @@ slow=await slowStock({'fetch-yahoo-chart':100,'fetch-url':4000});
 await slow.locator('.sd-score').waitFor();
 assert.ok(await slow.getByText('Loading Finviz statistics…',{exact:true}).isVisible(),'the score waited for Finviz');
 await slow.close();
+// integration-3: the stock page's refresh schedule restarts with the symbol. With
+// a 1-minute refresh, PLUG opened 55 s after AAPL is not fetched again when AAPL's
+// schedule falls due; its own refresh comes a full minute after it opened.
+const scheduled=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+await scheduled.clock.install();
+await stubBridge(scheduled,recordedStock);
+await scheduled.goto(baseUrl+'/#/settings');
+await scheduled.getByRole('radiogroup',{name:'Refresh interval',exact:true}).getByText('1 min',{exact:true}).click();
+await scheduled.evaluate(()=>{ location.hash='#/stock/AAPL'; });
+await scheduled.locator('.sd-verdict',{hasText:'Hold'}).waitFor();
+await scheduled.clock.runFor(55_000);
+await scheduled.evaluate(()=>{ location.hash='#/stock/PLUG'; });
+await scheduled.locator('.sd-verdict',{hasText:'Strong Sell'}).waitFor();
+const plugRequests=()=>scheduled.evaluate(()=>window.__calls.filter(([,...args])=>args.some(arg=>String(arg).includes('PLUG'))).length);
+const plugLoaded=await plugRequests();
+await scheduled.clock.runFor(30_000);
+await scheduled.waitForTimeout(300);
+assert.equal(await plugRequests(),plugLoaded,'AAPL\'s refresh schedule fetched PLUG again');
+await scheduled.clock.runFor(31_000);
+await scheduled.waitForFunction(count=>window.__calls.filter(([,...args])=>args.some(arg=>String(arg).includes('PLUG'))).length===count*2,plugLoaded);
+await scheduled.close();
 // U33: an Overview symbol is a focusable link, and Enter opens its stock page with
 // one history entry. The recorded losers page; Yahoo is unavailable, so rows stay
 // unscored. The RelVol column is gone (U26).
@@ -349,6 +370,29 @@ await overview.keyboard.press('Enter');
 await overview.locator('.sd-symbol',{hasText:symbol}).waitFor();
 assert.equal(await overview.evaluate(()=>history.length),historyBefore+1);
 await overview.close();
+// ui-1: a desk opened from a scrolled page opens at the top. At 1280×800 every
+// Overview row is below the fold; the stock page opened from a lower row paints
+// no frame at the Overview's offset, and its focused h1 is in view.
+const scrolled=await watch(await browser.newPage({viewport:{width:1280,height:800}}));
+await stubBridge(scrolled,{urls:{'https://finviz.com/screener/stocks?v=111&o=change&r=1':await fixture('ui/finviz-losers-r1-2026-10-31.html')}});
+await scrolled.goto(baseUrl+'/#/');
+const lowerLink=scrolled.locator('.dash-row').nth(15).getByRole('link');
+await lowerLink.scrollIntoViewIfNeeded();
+assert.ok(await scrolled.evaluate(()=>window.scrollY)>1000,'the Overview is scrolled to a lower row');
+await scrolled.evaluate(()=>{
+ window.__stockOffsets=[];
+ const frame=()=>{ if (document.querySelector('main .stock-details')) window.__stockOffsets.push(window.scrollY); if (window.__stockOffsets.length<10) requestAnimationFrame(frame); };
+ requestAnimationFrame(frame);
+});
+await lowerLink.focus();
+await scrolled.keyboard.press('Enter');
+await scrolled.waitForFunction(()=>window.__stockOffsets.length===10);
+const opened=await scrolled.evaluate(()=>{
+ const h1=document.querySelector('main h1'), box=h1.getBoundingClientRect();
+ return {offsets:[...new Set(window.__stockOffsets)],focused:document.activeElement===h1,inView:box.top>=0&&box.bottom<=innerHeight};
+});
+assert.deepEqual(opened,{offsets:[0],focused:true,inView:true});
+await scrolled.close();
 // U23: arrowing through Sector scans only the value it settles on, and Refresh
 // pressed before a pick has settled scans that pick once, not the previous scope.
 const sectors=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
@@ -412,11 +456,146 @@ assert.equal(await chunk.getByRole('navigation',{name:'Main navigation',exact:tr
 assert.equal(boundaryLogs.length,1,'the failed desk is logged once');
 await deskError.getByRole('button',{name:'Go to Overview',exact:true}).click();
 await chunk.locator('main .dashboard').waitFor();
+// ui-2: the boundary clears its error in the render that opens the next desk, so
+// that desk's h1 takes focus instead of the panel's, which then left the page.
+assert.ok(await chunk.locator('main .dashboard h1').evaluate(h1=>h1===document.activeElement),'Go to Overview leaves focus on the page');
 await chunk.goto(baseUrl+'/#/stock/AAPL');
 chunkBlocked=false;
 await deskError.getByRole('button',{name:'Reload',exact:true}).click();
 await chunk.locator('main .stock-details').waitFor();
 await chunk.close();
+// ui-2: an Overview that fails while it renders (here in its Symbol sort) recovers
+// in place from Go to Overview, and focus moves to its h1, not to the page.
+const failing=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+await stubBridge(failing,{urls:{'https://finviz.com/screener/stocks?v=111&o=change&r=1':await fixture('ui/finviz-losers-r1-2026-10-31.html')}});
+await failing.goto(baseUrl+'/#/');
+await failing.locator('.dash-row').nth(19).waitFor();
+await failing.evaluate(()=>{
+ const compare=String.prototype.localeCompare;
+ window.__breakSort=true;
+ String.prototype.localeCompare=function(...args){ if (window.__breakSort) throw new Error('sort failed'); return compare.apply(this,args); };
+});
+await failing.getByRole('columnheader',{name:/^Symbol/}).click();
+await deskErrorOn(failing).waitFor();
+await failing.evaluate(()=>{ window.__breakSort=false; });
+await deskErrorOn(failing).getByRole('button',{name:'Go to Overview',exact:true}).press('Enter');
+await failing.locator('main .dashboard').waitFor();
+assert.ok(await failing.locator('main .dashboard h1').evaluate(h1=>h1===document.activeElement),'the Overview recovered in place without focus');
+await failing.close();
+// ui-7: at 320 px Seizure Mode's controls wrap clear of the alert history toggle.
+// ui-3: they leave with the mode, so End now hands focus back to the button that
+// started it on Settings, and to the desk's h1 on another desk.
+const seizure=await watch(await browser.newPage({viewport:{width:320,height:800}}));
+await seizure.goto(baseUrl+'/#/settings');
+const startSeizure=async page=>{
+ await page.getByRole('button',{name:'Run Seizure Mode…',exact:true}).press('Enter');
+ await page.getByRole('button',{name:'Start Seizure Mode',exact:true}).press('Enter');
+ await page.waitForFunction(()=>document.body.classList.contains('theme-seizure'));
+};
+// Where focus is once the mode has ended: the desk's h1, a control's name, or a tag.
+const focusAfterSeizure=async page=>{
+ await page.waitForFunction(()=>!document.body.classList.contains('theme-seizure'));
+ return page.evaluate(()=>{ const active=document.activeElement; return active.matches('main h1')?'h1':active.matches('button, a')?active.textContent:active.tagName; });
+};
+const endSeizure=async page=>{
+ await page.getByRole('button',{name:'End now',exact:true}).press('Enter');
+ return focusAfterSeizure(page);
+};
+await startSeizure(seizure);
+assert.ok(await seizure.evaluate(()=>{
+ const toggle=document.querySelector('.alert-history-toggle'), box=toggle.getBoundingClientRect();
+ const clear=[...document.querySelectorAll('.seizure-controls button')].map(button=>button.getBoundingClientRect()).every(control=>control.right<=box.left||control.bottom<=box.top);
+ return clear&&toggle.contains(document.elementFromPoint(box.left+box.width/2,box.top+box.height/2));
+}),'the Seizure Mode controls cover the alert history toggle at 320 px');
+assert.equal(await endSeizure(seizure),'Run Seizure Mode…');
+await startSeizure(seizure);
+await seizure.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:/^Futures/}).click();
+await seizure.locator('main .futures-page').waitFor();
+assert.equal(await endSeizure(seizure),'h1');
+await seizure.close();
+// ui-3: the 20 s reversion takes the controls away as well. Focus on them goes back
+// to the button that started the mode; focus anywhere else stays where it is.
+const reverting=await watch(await browser.newPage({viewport:{width:1280,height:800}}));
+await reverting.clock.install();
+await reverting.goto(baseUrl+'/#/settings');
+await startSeizure(reverting);
+await reverting.getByRole('button',{name:'End now',exact:true}).focus();
+await reverting.clock.runFor(20_500);
+assert.equal(await focusAfterSeizure(reverting),'Run Seizure Mode…');
+await startSeizure(reverting);
+await reverting.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:/^Oil Watch/}).focus();
+await reverting.clock.runFor(20_500);
+assert.equal(await focusAfterSeizure(reverting),'Oil Watch');
+await reverting.close();
+// ui-6: forced colours (Windows High Contrast) repaint the wash that marks a selected
+// option and the current desk's nav item; the system selection colours mark them.
+const forced=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+await forced.emulateMedia({forcedColors:'active'});
+await forced.goto(baseUrl+'/#/settings');
+const forcedMotion=forced.getByRole('radiogroup',{name:'Motion',exact:true});
+const systemOption=forcedMotion.locator('.segmented-option',{hasText:'System'});
+await forcedMotion.getByText('System',{exact:true}).click();
+const systemSelected=await systemOption.screenshot();
+await forcedMotion.getByText('Reduced',{exact:true}).click();
+assert.ok(!systemSelected.equals(await systemOption.screenshot()),'a selected option looks unselected under forced colours');
+const futuresLink=forced.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:/^Futures/});
+const futuresElsewhere=await futuresLink.screenshot();
+await futuresLink.click();
+await forced.locator('main .futures-page').waitFor();
+await forced.mouse.move(0,0);
+assert.ok(!futuresElsewhere.equals(await futuresLink.screenshot()),'the current desk\'s nav item looks like the others under forced colours');
+await forced.close();
+// ui-6: keyboard focus stays visible on and beside a selection. Selecting a row or
+// sorting a column with the keyboard leaves focus there; in the dark scheme a
+// Highlight ring on SelectedItem measured 1.1:1. A ring inside a selected row takes
+// the selection's text colour, and the sorted header (no selection) keeps Canvas.
+const forcedDark=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+await forcedDark.emulateMedia({forcedColors:'active',colorScheme:'dark',reducedMotion:'reduce'});
+const losersPage=await fixture('ui/finviz-losers-r1-2026-10-31.html');
+await stubBridge(forcedDark,{urls:{
+ 'https://finviz.com/screener/stocks?v=111&o=change&r=1':losersPage,
+ 'https://finviz.com/screener/stocks?v=111&s=ta_unusualvolume&f=ta_volatility_mo5&o=-volume':losersPage,
+ [FUTURES_API]:liveData,
+}});
+// The focus ring's contrast with the ground it is drawn on: the first opaque
+// background from the control itself (an inset ring) or from its parent up, else Canvas.
+const ringContrast=control=>control.evaluate(el=>{
+ const rgba=value=>{ const [r,g,b,a=1]=value.match(/[\d.]+/g).map(Number); return [r,g,b,a]; };
+ const lum=([r,g,b])=>[r,g,b].map(c=>((c/=255)<=0.04045?c/12.92:((c+0.055)/1.055)**2.4)).reduce((sum,c,i)=>sum+c*[0.2126,0.7152,0.0722][i],0);
+ const style=getComputedStyle(el);
+ let ground;
+ for (let node=parseFloat(style.outlineOffset)<0?el:el.parentElement;node&&!ground;node=node.parentElement) {
+  const background=rgba(getComputedStyle(node).backgroundColor);
+  if (background[3]===1) ground=background;
+ }
+ if (!ground) {
+  const canvas=document.body.appendChild(document.createElement('div'));
+  canvas.style.background='Canvas';
+  ground=rgba(getComputedStyle(canvas).backgroundColor);
+  canvas.remove();
+ }
+ const [r,g,b,a]=rgba(style.outlineColor), ring=[r,g,b].map((c,i)=>c*a+ground[i]*(1-a));
+ const [lighter,darker]=[lum(ring),lum(ground)].sort((x,y)=>y-x);
+ return el.matches(':focus-visible')&&style.outlineStyle!=='none'?(lighter+0.05)/(darker+0.05):0;
+});
+const pressEnter=async control=>{ await control.focus(); await control.press('Enter'); };
+await forcedDark.goto(baseUrl+'/#/discovery');
+const discoveryRow=forcedDark.locator('.discovery-stock-row').nth(2);
+await pressEnter(discoveryRow.locator('.discovery-ticker-button'));
+await forcedDark.locator('.discovery-stock-row.is-selected').waitFor();
+assert.ok(await ringContrast(discoveryRow.locator('.discovery-ticker-button'))>=3,'focus on the selected Discovery row is not visible under forced colours');
+await forcedDark.goto(baseUrl+'/#/futures');
+const futuresRow=forcedDark.locator('.futures-table tbody tr').nth(1);
+await pressEnter(futuresRow.locator('.instrument-button'));
+await forcedDark.locator('.futures-table tbody tr.selected-row').waitFor();
+assert.ok(await ringContrast(futuresRow.locator('.instrument-button'))>=3,'focus on the selected Futures row is not visible under forced colours');
+await forcedDark.goto(baseUrl+'/#/');
+await forcedDark.locator('.dash-row').nth(3).waitFor();
+const symbolHeader=forcedDark.getByRole('columnheader',{name:/^Symbol/});
+await pressEnter(symbolHeader);
+await forcedDark.locator('.dash-th.is-active',{hasText:'Symbol'}).waitFor();
+assert.ok(await ringContrast(symbolHeader)>=3,'focus on the sorted column header is not visible under forced colours');
+await forcedDark.close();
 // With storage refused on every access (site data blocked), every desk still renders.
 const noStorage=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
 await noStorage.addInitScript(()=>Object.defineProperty(window,'localStorage',{configurable:true,get(){ throw new DOMException('The operation is insecure.','SecurityError'); }}));

@@ -87,6 +87,13 @@ body.theme-anime .btn:hover {
   border-color: transparent;
 }
 
+/* The glass shows the fixed glows through. Under the cyan one, the lifted danger
+   on a selected Discovery row measured 4.48:1, so that row's wash sits on
+   --bg-dark (the opaque ground) instead, as the Overview's verdict chips do. */
+body.theme-anime .discovery-page .discovery-stock-row.is-selected {
+  background: linear-gradient(var(--wash-p-14), var(--wash-p-14)) var(--bg-dark);
+}
+
 .theme-seizure {
   /* ========================================
    * TOXIC ABYSS / MESS-UP AESTHETIC
@@ -303,12 +310,16 @@ body.theme-seizure h3 {
   }
 }
 
-/* ── Seizure Mode controls (mute, end now) above the overlay, and its warning ── */
+/* ── Seizure Mode controls (mute, end now) above the overlay, and its warning.
+   The controls keep clear of the alert history toggle in the bottom-right
+   corner (components.css sizes it), and wrap upwards in a narrow window instead
+   of covering it. ── */
 .seizure-controls {
   position: fixed;
   left: var(--gap);
   bottom: var(--gap);
   z-index: 9999;
+  max-width: calc(100% - var(--history-toggle-size) - 3 * var(--gap));
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
@@ -437,6 +448,24 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
    rules that pair outline: none with their ring. */
 @media (forced-colors: active) {
   :focus-visible { outline: 2px solid Highlight !important; }
+}
+
+/* ── selected states: a wash, an inset edge, a glow or an underline, all of
+   which forced colours repaint or drop. The current nav item, the pressed and
+   selected options and the selected rows take the system selection colours
+   instead; a Highlight outline would read as focus. (The brand link is
+   aria-current on the Overview as well, and stays as it is; so does the sorted
+   column's header, which is no selection: its arrow marks it.) A focus ring
+   drawn on that ground, around a control inside a selected row, takes the
+   selection's text colour: a Highlight ring all but vanishes on SelectedItem. ── */
+@media (forced-colors: active) {
+  :is(.segmented-option.is-active, .settings-index .is-active, .is-selected, .selected, .selected-row, .nav-link.active, [aria-pressed='true']) {
+    forced-color-adjust: none;
+    background: SelectedItem !important;
+    color: SelectedItemText !important;
+  }
+  :is(.segmented-option.is-active, .settings-index .is-active, .is-selected, .selected, .selected-row, .nav-link.active, [aria-pressed='true']) * { color: inherit !important; }
+  :is(.segmented-option.is-active, .settings-index .is-active, .is-selected, .selected, .selected-row, .nav-link.active, [aria-pressed='true']) :focus-visible { outline-color: SelectedItemText !important; }
 }
 
 /* ── panels: sheen, hairline, long shadow (brief silk rule 1) ── */

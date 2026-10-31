@@ -8,6 +8,11 @@
  * style follows docs/design/pierce27-brief.md. Role tokens only — no literal
  * colours, px glows or easings; derived shades use the 27 rule.
  */
+.discovery-page {
+  /* Lifted 27 % toward white (the Futures recipe), for text on the selected row's wash. */
+  --discovery-danger-lift: oklch(from var(--danger) calc(l + (1 - l) * var(--m3)) c h);
+  --discovery-muted-lift: oklch(from var(--text-muted) calc(l + (1 - l) * var(--m3)) c h);
+}
 
 /* ── page heading ─────────────────────────────────────────────────────── */
 .etf-awards-page .page-heading,
@@ -363,6 +368,10 @@
   opacity: var(--glow-intensity);
   pointer-events: none;
 }
+/* The selected row's wash is the lightest row ground: there, down text takes the
+   lifted danger and the captions the lifted muted ink, to keep 4.5:1. */
+.discovery-page .discovery-stock-row.is-selected .text-danger { color: var(--discovery-danger-lift); }
+.discovery-page .discovery-stock-row.is-selected :is(.quote-meta, .text-muted) { color: var(--discovery-muted-lift); }
 .discovery-page .discovery-ticker-button {
   display: flex;
   flex-direction: column;
