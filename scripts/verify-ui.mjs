@@ -14,7 +14,7 @@ await page.route(/https:\/\/(s3\.tradingview|fonts\.googleapis|fonts\.gstatic)/,
 await page.goto(baseUrl+'/#/futures');
 await page.getByText('Quotes unavailable',{exact:true}).waitFor();
 assert.equal(await page.locator('.futures-table tbody tr').count(),0);
-assert.equal(await page.locator('.chart-caption').last().textContent(),'Finviz source samples · intradayUnavailable');
+assert.equal(await page.locator('.chart-caption').last().textContent(),'Finviz source samples · 5-minuteUnavailable');
 await page.screenshot({path:artifactDir+'/futures-unavailable.png',fullPage:true});
 for (const url of ['/#/','/#/etfs','/#/oil','/#/discovery','/#/stock/AAPL','/#/settings']) {
  await page.goto(baseUrl+url);
