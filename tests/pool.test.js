@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mapPool, createQueue, drainQueue } from '../src/utils/pool.js';
+import { mapPool, createQueue, drainQueue, createLimiter } from '../src/utils/pool.js';
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
@@ -69,4 +69,44 @@ test('drainQueue collects a worker error without dropping the remaining items', 
         done.push(item);
     }), /bad symbol/);
     assert.deepEqual(done, [1, 3]);
+});
+
+test('createLimiter never exceeds its width and serves the highest priority first, then arrival order', async () => {
+    const limiter = createLimiter(2);
+    const started = [];
+    const finish = new Map();
+    const task = (name) => () => { started.push(name); return new Promise(resolve => finish.set(name, () => resolve(name))); };
+    const runs = [['a1', 1], ['a2', 1], ['a3', 1], ['b1', 2], ['a4', 1], ['c1', 3], ['b2', 2]].map(([name, priority]) => limiter.run(task(name), priority));
+    await tick();
+    assert.deepEqual(started, ['a1', 'a2']);
+    assert.equal(limiter.waiting, 5);
+    for (const name of ['a1', 'a2', 'c1', 'b1', 'b2', 'a3', 'a4']) {
+        finish.get(name)();
+        await tick();
+        assert.ok(limiter.active <= 2, `${limiter.active} running`);
+    }
+    assert.deepEqual(started, ['a1', 'a2', 'c1', 'b1', 'b2', 'a3', 'a4']);
+    assert.deepEqual(await Promise.all(runs), ['a1', 'a2', 'a3', 'b1', 'a4', 'c1', 'b2']);
+    assert.equal(limiter.active, 0);
+});
+
+test('createLimiter reads a priority function when a slot frees, so a waiting task can be promoted', async () => {
+    const limiter = createLimiter(1);
+    const started = [];
+    let promoted = 1;
+    const holding = limiter.run(tick);
+    const runs = [limiter.run(async () => started.push('fixed'), 2), limiter.run(async () => started.push('promoted'), () => promoted)];
+    promoted = 3;
+    await Promise.all([holding, ...runs]);
+    assert.deepEqual(started, ['promoted', 'fixed']);
+    assert.equal(limiter.active, 0);
+});
+
+test('createLimiter hands the slot on when a task fails', async () => {
+    const limiter = createLimiter(1);
+    const failing = limiter.run(async () => { await tick(); throw new Error('boom'); });
+    const next = limiter.run(async () => 'next');
+    await assert.rejects(failing, /boom/);
+    assert.equal(await next, 'next');
+    assert.equal(limiter.active, 0);
 });

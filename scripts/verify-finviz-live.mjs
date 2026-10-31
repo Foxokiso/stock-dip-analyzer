@@ -1,10 +1,12 @@
 // Live smoke test of every Finviz screener view the app depends on, without
 // Electron: fetch each page with the app's browser headers, run the shared
-// parser, and report rows, timing and HTTP status. Exit code 1 when any view
-// yields no rows, so a Finviz markup change is caught in seconds.
+// parser, and report rows, paging, timing and HTTP status. Exit code 1 when a
+// view yields no rows, starts at the wrong row or ignores its sector filter,
+// or when a URL its desk requests as canonical is redirected, so a Finviz
+// markup or URL change is caught in seconds.
 // Usage: node scripts/verify-finviz-live.mjs
 import { DOMParser } from 'linkedom';
-import { parseFinvizScreener } from '../src/utils/finviz.js';
+import { parseFinvizScreenerPage } from '../src/utils/finviz.js';
 import { parseFinvizFutures } from '../src/services/futures.js';
 
 const HEADERS = {
@@ -13,15 +15,22 @@ const HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9',
 };
 
-// Mirrors the URLs built in Dashboard/scanStore, ETFAwards and Discovery.
+// The screener views of scanStore, ETFAwards and Discovery, each at exactly
+// the URL its desk requests; change them together. The Overview and Discovery
+// request Finviz's canonical URLs, which must answer without a redirect (a
+// redirect costs round trips and has silently dropped a filter before).
+// Discovery's unusual volume is a signal (s=): as a filter (f=) Finviz lists
+// it but does not apply it. The ETF desk still requests legacy screener.ashx
+// URLs, which Finviz redirects (the dividend view to v=181); `redirects` marks
+// a URL checked through its redirect, as the desk requests it.
 const VIEWS = [
-  { name: 'overview losers p1', url: 'https://finviz.com/screener.ashx?v=111&o=change&r=1', view: '111', expectNegative: true },
-  { name: 'overview losers p2', url: 'https://finviz.com/screener.ashx?v=111&o=change&r=21', view: '111', expectNegative: true },
-  { name: 'overview sector', url: 'https://finviz.com/screener.ashx?v=111&o=change&r=1&f=sec_technology', view: '111' },
-  { name: 'etf 1-month', url: 'https://finviz.com/screener.ashx?v=141&f=ind_exchangetradedfund&o=-perf4w', view: '141', field: 'perfMonth' },
-  { name: 'etf dividend', url: 'https://finviz.com/screener.ashx?v=161&f=ind_exchangetradedfund&o=-dividendyield', view: '161', field: 'dividendYield' },
-  { name: 'etf 1-year', url: 'https://finviz.com/screener.ashx?v=141&f=ind_exchangetradedfund&o=-perf52w', view: '141', field: 'perfYear' },
-  { name: 'discovery', url: 'https://finviz.com/screener.ashx?v=111&f=ta_unusualvolume,ta_volatility_mo5&o=-volume', view: '111' },
+  { name: 'overview losers p1', url: 'https://finviz.com/screener/stocks?v=111&o=change&r=1', view: '111', expectNegative: true, firstRow: 1 },
+  { name: 'overview losers p2', url: 'https://finviz.com/screener/stocks?v=111&o=change&r=21', view: '111', expectNegative: true, firstRow: 21 },
+  { name: 'overview sector', url: 'https://finviz.com/screener/stocks?v=111&o=change&r=1&f=sec_technology', view: '111', sector: 'Technology' },
+  { name: 'etf 1-month', url: 'https://finviz.com/screener.ashx?v=141&f=ind_exchangetradedfund&o=-perf4w', view: '141', field: 'perfMonth', redirects: true },
+  { name: 'etf dividend', url: 'https://finviz.com/screener.ashx?v=161&f=ind_exchangetradedfund&o=-dividendyield', view: '161', field: 'dividendYield', redirects: true },
+  { name: 'etf 1-year', url: 'https://finviz.com/screener.ashx?v=141&f=ind_exchangetradedfund&o=-perf52w', view: '141', field: 'perfYear', redirects: true },
+  { name: 'discovery', url: 'https://finviz.com/screener/stocks?v=111&s=ta_unusualvolume&f=ta_volatility_mo5&o=-volume', view: '111' },
 ];
 
 let failures = 0;
@@ -34,12 +43,16 @@ for (const spec of VIEWS) {
     const html = await response.text();
     const elapsed = Math.round(performance.now() - started);
     if (!response.ok) { line(spec.name, false, `HTTP ${response.status} in ${elapsed} ms`); continue; }
-    const rows = parseFinvizScreener(html, { DOMParser, view: spec.view });
+    const { rows, firstRowNumber, total } = parseFinvizScreenerPage(html, { DOMParser, view: spec.view });
     const priced = rows.filter(row => row.price !== null).length;
     const negative = rows.filter(row => row.changePercentage !== null && row.changePercentage < 0).length;
     const metric = spec.field ? rows.filter(row => Number.isFinite(row[spec.field])).length : null;
-    const ok = rows.length > 0 && priced === rows.length && (!spec.expectNegative || negative > 0) && (metric === null || metric > 0);
-    line(spec.name, ok, `${rows.length} rows, ${priced} priced, ${negative} losers${metric === null ? '' : `, ${metric} with ${spec.field}`}, ${elapsed} ms, first ${rows[0]?.symbol ?? '—'} ${rows[0]?.price ?? ''}`);
+    // Page 2's symbols are not compared with page 1's: ranks move during market hours.
+    const paged = spec.firstRow === undefined || firstRowNumber === spec.firstRow;
+    const filtered = spec.sector === undefined || rows.every(row => row.sector === spec.sector);
+    const canonical = !response.redirected || spec.redirects;
+    const ok = rows.length > 0 && priced === rows.length && (!spec.expectNegative || negative > 0) && (metric === null || metric > 0) && paged && filtered && canonical;
+    line(spec.name, ok, `${rows.length} rows from No. ${firstRowNumber ?? '—'} of ${total ?? '?'}, ${priced} priced, ${negative} losers${metric === null ? '' : `, ${metric} with ${spec.field}`}${filtered ? '' : `, not all ${spec.sector}`}, ${elapsed} ms, first ${rows[0]?.symbol ?? '—'} ${rows[0]?.price ?? ''}${response.redirected ? `, redirected to ${response.url}` : ''}`);
   } catch (error) {
     line(spec.name, false, `${String(error.message || error).slice(0, 120)} after ${Math.round(performance.now() - started)} ms`);
   }
