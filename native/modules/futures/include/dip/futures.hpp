@@ -28,7 +28,7 @@
 
 namespace dip::futures {
 
-inline constexpr std::string_view kSourceUrl = "https://finviz.com/futures.ashx";
+inline constexpr std::string_view kSourceUrl = "https://finviz.com/futures";
 inline constexpr std::string_view kApiUrl = "https://finviz.com/api/futures_all";
 // Finviz's FAQ still specifies 20 minutes although the page footer says 15; the
 // conservative disclosure is kept. Neither is a freshness SLA.

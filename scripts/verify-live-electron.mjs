@@ -23,11 +23,10 @@
 // Settings → Backup → Copy is pressed once, so the system clipboard ends up holding
 // the app's settings export.
 import { _electron as electron } from 'playwright';
-import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { errorSource, liveFailures } from './live-checks.mjs';
+import { errorSource, liveFailures, startDevServer } from './live-checks.mjs';
 
 // The session main.cjs's will-attach-webview handler gives every guest (RESEARCH_PARTITION).
 const RESEARCH_PARTITION = 'research';
@@ -40,15 +39,16 @@ const now = () => performance.now();
 const ms = (value) => (value === null || value === undefined ? null : Math.round(value));
 
 const packagedExe = process.env.ELECTRON_EXE || null;
-const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-const vite = packagedExe ? null : spawn(npx, ['vite', '--host', '127.0.0.1', '--port', '5174', '--strictPort'], { cwd: root, stdio: 'ignore', shell: process.platform === 'win32' });
+// The renderer dev server. Node runs Vite itself, as CI does, so kill() stops the server:
+// started through npx, the signal stopped only npm and its shell (cmd.exe on Windows), and
+// the server stayed on 5174. startDevServer refuses whatever already answers there and
+// fails at once, with Vite's own reason, when the server exits before it answers. The
+// server is stopped whenever this process exits, also when the reporting below throws.
 const waitForServer = async () => {
   if (packagedExe) return;
-  for (let i = 0; i < 60; i++) {
-    try { const r = await fetch('http://127.0.0.1:5174/'); if (r.ok) return; } catch { /* not yet */ }
-    await new Promise(r => setTimeout(r, 500));
-  }
-  throw new Error('dev server did not start');
+  const vite = await startDevServer({ url: 'http://127.0.0.1:5174/', cwd: root,
+    command: [process.execPath, path.join(root, 'node_modules', 'vite', 'bin', 'vite.js'), '--host', '127.0.0.1', '--port', '5174', '--strictPort'] });
+  process.once('exit', () => vite.kill());
 };
 
 // Routes with selectors that only match live values, never chrome or placeholders.
@@ -90,8 +90,8 @@ try {
     : await electron.launch({ args: [path.join(root, 'main.cjs')], cwd: root, timeout: 60000 });
   // Provider failures the main process logs ("Fetch error: … Finviz returned HTTP 429 …").
   // Electron logs the harness's own refused-host probe as "Refused request: …", so this
-  // pattern deliberately leaves that wording out; refused chart requests and redirects
-  // are app bugs.
+  // pattern deliberately leaves that wording out. live-checks fails the run on a refused
+  // chart request (an app bug) and only warns on a refused redirect (the provider's answer).
   app.process().stderr?.on('data', chunk => {
     for (const line of String(chunk).split(/\r?\n/)) {
       if (/fetch error|returned HTTP [45]\d\d|Refused (chart request|redirect)|Could not reach|timed out|TimeoutError/i.test(line)) report.mainProcessErrors.push(line.slice(0, 200));
@@ -314,6 +314,5 @@ try {
   for (const failure of failures) console.log(`FAIL ${failure}`);
   console.log(failures.length ? `\n${failures.length} live check(s) failed` : `\nall live checks passed${warnings.length ? ` (${warnings.length} warning(s))` : ''}`);
   try { await app?.close(); } catch { /* already gone */ }
-  vite?.kill();
   process.exit(failures.length ? 1 : 0);
 }

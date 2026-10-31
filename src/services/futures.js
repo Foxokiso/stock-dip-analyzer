@@ -1,4 +1,5 @@
-export const FUTURES_SOURCE_URL = 'https://finviz.com/futures.ashx';
+// Finviz's canonical futures page: futures.ashx only answers with a 301 to it.
+export const FUTURES_SOURCE_URL = 'https://finviz.com/futures';
 export const FUTURES_API_URL = 'https://finviz.com/api/futures_all';
 
 // Finviz's current FAQ still specifies 20 minutes, although the page footer

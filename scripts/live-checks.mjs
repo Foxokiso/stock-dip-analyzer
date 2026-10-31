@@ -5,7 +5,9 @@
 // outage, when only the security checks are wanted. Errors whose stack points
 // at a third-party script (TradingView's chart) are warnings; errors with no
 // source count as the app's. Provider redirects the main process refused are
-// warnings too.
+// warnings too. It also starts the dev server the script measures
+// (startDevServer), so how that start fails can be tested without Electron too.
+import { spawn } from 'node:child_process';
 
 const SANDBOX = 'allow-scripts allow-same-origin';
 // A request the main process refuses is an app bug, not provider noise: the app
@@ -100,4 +102,35 @@ export function liveFailures(report, { packaged = false, dataOptional = false } 
   missingData(!(returnVisit.rows > 0), 'return visit: the Overview showed no rows');
 
   return dataOptional ? { failures, warnings: [...noise, ...data] } : { failures: [...failures, ...data], warnings: noise };
+}
+
+/**
+ * Starts the renderer dev server for a live run and resolves with its process
+ * once it answers. The command runs with no npx or shell in between, so killing
+ * the process stops the server itself. Whatever already answers at the URL is
+ * refused rather than measured, as it may serve another checkout. A server that
+ * exits before it answers fails the start at once, with its own reason, and one
+ * that never answers is killed: a failed start leaves nothing running.
+ * @param {{ url: string, command: string[], cwd?: string, attempts?: number, interval?: number }} options  command: the executable, then its arguments; attempts: polls of the URL, interval ms apart
+ * @returns {Promise<import('node:child_process').ChildProcess>}
+ */
+export async function startDevServer({ url, command, cwd, attempts = 60, interval = 500 }) {
+  const answers = () => fetch(url, { signal: AbortSignal.timeout(2000) }).catch(() => null);
+  if (await answers()) throw new Error(`something already answers on ${url} (npm run dev, or a server an earlier run left behind); stop it and run again`);
+  const [executable, ...args] = command;
+  const server = spawn(executable, args, { cwd, stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, NO_COLOR: '1' } });
+  let exited = null;
+  let stderr = '';
+  server.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(0, 400); });
+  server.once('error', error => { exited ??= error.message; });
+  // 'close', not 'exit': only then has everything it wrote to stderr been read.
+  server.once('close', (code, signal) => { exited ??= signal ?? `exit code ${code}`; });
+  for (let i = 0; i < attempts && exited === null; i++) {
+    if ((await answers())?.ok && exited === null) return server;
+    await new Promise(resolve => setTimeout(resolve, interval));
+  }
+  if (exited !== null) throw new Error(`the dev server exited (${exited}) before it answered: ${stderr.trim() || 'no output'}`);
+  // Not asked to stop: a server that never answered may not handle that either.
+  server.kill('SIGKILL');
+  throw new Error('dev server did not start');
 }

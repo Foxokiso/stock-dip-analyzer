@@ -33,3 +33,6 @@ electron-builder.env
 
 # Browser verification output
 artifacts/
+
+# The alert sound's source WAV, written by src/scripts/generate_audio.py; only the MP3 ships
+src/assets/*.wav

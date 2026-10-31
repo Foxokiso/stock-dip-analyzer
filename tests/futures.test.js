@@ -64,7 +64,7 @@ test('retains decimal bond points down to eighths of one thirty-second', () => {
 test('reads only the non-executable init JSON script from the live page layout', () => {
     const snapshot = parseFinvizFutures(html(actual), { fetchedAt });
     assert.equal(row(snapshot, 'ES').price, 7866);
-    assert.equal(snapshot.sourceUrl, 'https://finviz.com/futures.ashx');
+    assert.equal(snapshot.sourceUrl, 'https://finviz.com/futures');
 });
 
 test('rejects malformed or executable data without evaluating JavaScript', () => {
@@ -247,13 +247,14 @@ test('falls back to real init quotes when the data endpoint is unavailable', asy
         async invoke(channel, url) {
             if (channel !== 'fetch-url') throw new Error('Unexpected channel');
             if (url.startsWith('https://finviz.com/api/')) throw new Error('HTTP 403');
-            if (url !== 'https://finviz.com/futures.ashx') throw new Error('Unexpected URL');
+            // The canonical page: futures.ashx only answers with a 301 to it.
+            if (url !== 'https://finviz.com/futures') throw new Error('Unexpected URL');
             return html({ ES: { ...actual.ES, sparkline: [], sparklineDateChanges: {} } });
         },
     };
     const snapshot = await fetchFinvizFutures(ipcRenderer, { now: fetchedAt });
     assert.equal(snapshot.status, 'delayed');
-    assert.equal(snapshot.sourceUrl, 'https://finviz.com/futures.ashx');
+    assert.equal(snapshot.sourceUrl, 'https://finviz.com/futures');
     assert.equal(row(snapshot, 'ES').price, 7866);
     assert.deepEqual(row(snapshot, 'ES').sparkline, []);
     assert.match(snapshot.error, /chart|endpoint/i);
@@ -312,12 +313,12 @@ for (const timeframe of ['i5', 'w']) {
             assert.equal(channel, 'fetch-url');
             calls.push(url);
             if (url === `https://finviz.com/api/futures_all?timeframe=${timeframe}`) throw new Error('HTTP 403');
-            assert.equal(url, 'https://finviz.com/futures.ashx');
+            assert.equal(url, 'https://finviz.com/futures');
             return html({ ES: pageQuote });
         } };
         const snapshot = await fetchFinvizFutures(ipcRenderer, { now: fetchedAt, timeframe });
         const quote = row(snapshot, 'ES');
-        assert.deepEqual(calls, [`https://finviz.com/api/futures_all?timeframe=${timeframe}`, 'https://finviz.com/futures.ashx']);
+        assert.deepEqual(calls, [`https://finviz.com/api/futures_all?timeframe=${timeframe}`, 'https://finviz.com/futures']);
         assert.equal(snapshot.timeframe, timeframe);
         assert.equal(quote.status, 'delayed');
         assert.equal(quote.fetchedAt, fetchedAt);

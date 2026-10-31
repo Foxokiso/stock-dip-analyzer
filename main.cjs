@@ -442,6 +442,15 @@ app.on('web-contents-created', (event, contents) => {
     });
 });
 
+// Asked for a TLS client certificate, Electron sends the first match from the
+// system store without asking the user, so an ad frame in a research viewer
+// could learn the user's name and organisation from a work or smart-card
+// certificate. No provider or research site needs one: every page goes without.
+app.on('select-client-certificate', (event, webContents, url, list, callback) => {
+    event.preventDefault();
+    callback();
+});
+
 // The one permission granted anywhere: the app's own page may write sanitized
 // text to the clipboard (Settings → Backup → Copy). Its subframes (the
 // TradingView chart) and every guest stay denied.

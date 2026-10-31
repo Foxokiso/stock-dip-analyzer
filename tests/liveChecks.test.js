@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { errorSource, liveFailures } from '../scripts/live-checks.mjs';
+import { createServer } from 'node:http';
+import { errorSource, liveFailures, startDevServer } from '../scripts/live-checks.mjs';
 
 // The shape scripts/verify-live-electron.mjs writes to artifacts/live/report.json
 // after a clean dev-mode run (no CSP meta outside a packaged build).
@@ -67,6 +68,74 @@ test('the guest probe looks for the partition main.cjs puts research guests in',
     const partition = (file) => /const RESEARCH_PARTITION = '([^']+)'/.exec(readFileSync(new URL(`../${file}`, import.meta.url), 'utf8'))?.[1];
     assert.ok(partition('main.cjs'), 'main.cjs names RESEARCH_PARTITION');
     assert.equal(partition('scripts/verify-live-electron.mjs'), partition('main.cjs'));
+});
+
+// Spawned through npx, the dev server outlived every run on 5174 (the kill reached
+// only npm's shell, or cmd.exe), and the next run measured whatever answered there.
+test('the live script runs Vite with node itself, never through npx or a shell, and stops it however it exits', () => {
+    const script = readFileSync(new URL('../scripts/verify-live-electron.mjs', import.meta.url), 'utf8');
+    assert.match(script, /startDevServer\(\{[^}]*command: \[process\.execPath, path\.join\(root, 'node_modules', 'vite', 'bin', 'vite\.js'\)/);
+    assert.doesNotMatch(script, /spawn\(|shell:/);
+    // An exit hook, not the end of its finally block: writing the report can throw first.
+    assert.match(script, /process\.once\('exit', \(\) => vite\.kill\(\)\)/);
+});
+
+// A port the system picked for a listener and that was then let go again.
+const freePort = () => new Promise((resolve, reject) => {
+    const probe = createServer().listen(0, '127.0.0.1', () => {
+        const { port } = probe.address();
+        probe.close(() => resolve(port));
+    }).on('error', reject);
+});
+// A stand-in dev server: node itself, answering every request with status. It
+// stops by itself after 10 s, so a failing test cannot leave it behind.
+const standIn = (port, status) => [process.execPath, '-e',
+    `require('node:http').createServer((request, response) => { response.statusCode = ${status}; response.end(); }).listen(${port}, '127.0.0.1'); setTimeout(() => process.exit(), 10000);`];
+
+test('a live run refuses a port that already answers, before starting a server: it may serve another checkout', async () => {
+    const other = createServer((request, response) => response.end('another checkout'));
+    await new Promise(resolve => other.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${other.address().port}/`;
+    try {
+        // Started all the same, this command would pass for the server, as the port answers.
+        await assert.rejects(startDevServer({ url, command: [process.execPath, '-e', 'setTimeout(() => {}, 3000)'] }),
+            { message: `something already answers on ${url} (npm run dev, or a server an earlier run left behind); stop it and run again` });
+    } finally {
+        other.close();
+    }
+});
+
+test('a dev server that exits before it answers fails the start at once, with its own reason', async () => {
+    const url = `http://127.0.0.1:${await freePort()}/`;
+    const startedAt = performance.now();
+    await assert.rejects(startDevServer({ url, command: [process.execPath, '-e', "console.error('Error: Port 5174 is already in use'); process.exitCode = 3"] }),
+        { message: 'the dev server exited (exit code 3) before it answered: Error: Port 5174 is already in use' });
+    assert.ok(performance.now() - startedAt < 5000, 'the start did not wait out the 30 s it allows');
+});
+
+test('the process a live run stops is the server itself: killing it frees the port', async () => {
+    const port = await freePort();
+    const url = `http://127.0.0.1:${port}/`;
+    const server = await startDevServer({ url, command: standIn(port, 200) });
+    assert.equal((await fetch(url)).status, 200);
+    // 'exit', not 'close', which would also wait for anything it started and that shares its stderr.
+    const exited = new Promise(resolve => server.once('exit', resolve));
+    server.kill();
+    await exited;
+    await assert.rejects(fetch(url), /fetch failed/);
+});
+
+test('a dev server that never answers OK is killed when the start gives up, freeing the port', async () => {
+    const port = await freePort();
+    const url = `http://127.0.0.1:${port}/`;
+    await assert.rejects(startDevServer({ url, command: standIn(port, 503), attempts: 10, interval: 100 }), { message: 'dev server did not start' });
+    // Gone within a second, not only when the stand-in stops itself after 10 s.
+    let answers = true;
+    for (let i = 0; i < 20 && answers; i++) {
+        answers = await fetch(url).then(() => true, () => false);
+        if (answers) await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(answers, false, 'the server still answers after the start gave up');
 });
 
 test('a packaged build must carry the Content Security Policy; the dev server need not', () => {

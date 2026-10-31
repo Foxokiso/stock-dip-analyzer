@@ -334,3 +334,21 @@ test('the default session denies every permission other than the app page writin
     assert.equal(checkHandler(appContents, permission, 'file://', details), false, permission);
   }
 });
+
+// Unless the event's default is prevented, Electron answers a server that asks
+// for a TLS client certificate with the first match from the system store.
+test('no page is ever sent a TLS client certificate: every request goes on without one', () => {
+  const main = start();
+  const certificate = { subjectName: 'Ana Example', issuerName: 'Example Corp Issuing CA', fingerprint: 'sha256/abc=' };
+  for (const [contents, url] of [
+    [attachGuest(main), 'https://tracker.example/'],                 // an ad frame in a research viewer
+    [main.appContents, 'https://s.tradingview.com/widgetembed/'],  // the TradingView chart
+    [null, 'https://finviz.com/'],                                  // a request no renderer made
+  ]) {
+    const event = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+    const answers = [];
+    main.emitApp('select-client-certificate', event, contents, url, [certificate], (...args) => answers.push(args));
+    assert.equal(event.defaultPrevented, true, url);
+    assert.deepEqual(answers, [[]], `${url}: answered once, with no certificate`);
+  }
+});

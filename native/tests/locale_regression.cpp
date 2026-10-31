@@ -8,7 +8,9 @@
 // configuring native/ compiles de_DE.UTF-8 into <build>/locales with localedef and CTest sets
 // LOCPATH to it, so the test runs where no such locale is installed (CI images); Windows
 // ships one. It exits with 77, which CTest reports as skipped, only when no comma-decimal
-// locale is available (for instance, glibc's locale sources are missing). Outside CTest:
+// locale is available (for instance, glibc's locale sources are missing). Once the build has
+// compiled one, CTest also sets DIP_LOCALE_REQUIRED=1, and a locale that cannot be activated
+// fails the test: a broken locale setup must not turn this check off. Outside CTest:
 //   LOCPATH=<build>/locales <build>/locale_regression tests/fixtures/futures-reference.json
 //
 // Usage: locale_regression <tests/fixtures/futures-reference.json>
@@ -20,6 +22,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -28,6 +31,21 @@
 namespace {
 
 int failures = 0;
+
+// std::getenv, without MSVC's C4996 deprecation warning.
+std::optional<std::string> environmentVariable(const char* name) {
+#ifdef _MSC_VER
+    char* value = nullptr;
+    std::size_t length = 0;
+    if (_dupenv_s(&value, &length, name) != 0 || value == nullptr) return std::nullopt;
+    std::string text(value);
+    std::free(value);
+    return text;
+#else
+    const char* value = std::getenv(name);
+    return value ? std::optional<std::string>(value) : std::nullopt;
+#endif
+}
 
 void expectEqual(double actual, double expected, std::string_view what) {
     if (actual == expected && std::signbit(actual) == std::signbit(expected)) return;
@@ -64,6 +82,13 @@ int main(int argc, char** argv) {
     }
     if (active == nullptr) {
         std::setlocale(LC_ALL, "C");
+        if (environmentVariable("DIP_LOCALE_REQUIRED") == "1") {
+            const std::optional<std::string> localePath = environmentVariable("LOCPATH");
+            std::cerr << "FAIL: could not switch to the comma-decimal locale the build compiled into LOCPATH="
+                      << localePath.value_or("(unset)") << "; delete " << localePath.value_or("<build>/locales")
+                      << "/de_DE.UTF-8 and run the CMake configure again to rebuild it\n";
+            return 1;
+        }
         std::cout << "SKIPPED: no comma-decimal locale is installed (tried de_DE and fr_FR). "
                      "Build one with localedef and point LOCPATH at it to run this test.\n";
         return 77;
