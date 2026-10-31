@@ -151,7 +151,9 @@ try {
       if (Object.keys(probe.hits).length === Object.keys(specs).length) observer.disconnect();
     };
     const observer = new MutationObserver(check);
-    observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    // The TradingView frame is revealed by an attribute change (its inline opacity is
+    // cleared on widgetReady), so style changes count as well as added nodes.
+    observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['style'] });
     window.addEventListener('hashchange', () => { probe.t0 = performance.now(); probe.hits = {}; check(); }, { once: true });
   }, targets);
   const readProbe = () => page.evaluate(() => window.__liveProbe?.hits || {});
@@ -240,11 +242,16 @@ try {
     report.isolation.webview = await page.evaluate(() => new Promise(resolve => {
       const view = document.querySelector('webview');
       if (!view) return resolve('no webview element');
-      const done = () => resolve({ url: view.getURL?.() || view.src });
+      // getURL() throws until the guest has fired dom-ready, and after the element is
+      // gone; the fallback timer is cleared once the probe has an answer, so it never
+      // fires on a page the run has already left.
+      let timer;
+      const finish = (value) => { clearTimeout(timer); resolve(value); };
+      const done = () => { let url = view.src; try { url = view.getURL() || url; } catch { /* not ready: keep src */ } finish({ url }); };
       view.addEventListener('did-finish-load', done, { once: true });
       // Third-party frames inside the guest page (ads, trackers) fail all the time; only the page itself counts.
-      view.addEventListener('did-fail-load', (e) => { if (e.isMainFrame) resolve({ failed: e.errorDescription || 'load failed' }); });
-      setTimeout(done, 15000);
+      view.addEventListener('did-fail-load', (e) => { if (e.isMainFrame) finish({ failed: e.errorDescription || 'load failed' }); });
+      timer = setTimeout(done, 15000);
     }));
     // Per guest: the Node probe shows its page cannot reach Node; its session shows
     // that main.cjs's will-attach-webview ran, as only that handler puts a guest in
