@@ -76,7 +76,7 @@ export const DEFAULT_SETTINGS = deepFreeze({
     breakout: true,
     breakdown: true,
     trend: true,
-    minScore: 60,             // only alert on names at or above this score
+    minScore: 60,             // Breakout and Bullish alerts need at least this score
     historyLimit: 50,
   },
   data: {

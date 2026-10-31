@@ -505,6 +505,20 @@ test('Yahoo answering with a page that is not chart data fails at once, in words
   assert.equal(calls, 1, 'a consent page would only come back');
 });
 
+test('Yahoo refuses a redirect instead of following it, and does not retry', async () => {
+  for (const [location, target] of [
+    ['https://guce.yahoo.com/consent?brandType=eu', 'https://guce.yahoo.com'],   // a consent page
+    ['http://192.168.1.1/admin', 'http://192.168.1.1'],                         // local network, plain HTTP
+    ['https://query2.finance.yahoo.com/v8/finance/chart/AAPL', 'https://query2.finance.yahoo.com'],
+    ['https://[::1', 'an invalid address'],
+  ]) {
+    const requests = [];
+    const { invoke, clock } = loadMain(async (url, options) => { requests.push([url, options.redirect]); return redirect(location); });
+    await rejectsByDeadline(clock, invoke('fetch-yahoo-chart', 'AAPL'), { message: `Refused redirect to ${target}.` });
+    assert.deepEqual(requests, [['https://query1.finance.yahoo.com/v8/finance/chart/AAPL?range=1mo&interval=1d', 'manual']], location);
+  }
+});
+
 test('Yahoo chart requests accept every symbol, range and interval the app sends', async () => {
   const urls = [];
   const { invoke } = loadMain(async url => { urls.push(url); return response({ chart: { result: [] } }); });

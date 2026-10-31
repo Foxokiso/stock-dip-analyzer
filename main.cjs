@@ -54,6 +54,7 @@ const cookieHeader = (host) => [...(cookieJar.get(host) || [])].map(([name, valu
 // redirect, a redirect loop, an oversized body, a page that is not chart
 // data) are marked permanent.
 const permanent = (message) => Object.assign(new Error(message), { permanent: true });
+const refusedRedirect = (next) => permanent(`Refused redirect to ${next ? `${next.protocol}//${next.host}` : 'an invalid address'}.`);
 function httpError(provider, response, detail) {
     const reason = response.statusText || STATUS_CODES[response.status];
     const error = new Error(`${provider} returned HTTP ${response.status}${reason ? ` ${reason}` : ''}${detail ? `: ${detail}` : ''}`);
@@ -87,9 +88,7 @@ async function fetchProvider(url, { signal, headers }) {
         if (redirects === MAX_REDIRECTS) throw permanent(`${FETCH_HOSTS.get(hostOf(url))} redirected more than ${MAX_REDIRECTS} times.`);
         let next = null;
         try { next = new URL(location, current); } catch { /* refused below */ }
-        if (!next || !allowedFetchUrl(next.href)) {
-            throw permanent(`Refused redirect to ${next ? `${next.protocol}//${next.host}` : 'an invalid address'}.`);
-        }
+        if (!next || !allowedFetchUrl(next.href)) throw refusedRedirect(next);
         current = next.href;
     }
 }
@@ -273,8 +272,19 @@ ipcMain.handle('fetch-yahoo-chart', (event, symbol, range = '1mo', interval = '1
                     headers: {
                         ...BROWSER_HEADERS,
                         'Referer': 'https://finance.yahoo.com/',
-                    }
+                    },
+                    // Yahoo answers the chart URL itself. A redirect (a consent
+                    // page, another host) is refused, never followed, like an
+                    // off-list hop on fetch-url.
+                    redirect: 'manual',
                 });
+                const location = response.status >= 300 && response.status < 400 ? response.headers?.get?.('location') : null;
+                if (location) {
+                    void response.body?.cancel().catch(() => {});
+                    let next = null;
+                    try { next = new URL(location, url); } catch { /* refused below */ }
+                    throw refusedRedirect(next);
+                }
                 if (!response.ok) throw httpError('Yahoo Finance', response, await yahooRefusal(response));
                 const body = await readText(response, 'Yahoo Finance');
                 try {

@@ -337,7 +337,7 @@ export default function SettingsPage() {
 
           {/* 2 ── Scanner */}
           <Section id="scanner" title="Scanner" blurb={SECTIONS[1].blurb} onReset={() => reset('scanner')}>
-            <Field label="Excluded sectors" hint="Checked sectors are left out of broad “any sector” scans on the Overview, ETF rankings and Discovery desks." labelId={ids.sectors} wide>
+            <Field label="Excluded sectors" hint="Checked sectors are left out of broad “any sector” scans on the Overview and Discovery desks." labelId={ids.sectors} wide>
               <div className="checkbox-grid" role="group" aria-labelledby={ids.sectors}>
                 {SECTORS.map(sector => (
                   <Checkbox key={sector.id} id={`${uid}-sector-${sector.id}`} checked={scanner.excludedSectors.includes(sector.id)} onChange={(checked) => toggleSector(sector.id, checked)} tone="danger">
