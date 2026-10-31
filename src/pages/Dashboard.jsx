@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useMemo, memo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
+import { Link } from 'react-router-dom';
 import { Search, SlidersHorizontal, RefreshCw, ChevronDown } from 'lucide-react';
 import MarketPulse from '../components/MarketPulse';
 import { getVerdict } from '../utils/scoring';
@@ -12,6 +13,13 @@ import '../styles/pages/dashboard.css';
 const SCAN_DEPTHS = [10, 20, 30, 50, 100, 250, 500];
 // Rows still arriving are hinted with a few placeholders, not one per missing name.
 const PLACEHOLDER_ROWS = 8;
+// Rows rendered per step. A depth-500 scan re-sorts as scores land; painting
+// every row on each flush saturated the main thread, so the table renders the
+// first ROW_STEP rows of the current sort and filter and offers the rest.
+const ROW_STEP = 100;
+// A sector or depth pick starts its scan only once it has settled this long,
+// so arrowing through the Sector list does not start a full scan per value.
+const SCOPE_SETTLE_MS = 300;
 
 // settings.scanner.sort → table sort. "change" keeps the legacy default order
 // (day change ascending: biggest losers first); the others lead with the
@@ -25,6 +33,27 @@ const SETTINGS_SORT = {
 const LEGACY_SORT = { key: null, dir: 'desc' };
 const resolveDefaultSort = (sort) => SETTINGS_SORT[sort] ?? LEGACY_SORT;
 
+// The last sector pick. Storage can be denied or full (site data blocked, quota);
+// the Overview then starts on "Any Sector" and simply does not remember the pick.
+const SECTOR_KEY = 'dipAnalyzerSector';
+const readSavedSector = () => {
+    try {
+        return localStorage.getItem(SECTOR_KEY) || '';
+    } catch {
+        return '';
+    }
+};
+const saveSector = (sector) => {
+    try {
+        localStorage.setItem(SECTOR_KEY, sector);
+    } catch {
+        // Not remembered this session; the scan itself is unaffected.
+    }
+};
+
+// scanStore parameters for a scope picked on this page.
+const scanParamsOf = (scope, excludedKey) => ({ sector: scope.sector, excludedSectors: excludedKey ? excludedKey.split(',') : [], targetCount: scope.depth });
+
 // ─── Sorting ──────────────────────────────────────────────────────────────────
 const getSortValue = (s, key) => {
     switch (key) {
@@ -33,7 +62,6 @@ const getSortValue = (s, key) => {
         case 'dayChange': return s.changePercentage ?? null;
         case 'off30dHigh': return s.analysis?.dipPercentage ?? null;
         case 'volume': return s.volume ?? null;
-        case 'relVol': return (s.volume != null && s.avgVolume) ? s.volume / s.avgVolume : null;
         case 'marketCap': return s.marketCap ?? null;
         case 'rsi': return s.analysis?.rsi ?? null;
         case 'score': return s.recoveryProbability ?? null;
@@ -55,23 +83,28 @@ const sortStocks = (list, sortKey, sortDir) => {
     });
 };
 
+// Widths are px and the table layout is fixed, so a score landing in one row
+// never re-measures every other row. Company has no width: it takes what is
+// left, but never less than COMPANY_MIN_WIDTH (narrower panels scroll sideways).
 const COLUMNS = [
-    { id: 'symbol', label: 'Symbol', sortKey: 'symbol', align: 'left' },
+    { id: 'symbol', label: 'Symbol', sortKey: 'symbol', align: 'left', width: 84 },
     { id: 'name', label: 'Company', align: 'left' },
-    { id: 'price', label: 'Price', sortKey: 'price', align: 'right' },
-    { id: 'dayChange', label: 'Day Δ%', sortKey: 'dayChange', align: 'right' },
-    { id: 'off30d', label: 'Below 1M Close High', sortKey: 'off30dHigh', align: 'right' },
-    { id: 'volume', label: 'Volume', sortKey: 'volume', align: 'right' },
-    { id: 'relVol', label: 'RelVol', sortKey: 'relVol', align: 'right' },
-    { id: 'mktCap', label: 'Mkt Cap', sortKey: 'marketCap', align: 'right' },
-    { id: 'range52', label: '52W Range', align: 'center' },
-    { id: 'rsi', label: 'RSI', sortKey: 'rsi', align: 'right' },
-    { id: 'trend', label: 'Trend', align: 'center' },
-    { id: 'spark', label: '15 bars', align: 'center' },
-    { id: 'rating', label: 'Rating', sortKey: 'score', align: 'center' },
-    { id: 'expand', label: '', align: 'center' },
+    { id: 'price', label: 'Price', sortKey: 'price', align: 'right', width: 90 },
+    { id: 'dayChange', label: 'Day Δ%', sortKey: 'dayChange', align: 'right', width: 84 },
+    { id: 'off30d', label: 'Below 1M Close High', sortKey: 'off30dHigh', align: 'right', width: 104 },
+    { id: 'volume', label: 'Volume', sortKey: 'volume', align: 'right', width: 72 },
+    { id: 'mktCap', label: 'Mkt Cap', sortKey: 'marketCap', align: 'right', width: 72 },
+    { id: 'range52', label: '52W Range', align: 'center', width: 86 },
+    // The app's own RSI is Cutler's simple average, not the Wilder RSI(14) quoted elsewhere.
+    { id: 'rsi', label: 'Simple RSI', sortKey: 'rsi', align: 'right', width: 76, title: "Simple 14-period RSI over one month of closes; Finviz and TradingView show Wilder's RSI" },
+    { id: 'trend', label: 'Trend', align: 'center', width: 50 },
+    { id: 'spark', label: '15 bars', align: 'center', width: 106 },
+    { id: 'rating', label: 'Rating', sortKey: 'score', align: 'center', width: 144 },
+    { id: 'expand', label: '', align: 'center', width: 44 },
 ];
 const COLUMN_COUNT = COLUMNS.length;
+const COMPANY_MIN_WIDTH = 176;
+const TABLE_MIN_WIDTH = COLUMNS.reduce((sum, col) => sum + (col.width ?? COMPANY_MIN_WIDTH), 0);
 
 // Chip tone follows the verdict label, never the colour string from the scorer.
 const VERDICT_CLASS = {
@@ -127,22 +160,24 @@ const StockRow = memo(({ stock, expanded, onToggle }) => {
     const verdict = getVerdict(score, stock.isZombie);
     const analysis = stock.analysis || null;
 
-    const relVol = (stock.volume != null && stock.avgVolume) ? stock.volume / stock.avgVolume : null;
     const rsi = analysis?.rsi ?? null;
     const rsiTone = rsi === null ? 'is-muted' : rsi <= 30 ? 'is-up' : rsi >= 70 ? 'is-down' : 'is-muted';
     const trend = analysis?.trend || null;
     const hasChange = Number.isFinite(stock.changePercentage);
     const changeTone = (stock.changePercentage ?? 0) >= 0 ? 'up' : 'down';
+    const stockPath = `/stock/${stock.symbol}`;
 
     return (
         <>
+            {/* The symbol link is the keyboard and screen-reader path to the stock;
+                a click elsewhere on the row is a mouse shortcut to the same page. */}
             <tr
                 className={`dash-row${expanded ? ' is-expanded' : ''}`}
-                onClick={() => window.location.hash = `/stock/${stock.symbol}`}
+                onClick={(e) => { if (!e.target.closest('a, button')) window.location.hash = stockPath; }}
             >
-                <td className="dash-symbol">{stock.symbol}</td>
-                <td className="dash-company" title={stock.name}>
-                    {stock.name}
+                <td className="dash-symbol"><Link to={stockPath} className="dash-symbol-link">{stock.symbol}</Link></td>
+                <td className="dash-company">
+                    <div className="dash-company-name" title={stock.name}>{stock.name}</div>
                     <div className="dash-meta">{stock.source} · {stock.delayMinutes === null ? 'delay unknown' : `${stock.delayMinutes} min delay`}</div>
                     {stock.stale && <div className="dash-meta dash-meta--stale">Cached quote · refresh failed</div>}
                     <div className="dash-meta">Quote: {formatQuoteTime(stock.quotedAt)}</div>
@@ -158,9 +193,6 @@ const StockRow = memo(({ stock, expanded, onToggle }) => {
                     {analysis ? `-${analysis.dipPercentage.toFixed(1)}%` : '—'}
                 </td>
                 <td className="numeric is-muted">{formatCompact(stock.volume)}</td>
-                <td className={`numeric ${relVol !== null && relVol >= 2 ? 'is-warn' : 'is-muted'}`}>
-                    {relVol !== null ? `${relVol.toFixed(1)}×` : '—'}
-                </td>
                 <td className="numeric is-muted">{formatCompact(stock.marketCap)}</td>
                 <td className="centered">
                     <RangeBar low={stock.fiftyTwoWeekLow} high={stock.fiftyTwoWeekHigh} price={stock.price} />
@@ -241,24 +273,41 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
     const { key: sortKey, dir: sortDir } = sortOverride ?? defaultSort;
 
     const [searchTerm, setSearchTerm] = useState('');
-    const [sector, setSector] = useState(() => {
-        return localStorage.getItem('dipAnalyzerSector') || '';
-    }); // Empty string means "Any Sector"
+    const [sector, setSector] = useState(readSavedSector); // Empty string means "Any Sector"
     const [expandedRows, setExpandedRows] = useState(() => new Set());
+
+    // The controls show a pick at once; the scanned scope follows it once it has
+    // settled. The first scope of a visit is scanned (or adopted) immediately.
+    const [scope, setScope] = useState(() => ({ sector, depth: chartCount }));
+    useEffect(() => {
+        if (scope.sector === sector && scope.depth === chartCount) return;
+        const timer = setTimeout(() => setScope({ sector, depth: chartCount }), SCOPE_SETTLE_MS);
+        return () => clearTimeout(timer);
+    }, [sector, chartCount, scope]);
 
     // The scan itself lives in scanStore, so leaving this page never cancels it
     // and coming back shows the retained rows with their original retrieval times.
     const excludedKey = excludedSectors.join(',');
-    const scanParams = useMemo(() => ({ sector, excludedSectors: excludedKey ? excludedKey.split(',') : [], targetCount: chartCount }), [sector, excludedKey, chartCount]);
+    const scanParams = useMemo(() => scanParamsOf(scope, excludedKey), [scope, excludedKey]);
     const key = scanKey(scanParams);
     const { stocks, loading, error, phase: scanPhase } = useScan(key);
     const reuseSeconds = settings.scanner.reuseSeconds;
     const chartCacheSeconds = settings.data.chartCacheSeconds;
     const invoke = useMemo(() => getInvoke(), []);
     const rescan = useCallback(() => startScan(scanParams, { invoke, chartCacheSeconds }), [scanParams, invoke, chartCacheSeconds]);
+    // Refresh scans what the controls show: a pick still settling is applied at
+    // once, instead of rescanning the scope it replaces and scanning it after.
+    // A scan of the pick already in flight is adopted, not restarted.
+    const refresh = () => {
+        if (scope.sector === sector && scope.depth === chartCount) { rescan(); return; }
+        const shown = { sector, depth: chartCount };
+        const params = scanParamsOf(shown, excludedKey);
+        setScope(shown);
+        if (!getScan(scanKey(params)).loading) startScan(params, { invoke, chartCacheSeconds });
+    };
 
     useEffect(() => {
-        localStorage.setItem('dipAnalyzerSector', sector);
+        saveSector(sector);
     }, [sector]);
 
     const toggleRow = useCallback((symbol) => {
@@ -310,6 +359,23 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
         });
         return sortStocks(filtered, sortKey, sortDir);
     }, [stocks, searchTerm, globalFilter, sortKey, sortDir]);
+
+    // How many of displayStocks are rendered. "Show more" applies to the scope
+    // it was clicked in; a new sector or depth starts from ROW_STEP again.
+    const [rowLimit, setRowLimit] = useState(() => ({ key, limit: ROW_STEP, reveal: null }));
+    const limit = rowLimit.key === key ? rowLimit.limit : ROW_STEP;
+    const visibleStocks = displayStocks.length > limit ? displayStocks.slice(0, limit) : displayStocks;
+    const hiddenRows = displayStocks.length - visibleStocks.length;
+
+    // Show more / Show all move focus to the first row they reveal. Otherwise it
+    // falls to the page when the last click removes the buttons, or stays on a
+    // button with every new row behind it in the tab order.
+    const tableBodyRef = useRef(null);
+    const showRows = (nextLimit) => setRowLimit({ key, limit: nextLimit, reveal: limit });
+    useEffect(() => {
+        if (rowLimit.reveal === null) return;
+        tableBodyRef.current?.querySelectorAll('.dash-symbol-link')[rowLimit.reveal]?.focus();
+    }, [rowLimit]);
 
     // Summary tiles — live-updating as hydration progresses
     const scanned = stocks.length;
@@ -401,7 +467,7 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
 
             <div className="flex-between data-source-line dash-source-line">
                 <span className="dash-source-text">Finviz quote times are unavailable; retrieval time is shown on each row. Technical scores use one month of daily closes and are not recovery probabilities.</span>
-                <button type="button" className="btn btn-outline" onClick={rescan} disabled={loading}>
+                <button type="button" className="btn btn-outline" onClick={refresh} disabled={loading}>
                     <RefreshCw size={14} /> Refresh quotes
                 </button>
             </div>
@@ -427,7 +493,10 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
 
             {/* Stocks Table */}
             <div className="glass-panel dash-table-panel">
-                <table className="dash-table">
+                <table className="dash-table" style={{ minWidth: TABLE_MIN_WIDTH }}>
+                    <colgroup>
+                        {COLUMNS.map(col => <col key={col.id} style={col.width ? { width: col.width } : undefined} />)}
+                    </colgroup>
                     <thead>
                         <tr>
                             {COLUMNS.map(col => {
@@ -444,17 +513,18 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                                             handleSort(col.sortKey);
                                         } : undefined}
                                         tabIndex={col.sortKey ? 0 : undefined}
-                                        title={col.sortKey ? 'Click to sort' : undefined}
+                                        title={col.title ?? (col.sortKey ? 'Click to sort' : undefined)}
                                         aria-sort={active ? (sortDir === 'desc' ? 'descending' : 'ascending') : undefined}
                                     >
-                                        {col.label}{active ? (sortDir === 'desc' ? ' ▼' : ' ▲') : ''}
+                                        {/* No-break space: a wrapped header keeps the arrow with its last word. */}
+                                        {col.label}{active ? (sortDir === 'desc' ? '\u00a0▼' : '\u00a0▲') : ''}
                                     </th>
                                 );
                             })}
                         </tr>
                     </thead>
-                    <tbody>
-                        {displayStocks.map((stock) => (
+                    <tbody ref={tableBodyRef}>
+                        {visibleStocks.map((stock) => (
                             <StockRow
                                 key={stock.symbol}
                                 stock={stock}
@@ -463,7 +533,7 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                             />
                         ))}
 
-                        {loading && Array.from({ length: Math.min(PLACEHOLDER_ROWS, Math.max(0, chartCount - stocks.length)) }).map((_, i) => (
+                        {loading && hiddenRows === 0 && Array.from({ length: Math.min(PLACEHOLDER_ROWS, Math.max(0, scope.depth - stocks.length)) }).map((_, i) => (
                             <tr key={`loading-${i}`} className="dash-row-loading">
                                 <td colSpan={COLUMN_COUNT}>
                                     Scanning markets #{stocks.length + i + 1}...
@@ -477,6 +547,27 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
                     <div className="dash-empty">No stocks found matching your criteria.</div>
                 )}
             </div>
+
+            {/* Rows beyond the limit are never dropped silently: the count is always shown.
+                It sits under the panel so a sideways-scrolled table never hides it. */}
+            {displayStocks.length > 0 && (
+                <div className="dash-table-foot">
+                    <span className="dash-table-count">
+                        Showing {visibleStocks.length} of {displayStocks.length}
+                        {displayStocks.length < stocks.length ? ` matching · ${stocks.length} scanned` : ''}
+                    </span>
+                    {hiddenRows > 0 && (
+                        <span className="dash-table-more">
+                            <button type="button" className="btn btn-outline" onClick={() => showRows(limit + ROW_STEP)}>
+                                Show {Math.min(ROW_STEP, hiddenRows)} more
+                            </button>
+                            <button type="button" className="btn btn-outline" onClick={() => showRows(Infinity)}>
+                                Show all ({displayStocks.length})
+                            </button>
+                        </span>
+                    )}
+                </div>
+            )}
         </div>
     );
 };
