@@ -6,45 +6,14 @@ import { chromium } from 'playwright';
 import { readFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
+import { stubBridge, watcher } from './ui-harness.mjs';
 const artifactDir=fileURLToPath(new URL('../artifacts/', import.meta.url));
 const baseUrl=process.env.UI_BASE_URL || 'http://127.0.0.1:5174';
 await mkdir(artifactDir,{recursive:true});
 const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
 const errors=[], cspViolations=[];
-// Every page: uncaught errors and CSP violations are collected, and TradingView
-// (the chart iframe's host) and web fonts never load from the network.
-const watch=async(page)=>{
- page.on('pageerror',error=>errors.push(error.message));
- await page.exposeFunction('__reportCsp',violation=>cspViolations.push(violation));
- await page.addInitScript(()=>{
-  if (window!==window.top) return;
-  document.addEventListener('securitypolicyviolation',e=>window.__reportCsp(`${e.violatedDirective} ${e.blockedURI} ${e.sourceFile}:${e.lineNumber}`));
- });
- await page.route(/https:\/\/([a-z0-9-]+\.)*tradingview\.com|fonts\.googleapis|fonts\.gstatic/,route=>route.abort());
- return page;
-};
+const watch=watcher(errors,cspViolations);
 const fixture=name=>readFile(new URL(`../tests/fixtures/${name}`,import.meta.url),'utf8');
-// The desktop bridge as preload.cjs ships it: window.dipAnalyzer = { invoke }, in
-// the top frame only. Recorded responses answer by request (fetch-url: the URL;
-// fetch-yahoo-chart: 'SYMBOL range interval'), after an optional delay per channel.
-// Anything else rejects in Electron's own wording, which the app's bridge strips;
-// so does every request while window.__failWith holds a message. window.__calls
-// logs every call.
-const stubBridge=(page,{urls={},charts={},delays={}}={})=>page.addInitScript(({urls,charts,delays})=>{
- if (window!==window.top) return;
- window.__calls=[];
- window.__failWith=null;
- window.dipAnalyzer={invoke:async(channel,...args)=>{
-  window.__calls.push([channel,...args]);
-  if (!['fetch-url','fetch-yahoo-chart','configure-network'].includes(channel)) throw new Error(`Unknown desktop channel: ${channel}`);
-  if (channel==='configure-network') return {requestTimeoutMs:args[0].requestTimeoutSeconds*1000};
-  await new Promise(resolve=>setTimeout(resolve,delays[channel]??0));
-  const key=channel==='fetch-url'?args[0]:args.join(' ');
-  const body=channel==='fetch-url'?urls[key]:charts[key];
-  if (window.__failWith||body===undefined) throw new Error(`Error invoking remote method '${channel}': Error: ${window.__failWith||`No recorded response for ${key}`}`);
-  return channel==='fetch-url'?body:JSON.parse(body);
- }};
-},{urls,charts,delays});
 // null when the page fits the viewport; otherwise the outermost boxes past its
 // right edge that no clipping or scrolling ancestor contains.
 const overflowAt=page=>page.evaluate(()=>{
@@ -60,9 +29,9 @@ await page.getByText('Quotes unavailable',{exact:true}).waitFor();
 assert.equal(await page.locator('.futures-table tbody tr').count(),0);
 assert.equal(await page.locator('.chart-caption').last().textContent(),'Finviz source samples · 5-minuteUnavailable');
 await page.screenshot({path:artifactDir+'/futures-unavailable.png',fullPage:true});
-// Without the desktop bridge every desk renders its heading and its own
-// unavailable notices, shows no price, names itself in the window title and fits
-// the viewport, wide and at 390 px. Settings states the alert rules (C1.5).
+// Without the desktop bridge every desk renders its heading, one h1 in <main>, and
+// its own unavailable notices, shows no price, names itself in the window title and
+// fits the viewport, wide and at 390 px. Settings states the alert rules (C1.5).
 const ROUTES=[
  {path:'/#/',title:'Overview',root:'.dashboard',heading:/Market Dips|Overview/,notices:['Market data requires the desktop app connection. No sample quotes are shown.','Market quotes require the desktop app connection.']},
  {path:'/#/futures',title:'Futures',root:'.futures-page',heading:/See the market|Futures/,notices:['Quotes unavailable','Futures data requires the Electron desktop app.','Market data is unavailable']},
@@ -79,6 +48,7 @@ for (const viewport of [{width:1440,height:1050},{width:390,height:844}]) {
   await page.goto(baseUrl+route.path);
   const desk=route.root?page.locator('main').locator(route.root).first():page.locator('main');
   await desk.getByRole('heading',{name:route.heading}).first().waitFor();
+  assert.equal(await page.locator('main h1').count(),1,`${route.path} has no single h1 in <main>`);
   for (const notice of route.notices) await desk.getByText(notice,{exact:true}).first().waitFor();
   assert.equal(await page.title(),`${route.title} — Dip Analyzer PRO`);
   assert.doesNotMatch(await page.locator('main').innerText(),/\$\d/,`${route.path} shows a price without a desktop bridge`);
@@ -220,8 +190,9 @@ for (const path of ['/#/','/#/futures']) {
 await data.close();
 // Backup → Copy with the clipboard write refused (U13): the instruction stays, with
 // the export focused and fully selected, past the 2.7 s a confirmation lasts. A copy
-// of part of it is not confirmed and leaves the clipboard alone; a copy of all of it
-// is confirmed, and the confirmation fades. A working clipboard gets the export.
+// of part of it is not confirmed and leaves the clipboard alone, and moving on to
+// another field drops the instruction; a copy of all of it is confirmed, and the
+// confirmation fades. A working clipboard gets the export.
 const MANUAL_COPY='Clipboard unavailable — the text is selected; copy it manually.';
 const PARTIAL_COPY='Not all of the text was selected — select all of it and copy again.';
 const clipboardContext=await browser.newContext({viewport:{width:1440,height:1050}});
@@ -253,6 +224,12 @@ await backup.keyboard.press('Control+C');
 await copyStatus.getByText(PARTIAL_COPY,{exact:true}).waitFor();
 assert.equal(await clipboardText(),'SENTINEL');
 assert.equal(await backup.getByRole('button',{name:'Copied',exact:true}).count(),0);
+// Moving on to another field drops the instruction; Copy asks again.
+await backup.getByLabel('Import',{exact:true}).focus();
+await copyStatus.getByText(PARTIAL_COPY,{exact:true}).waitFor({state:'detached',timeout:2000});
+assert.equal(await copyStatus.textContent(),'');
+await backup.getByRole('button',{name:'Copy',exact:true}).click();
+await copyStatus.getByText(MANUAL_COPY,{exact:true}).waitFor();
 await backup.keyboard.press('Control+A');
 await backup.keyboard.press('Control+C');
 await copyStatus.getByText('Copied to the clipboard.',{exact:true}).waitFor();
@@ -356,6 +333,12 @@ await overview.goto(baseUrl+'/#/');
 await overview.locator('.dash-row').nth(19).waitFor();
 await overview.waitForFunction(()=>!document.querySelector('.dash-spinner'));
 assert.equal(await overview.getByRole('columnheader',{name:/RelVol/}).count(),0);
+// U34: at 1280 px the source lines wrap instead of clipping, so the quote and
+// retrieval times keep their zone.
+await overview.setViewportSize({width:1280,height:1050});
+const metaLines=await overview.locator('.dash-meta').evaluateAll(lines=>lines.map(line=>({text:line.textContent,clipped:line.scrollWidth>line.clientWidth})));
+assert.equal(metaLines.filter(line=>line.text.startsWith('Retrieved: ')).length,20);
+assert.deepEqual(metaLines.filter(line=>line.clipped).map(line=>line.text),[],'source lines are clipped at 1280 px');
 const symbolLink=overview.locator('.dash-row').first().getByRole('link');
 const symbol=await symbolLink.textContent();
 assert.equal(await symbolLink.getAttribute('href'),`#/stock/${symbol}`);

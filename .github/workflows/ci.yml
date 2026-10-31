@@ -2,11 +2,13 @@ name: CI
 
 # Linux checks for every pull request and every push to master: unit tests,
 # lint, the production renderer build and the browser regressions. Windows
-# packaging is validated separately by windows-installer.yml.
+# packaging is validated separately by windows-installer.yml. release.yml
+# calls this workflow before it builds a release.
 on:
   push:
     branches: [master]
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read
@@ -39,6 +41,16 @@ jobs:
       - name: Run regression tests
         run: npm test
 
+      - name: Run regression tests in New York time with a German locale
+        env:
+          TZ: America/New_York
+          LANG: de_DE.UTF-8
+        # Node reads both from the environment, but an LC_ALL would override LANG:
+        # stop rather than repeat the UTC, English run.
+        run: |
+          node -e "const { locale, timeZone } = Intl.DateTimeFormat().resolvedOptions(); if (locale !== 'de-DE' || timeZone !== 'America/New_York') throw new Error(locale + ' ' + timeZone)"
+          npm test
+
       - name: Run lint
         run: npm run lint
 
@@ -55,3 +67,13 @@ jobs:
           trap 'kill "$server" 2>/dev/null || true' EXIT
           npx wait-on --timeout 30000 tcp:127.0.0.1:5174
           npm run test:ui
+
+      # Only the production build carries the Content Security Policy and the
+      # minified CSS; a CSP violation fails the run.
+      - name: Run browser regressions on the production build
+        run: |
+          node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4174 --strictPort &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          npx wait-on --timeout 30000 tcp:127.0.0.1:4174
+          UI_BASE_URL=http://127.0.0.1:4174 npm run test:ui

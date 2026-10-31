@@ -628,7 +628,7 @@ test('rows listed after scoring stopped are unavailable at once, even while anot
 const listenForAlerts = (t) => {
     const events = [];
     globalThis.window = new EventTarget();
-    window.addEventListener('stock-alert', (event) => events.push(event.detail));
+    globalThis.window.addEventListener('stock-alert', (event) => events.push(event.detail));
     t.after(() => { delete globalThis.window; });
     return events;
 };
@@ -655,7 +655,7 @@ test('an alert is raised when its condition turns true, not again while it holds
     dispatchAlertsFromAnalysis('XYZ', conditions(), freshQuote('2026-10-30T14:05:40Z'));
     dispatchAlertsFromAnalysis('XYZ', conditions({ isBreakdown: true }), freshQuote('2026-10-30T14:05:50Z'));
     assert.deepEqual(events.map(event => event.type), ['breakdown', 'breakdown']);
-    assert.equal(window._stockAlertsEmitted, undefined);
+    assert.equal(globalThis.window._stockAlertsEmitted, undefined);
 });
 
 test('a condition that persists is raised again when a new exchange-local day starts', (t) => {

@@ -65,6 +65,9 @@ for (const spec of VIEWS) {
 // parser: the Key Statistics labels the page shows (with its Dividend fallback),
 // enough statistics overall, the 52-week bounds its position strip reads ('52W
 // Range' disappeared unnoticed once), and headlines that name their publisher.
+// STOCK_PAGE_STATS mirrors STAT_DEFS in src/pages/StockDetails.jsx, which a
+// script cannot import from JSX: change the two together (verify-ui pins the
+// grid at 16 statistics).
 const STOCK_PAGE_STATS = ['Market Cap', 'P/E', 'Forward P/E', 'EPS (ttm)', ['Dividend TTM', 'Dividend %'], 'Beta', 'RSI (14)', 'Volume', 'Avg Volume',
   'Rel Volume', '52W High', '52W Low', 'Target Price', 'Short Float', 'Perf Week', 'Perf Month'];
 {

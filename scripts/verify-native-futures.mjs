@@ -58,7 +58,7 @@ const page = (json, { attributes = 'type="application/json" id="futures-init-dat
 add('fixture raw text', fixtureText);
 add('fixture re-serialized', text(fixture));
 add('fixture pretty-printed', JSON.stringify(fixture, null, 2));
-add('fixture with surrounding whitespace and BOM', `﻿ \n\t${fixtureText}\r\n  `);
+add('fixture with surrounding whitespace and BOM', `\uFEFF \n\t${fixtureText}\r\n \u00A0`);
 add('fixture, timeframe not given', fixtureText, { timeframe: undefined });
 for (const { id } of FUTURES_TIMEFRAMES) add(`fixture timeframe ${id}`, fixtureText, { timeframe: id });
 add('fixture unsupported timeframe text (parse does not validate it)', fixtureText, { timeframe: 'untrusted' });
@@ -74,7 +74,7 @@ add('page upper-case tag and attributes', page(fixtureText, { open: '<SCRIPT', a
 add('page spaces around =', page(fixtureText, { attributes: 'id = "futures-init-data"  type\t=\n"application/json"' }));
 add('page extra attributes', page(fixtureText, { attributes: 'data-x="1" id="futures-init-data" nonce="abc" type="application/json" defer' }));
 add('page no-break space between attributes', page(fixtureText, { attributes: 'id="futures-init-data" type="application/json"' }));
-add('page unicode whitespace before attributes', `<html><script id="futures-init-data"　type="application/json">${fixtureText}</script></html>`);
+add('page unicode whitespace before attributes', `<html><script\u2003id="futures-init-data"\u3000type="application/json">${fixtureText}</script></html>`);
 add('page closing tag with spaces', page(fixtureText, { close: '</script \t >' }));
 add('page closing tag mixed case', page(fixtureText, { close: '</Script>' }));
 add('page body padded with whitespace', page(`\n  ${fixtureText}\n  `));
@@ -349,7 +349,7 @@ for (let i = 0; i < 300; i++) {
   input = input.replace(/"@@RAW@@"/g, () => pick(rawNumbers));
   if (i % 29 === 0) input = input.slice(0, Math.floor(random() * input.length));
   if (i % 7 === 0) input = page(input, { attributes: pick(attributeStyles), before: random() < 0.5 ? scriptJs : '' });
-  if (i % 13 === 0) input = `﻿\n${input}\n`;
+  if (i % 13 === 0) input = `\uFEFF\n${input}\n`;
   const timeframe = random() < 0.2 ? undefined : pick(FUTURES_TIMEFRAMES).id;
   const sourceUrl = random() < 0.1 ? `https://finviz.com/api/futures_all?timeframe=${timeframe ?? 'i5'}` : undefined;
   add(`seeded mutation ${i}`, input, { timeframe, sourceUrl, fetchedAt: i % 2 ? fetchedAt : refreshedAt });

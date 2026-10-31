@@ -228,7 +228,7 @@ ipcMain.handle('fetch-url', (event, requested) => {
                 try {
                     const seedResp = await fetchProvider('https://finviz.com/', { signal, headers: BROWSER_HEADERS });
                     void seedResp.body?.cancel().catch(() => {});
-                } catch (_) {
+                } catch {
                     signal.throwIfAborted(); // Other seed failures are best effort.
                 }
             }

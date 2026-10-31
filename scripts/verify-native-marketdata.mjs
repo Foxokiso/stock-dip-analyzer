@@ -124,6 +124,7 @@ for (let i = 0; i < 300; i++) {
     }
   }
   if (random() < 0.1 && timestamps.length > 1) timestamps[timestamps.length - 1] = timestamps[0];
+  // eslint-disable-next-line no-dupe-else-if -- each random() is a new draw
   if (random() < 0.1) closes.pop(); else if (random() < 0.1) closes.push(price);
   const valid = timestamps.filter(value => Number.isFinite(value) && value > 0 && value < 8.64e12);
   const lastValid = valid.length ? Math.max(...valid) : base;
@@ -390,7 +391,8 @@ else process.env.TZ = hostZoneName;
 // run again with the driver's LC_CTYPE switched to Turkish. On Linux with glibc's locale sources,
 // configuring native/ compiles tr_TR.UTF-8 into the build tree and CTest passes its directory as
 // DIP_LOCALE_DIR (LOCPATH for this run only); elsewhere an installed Turkish locale is used, or
-// the run is skipped.
+// the run is skipped. CTest sets DIP_LOCALE_DIR only once that locale compiled, so a driver that
+// cannot switch to it then fails the run: a broken locale setup must not turn this check off.
 const localeDir = process.env.DIP_LOCALE_DIR;
 const turkishEnv = localeDir && existsSync(join(localeDir, 'tr_TR.UTF-8', 'LC_CTYPE')) ? { ...process.env, LOCPATH: localeDir } : process.env;
 const ctypeOf = name => {
@@ -400,6 +402,7 @@ const ctypeOf = name => {
 const turkish = ['tr_TR.UTF-8', 'tr_TR.utf8', 'tr_TR', 'Turkish_Turkey.1254', 'tr-TR'].find(name => ctypeOf(name) !== null);
 let turkishRun = 'skipped';
 if (turkish === undefined) {
+  assert.ok(!localeDir, `the driver could not switch LC_CTYPE to the Turkish locale in DIP_LOCALE_DIR=${localeDir}`);
   console.warn('Skipping the Turkish LC_CTYPE run: the driver found no Turkish locale');
 } else {
   const folded = cases.filter(entry => entry.kind === 'day' && foldZones.includes(entry.zone));

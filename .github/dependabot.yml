@@ -17,10 +17,6 @@ updates:
     ignore:
       # Moved by hand, after windows-installer.yml has validated NSIS packaging.
       - dependency-name: electron-builder
-      # 7.1 reports new react-hooks/refs and set-state-in-effect errors; bump it
-      # together with the code changes that clear them.
-      - dependency-name: eslint-plugin-react-hooks
-        versions: ['>=7.1.0']
 
   - package-ecosystem: github-actions
     directory: /

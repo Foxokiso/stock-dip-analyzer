@@ -2,17 +2,13 @@
 import {chromium} from 'playwright';
 import {readFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
+import {stubBridge,watcher} from './ui-harness.mjs';
 const baseUrl=process.env.UI_BASE_URL || 'http://127.0.0.1:5174';
 const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
 const errors=[], cspViolations=[];
 // Uncaught errors and, on a production build, Content Security Policy violations
 // (the alert clip must play under media-src 'self') fail the run.
-const watch=async(page)=>{
- page.on('pageerror',error=>errors.push(error.message));
- await page.exposeFunction('__reportCsp',violation=>cspViolations.push(violation));
- await page.addInitScript(()=>document.addEventListener('securitypolicyviolation',e=>window.__reportCsp(`${e.violatedDirective} ${e.blockedURI} ${e.sourceFile}:${e.lineNumber}`)));
- return page;
-};
+const watch=watcher(errors,cspViolations);
 const fixture=name=>readFile(new URL(`../tests/fixtures/${name}`,import.meta.url),'utf8');
 const page=await watch(await browser.newPage());
 const soundRequests=[];
@@ -133,19 +129,6 @@ for (const viewport of [{width:1440,height:900},{width:390,height:844}]) {
  assert.equal(stops.fully,0,`the history toggle hid a focused control at ${viewport.width} px`);
  await tab.close();
 }
-// Desktop bridge in the shape preload.cjs ships, answering recorded responses only;
-// window.__calls logs every call.
-const recordedBridge=(tab,{urls={},charts={}})=>tab.addInitScript(({urls,charts})=>{
- window.__calls=[];
- window.dipAnalyzer={invoke:async(channel,...args)=>{
-  window.__calls.push([channel,...args]);
-  if (channel==='configure-network') return {};
-  const key=channel==='fetch-url'?args[0]:args.join(' ');
-  const body=channel==='fetch-url'?urls[key]:charts[key];
-  if (body===undefined) throw new Error(`Error invoking remote method '${channel}': Error: No recorded response for ${key}`);
-  return channel==='fetch-url'?body:JSON.parse(body);
- }};
-},{urls,charts});
 const silent=(tab,settings={})=>tab.addInitScript(settings=>localStorage.setItem('dipAnalyzerSettingsV2',JSON.stringify({version:2,...settings,alerts:{sound:false}})),settings);
 // U59: in Alien Fractal the alert layer stays in the viewport however far a long
 // desk is scrolled. A filter on <body> made it the containing block of fixed
@@ -153,7 +136,7 @@ const silent=(tab,settings={})=>tab.addInitScript(settings=>localStorage.setItem
 // at its start.
 const fractal=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
 await silent(fractal,{appearance:{theme:'theme-anime'}});
-await recordedBridge(fractal,{urls:{'https://finviz.com/api/futures_all?timeframe=i5':await fixture('futures-reference.json')}});
+await stubBridge(fractal,{urls:{'https://finviz.com/api/futures_all?timeframe=i5':await fixture('futures-reference.json')}});
 await fractal.goto(baseUrl+'/#/futures');
 await fractal.locator('.futures-table tbody tr').nth(58).waitFor();
 assert.ok(await fractal.evaluate(()=>document.body.classList.contains('theme-anime')));
@@ -192,7 +175,7 @@ const scanAt=async minutesAfterClose=>{
  const tab=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
  await tab.clock.install({time:closedAt+minutesAfterClose*60000});
  await silent(tab);
- await recordedBridge(tab,losers);
+ await stubBridge(tab,losers);
  await tab.goto(baseUrl+'/#/');
  await scanned(tab,1);
  assert.equal((await tab.locator('.dash-row',{hasText:'PTHS'}).locator('.dash-verdict').textContent()).trim(),'Strong Sell (15)');

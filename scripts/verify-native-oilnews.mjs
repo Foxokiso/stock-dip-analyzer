@@ -26,6 +26,7 @@ const parse = xml => parseOilNews(xml, { DOMParser });
 // The driver is a line protocol: no TAB (field separator), CR or LF, and no other control
 // characters (a 0x1A would end text-mode stdin on Windows). Titles and links are sent trimmed,
 // which is what the JavaScript layer hands to the classification rules.
+// eslint-disable-next-line no-control-regex -- control characters are what it looks for
 const CONTROL = /[\u0000-\u001f\u007f]/;
 const lineSafe = text => !CONTROL.test(text);
 

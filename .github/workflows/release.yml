@@ -1,10 +1,11 @@
 name: Release
 
 # Pushing a tag such as v2.1.0 builds the Windows installer from that commit,
-# runs the full test suite first, and publishes a GitHub Release with the
-# installer, its block map and SHA-256 sums attached. Code signing happens
-# automatically once the CSC_LINK / CSC_KEY_PASSWORD secrets exist; until then
-# the installer is unsigned and the release notes say so.
+# once the checks every pull request runs have passed on it, and publishes a
+# GitHub Release with the installer, its block map and SHA-256 sums attached.
+# Code signing happens automatically once the CSC_LINK / CSC_KEY_PASSWORD
+# secrets exist; until then the installer is unsigned and the release notes
+# say so.
 on:
   push:
     tags: ['v*']
@@ -17,8 +18,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A tag that does not match package.json fails here within a minute, without
+  # waiting for the checks below.
+  version:
+    name: Tag matches package.json
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Expressions reach scripts only through env, never spliced into the script text.
+      - name: Tag must match package.json
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ("v$version" -ne $env:TAG) { throw "Tag $env:TAG does not match package.json version $version" }
+
+  # Before anything is built: CI's tests (also in New York time with a German
+  # locale), lint, renderer build and browser regressions on the dev server and
+  # the production build, and the native parity suites. They run with this
+  # workflow's read-only token, and no secret is passed to them.
+  checks:
+    uses: ./.github/workflows/ci.yml
+  native:
+    uses: ./.github/workflows/native-core.yml
+
   windows:
     name: Build and publish Windows x64 installer
+    needs: [version, checks, native]
     runs-on: windows-2022
     timeout-minutes: 40
     # Write access is needed only to create the release.
@@ -42,14 +74,6 @@ jobs:
 
       - name: Install locked dependencies
         run: npm ci --ignore-scripts=false --no-audit --no-fund
-
-      # Expressions reach scripts only through env, never spliced into the script text.
-      - name: Tag must match package.json
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          if ("v$version" -ne $env:TAG) { throw "Tag $env:TAG does not match package.json version $version" }
 
       - name: Tests, lint, renderer build
         run: |
