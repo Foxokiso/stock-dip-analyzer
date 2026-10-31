@@ -296,8 +296,12 @@ test('scanner and alert values the desk never offers fall back on load and are r
     [{ scanner: { refreshMinutes: 0.0001 } }, /scanner\.refreshMinutes must be one of 0, 1, 5, 15, 30/],
     [{ scanner: { refreshMinutes: 2 } }, /scanner\.refreshMinutes must be one of/],
     [{ scanner: { reuseSeconds: 0.5 } }, /scanner\.reuseSeconds must be one of 0, 30, 90, 180, 600/],
-    [{ scanner: { scanDepth: 10000 } }, /scanner\.scanDepth must be one of 100, 250, 500/],
-    [{ scanner: { scanDepth: 20 } }, /scanner\.scanDepth must be one of/],
+    // Any whole depth up to the deepest preset is kept (v1 saved 10 to 50); deeper scans are refused.
+    [{ scanner: { scanDepth: 10000 } }, /scanner\.scanDepth must be between 1 and 500/],
+    [{ scanner: { scanDepth: 501 } }, /scanner\.scanDepth must be between 1 and 500/],
+    [{ scanner: { scanDepth: 0 } }, /scanner\.scanDepth must be between 1 and 500/],
+    [{ scanner: { scanDepth: 12.5 } }, /scanner\.scanDepth must be a whole number/],
+    [{ scanner: { scanDepth: '100' } }, /scanner\.scanDepth must be a number/],
     [{ alerts: { minScore: 62.5 } }, /alerts\.minScore must be a whole number/],
     [{ alerts: { historyLimit: 1001 } }, /alerts\.historyLimit must be between 1 and 1000/],
     [{ alerts: { historyLimit: 0 } }, /alerts\.historyLimit must be between 1 and 1000/],
@@ -309,6 +313,19 @@ test('scanner and alert values the desk never offers fall back on load and are r
     assert.equal(loaded[section][key], DEFAULT_SETTINGS[section][key], `${JSON.stringify(patch)} falls back to the default`);
     assert.throws(() => parseSettingsImport(JSON.stringify(patch)), problem);
   }
+});
+
+test('legacy scan depths survive the v1 migration, a restart, an import and an export round trip', () => {
+  // v1 saved 10, 20 (its default), 30 or 50; the Overview still offers them beside the presets.
+  for (const scanDepth of [10, 20, 30, 50, 1, 499]) {
+    assert.equal(loadSettings(fakeStorage({ dipAnalyzerChartCount: String(scanDepth) })).scanner.scanDepth, scanDepth, `v1 depth ${scanDepth}`);
+    const stored = loadSettings(fakeStorage({ [SETTINGS_KEY]: JSON.stringify({ version: SETTINGS_VERSION, scanner: { scanDepth } }) }));
+    assert.equal(stored.scanner.scanDepth, scanDepth, `stored depth ${scanDepth}`);
+    assert.equal(parseSettingsImport(JSON.stringify({ scanner: { scanDepth } })).scanner.scanDepth, scanDepth, `imported depth ${scanDepth}`);
+    assert.deepEqual(parseSettingsImport(serializeSettings(stored)), stored);
+  }
+  // A v1 depth past the deepest preset is not migrated into a larger scan.
+  assert.equal(loadSettings(fakeStorage({ dipAnalyzerChartCount: '10000' })).scanner.scanDepth, DEFAULT_SETTINGS.scanner.scanDepth);
 });
 
 test('excluded sectors: stored lists keep their known ids once each, imports must be clean', () => {

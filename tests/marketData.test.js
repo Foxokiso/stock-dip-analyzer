@@ -141,6 +141,23 @@ test('cached exchange-day formatters give the days a fresh formatter per bar gav
     assert.equal(dayIn('America/New_York', '2026-10-10T03:30:00Z'), '2026-10-09');
 });
 
+test('a zone Intl rejects is tried once, not once (and one exception) per bar', (t) => {
+    const zone = 'Mars/Valles_Marineris'; // used by no other test, so not cached yet
+    const OriginalFormat = Intl.DateTimeFormat;
+    let attempts = 0;
+    t.mock.method(Intl, 'DateTimeFormat', function DateTimeFormat(locale, options) {
+        if (options?.timeZone === zone) attempts++;
+        return new OriginalFormat(locale, options);
+    });
+    const stamps = Array.from({ length: 40 }, (_, i) => ts('2026-09-01T03:30:00Z') + i * 86400);
+    const quote = getYahooQuote(result('2026-10-10T03:30:00Z', stamps.map(seconds => new Date(seconds * 1000).toISOString()), Array(40).fill(100), { exchangeTimezoneName: zone }));
+    assert.equal(quote.closes.length, 40);
+    assert.equal(quote.previousClose, 100, 'the prior session is found by UTC day');
+    const points = getYahooChartPoints({ meta: { exchangeTimezoneName: zone }, timestamp: stamps, indicators: { quote: [{ close: Array(40).fill(1) }] } });
+    assert.deepEqual(points.map(point => point.date), stamps.map(seconds => new Date(seconds * 1000).toISOString().slice(0, 10)), 'UTC dates');
+    assert.equal(attempts, 1);
+});
+
 test('a recorded Yahoo quote can raise technical alerts only while fresh', () => {
     const quote = getYahooQuote(recorded('AAPL'));
     const quoteTime = Date.parse(quote.quotedAt);

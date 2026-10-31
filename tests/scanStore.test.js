@@ -4,9 +4,10 @@ import { DOMParser } from 'linkedom';
 
 globalThis.DOMParser = DOMParser;
 const {
-    startScan, getScan, scanKey, subscribeScans, watchScan, resetScans, scanAge, dispatchAlertsFromAnalysis,
-    PAGE_SIZE, PAGE_CONCURRENCY, HYDRATE_CONCURRENCY, PHOTONICS_TICKERS,
+    startScan, getScan, scanKey, subscribeScans, watchScan, focusScan, resetScans, scanAge, dispatchAlertsFromAnalysis,
+    PAGE_SIZE, PAGE_CONCURRENCY, HYDRATE_CONCURRENCY, CHART_FAILURE_CUTOFF, PHOTONICS_TICKERS,
 } = await import('../src/state/scanStore.js');
+const { clearChartCache } = await import('../src/utils/chartCache.js');
 
 // ─── Fixture builders: legacy table markup, which the shared parser accepts ──
 const header = '<tr><th>No.</th><th>Ticker</th><th>Company</th><th>Sector</th><th>Industry</th><th>Country</th><th>Market Cap</th><th>P/E</th><th>Price</th><th>Change</th><th>Volume</th></tr>';
@@ -16,6 +17,10 @@ const table = (rows, total = null) => `${total === null ? '' : `<div>#1 / ${tota
 const symbolAt = (page, i, tag = 'A') => `${tag}${page}X${i}`;
 const losersPage = (page, { count = PAGE_SIZE, tag = 'A', sector, total = null } = {}) =>
     table(Array.from({ length: count }, (_, i) => row(page * PAGE_SIZE + i + 1, symbolAt(page, i, tag), (-(9 - page) - i * 0.1).toFixed(2), sector)), total);
+// A page of losers at any depth (losersPage turns to gainers past page 9).
+const fullPage = (page) => table(Array.from({ length: PAGE_SIZE }, (_, i) => row(page * PAGE_SIZE + i + 1, symbolAt(page, i), '-5.00')));
+// Screener position of a symbolAt() name.
+const indexOf = (symbol) => { const [, page, i] = /^[A-Z](\d+)X(\d+)$/.exec(symbol); return Number(page) * PAGE_SIZE + Number(i); };
 const yahoo = (price = 12) => {
     const closes = Array.from({ length: 22 }, (_, i) => 10 + Math.sin(i));
     return { chart: { result: [{
@@ -269,6 +274,59 @@ test('a scope put back on screen while it loads goes ahead of a newer scope left
     assert.ok(shown.A < shown.E, 'the scope on screen again is served first');
 });
 
+test('focusScan serves an older run the Overview adopts ahead of a newer run it left', async () => {
+    const tagOf = (url) => (url.includes('sec_energy') ? 'E' : 'A');
+    const pages = (page, url) => (page > 0 ? table([]) : losersPage(0, { tag: tagOf(url), sector: tagOf(url) === 'E' ? 'Energy' : 'Technology' }));
+    const older = scanKey(params(20));
+    const newer = scanKey(params(20, { sector: 'energy' }));
+    const lastChart = async ({ adopt }) => {
+        resetScans();
+        // The newer scope's rows arrive while the older scope's charts hold every slot.
+        const { invoke, calls } = bridge({ pages, pageDelay: (page, url) => (tagOf(url) === 'E' ? 10 : 0), chartDelay: 20 });
+        // The Overview returns to the older scope as the newer scope's rows arrive.
+        let adopted = false;
+        const stop = subscribeScans(() => {
+            if (adopt && !adopted && getScan(newer).stocks.length > 0) { adopted = true; focusScan(older); }
+        });
+        const scans = await Promise.all([startScan(params(20), { invoke }), startScan(params(20, { sector: 'energy' }), { invoke })]);
+        stop();
+        assert.equal(adopted, adopt);
+        assert.ok(scans.every(scan => scan.completedAt && scan.stocks.length === 20 && scan.stocks.every(stock => stock.analysis)));
+        return Object.fromEntries(['A', 'E'].map(tag => [tag, calls.charts.findLastIndex(symbol => symbol.startsWith(tag))]));
+    };
+    const left = await lastChart({ adopt: false });
+    assert.ok(left.E < left.A, 'left alone, the newer run is served first');
+    const focused = await lastChart({ adopt: true });
+    assert.ok(focused.A < focused.E, 'the older run, focused again as the newer run\'s rows arrive, is served first');
+});
+
+test('focusScan reorders requests already waiting for a chart slot', async (t) => {
+    const tagOf = (url) => (url.includes('sec_energy') ? 'B' : url.includes('sec_technology') ? 'N' : 'O');
+    const pages = (page, url) => (page > 0 ? table([]) : losersPage(0, { tag: tagOf(url), sector: tagOf(url) === 'B' ? 'Energy' : 'Technology' }));
+    const older = scanKey(params(20)), newer = scanKey(params(20, { sector: 'technology' }));
+    const servedFirst = async ({ focus }) => {
+        resetScans();
+        // A third scope holds every chart slot until the gate opens (at the latest when the test ends).
+        let open;
+        const gate = new Promise(resolve => { open = resolve; });
+        t.after(open);
+        const { invoke, calls } = bridge({ pages, yahooFor: (symbol) => (symbol.startsWith('B') ? gate.then(() => yahoo()) : yahoo()) });
+        const runs = [startScan(params(20, { sector: 'energy' }), { invoke }), startScan(params(20), { invoke }), startScan(params(20, { sector: 'technology' }), { invoke })];
+        await wait(5);
+        // Both runs have their rows, and their scoring waits for a slot.
+        assert.ok([older, newer].every(key => getScan(key).stocks.length === 20));
+        assert.equal(calls.charts.map(symbol => symbol[0]).join(''), 'B'.repeat(HYDRATE_CONCURRENCY));
+        if (focus) focusScan(older);
+        open();
+        const scans = await Promise.all(runs);
+        assert.ok(scans.every(scan => scan.completedAt && scan.stocks.length === 20 && scan.stocks.every(stock => stock.analysis)));
+        // Each slot the busy scope frees goes to the run ranked highest at that moment.
+        return calls.charts.slice(HYDRATE_CONCURRENCY, 2 * HYDRATE_CONCURRENCY).map(symbol => symbol[0]).join('');
+    };
+    assert.equal(await servedFirst({ focus: false }), 'N'.repeat(HYDRATE_CONCURRENCY), 'left alone, the run started last is served first');
+    assert.equal(await servedFirst({ focus: true }), 'O'.repeat(HYDRATE_CONCURRENCY), 'the older run, focused while its requests wait, is served first');
+});
+
 test('a superseded run never sends the requests it still had waiting for a slot', async () => {
     let tag = 'T';
     const pages = (page, url) => (page > 0 ? table([]) : url.includes('sec_energy') ? losersPage(0, { tag: 'S', sector: 'Energy' }) : losersPage(0, { tag }));
@@ -369,7 +427,6 @@ test('a slow first page does not send the other workers ahead', async () => {
 
 test('a slow first page holds a deep scan to PAGE_CONCURRENCY pages ahead of what it has published', async () => {
     // At depth 500 the target allows 25 pages, so only the concurrency bound holds the look-ahead.
-    const fullPage = (page) => table(Array.from({ length: PAGE_SIZE }, (_, i) => row(page * PAGE_SIZE + i + 1, symbolAt(page, i), '-5.00')));
     let requestedBeforeFirst = null;
     const { invoke, calls } = bridge({
         pages: (page) => { if (page === 0) requestedBeforeFirst = calls.pages.length; return fullPage(page); },
@@ -434,6 +491,137 @@ test('too little history everywhere is not a provider failure', async () => {
     assert.equal(scan.error, '');
     assert.ok(scan.completedAt);
     assert.ok(scan.stocks.every(stock => stock.analysisUnavailable));
+});
+
+// ─── Yahoo failing name after name: scoring stops early ─────────────────────
+// Each chart request settles in one timer turn, so they settle in screener order.
+const timedOut = () => { throw new Error('Request timed out after 12 s'); };
+const stoppedEarly = (reason, skipped) => `Yahoo Finance scoring failed for ${CHART_FAILURE_CUTOFF} names in a row: ${reason} Scoring stopped early, so technical scores are unavailable for ${skipped} more names.`;
+// Waits until `condition` holds, a millisecond at a time and for at most a second.
+const until = async (condition) => { for (let i = 0; i < 1000 && !condition(); i++) await wait(1); assert.ok(condition()); };
+
+test('a deep scan whose Yahoo requests keep failing stops scoring instead of waiting out every request', async () => {
+    const { invoke, calls } = bridge({ pages: fullPage, yahooFor: timedOut });
+    const scan = await startScan(params(500), { invoke });
+    // The cutoff, plus the requests already in flight when it was reached; not 500 timeouts.
+    const sent = CHART_FAILURE_CUTOFF + HYDRATE_CONCURRENCY - 1;
+    assert.equal(calls.charts.length, sent);
+    assert.equal(scan.stocks.length, 500, 'every Finviz row is still shown');
+    assert.ok(scan.stocks.every(stock => stock.analysisUnavailable && stock.analysis === null && stock.recoveryProbability === null && stock.stale === undefined));
+    assert.equal(scan.error, stoppedEarly('Request timed out after 12 s.', 500 - sent));
+    assert.equal(scan.completedAt, null);
+    assert.equal(scanAge(scan), Infinity, 'the next visit rescans');
+    assert.equal(scan.loading, false);
+});
+
+test('a single Yahoo answer resets the count of failures in a row', async () => {
+    // One name short of the cutoff, an answer, then failures to the end.
+    const recovered = bridge({ pages: fullPage, yahooFor: (symbol) => (indexOf(symbol) === CHART_FAILURE_CUTOFF - 1 ? yahoo() : timedOut()) });
+    const scan = await startScan(params(100), { invoke: recovered.invoke });
+    // The count restarts after the answer: the stop comes with the cutoff-th failure after it.
+    const sent = 2 * CHART_FAILURE_CUTOFF + HYDRATE_CONCURRENCY - 1;
+    assert.equal(recovered.calls.charts.length, sent);
+    assert.deepEqual(scan.stocks.flatMap((stock, index) => (stock.analysis ? [index] : [])), [CHART_FAILURE_CUTOFF - 1], 'the name Yahoo answered is scored');
+    assert.equal(scan.error, stoppedEarly('Request timed out after 12 s.', 100 - sent));
+
+    // Failures scattered between answers never stop scoring.
+    resetScans();
+    const scattered = bridge({ pages: fullPage, yahooFor: (symbol) => (indexOf(symbol) % 11 === 10 ? yahoo() : timedOut()) });
+    const whole = await startScan(params(100), { invoke: scattered.invoke });
+    assert.equal(scattered.calls.charts.length, 100);
+    assert.equal(whole.stocks.filter(stock => stock.analysis).length, 9);
+    assert.equal(whole.error, '', 'failed rows are row-level gaps, as before');
+    assert.ok(whole.completedAt);
+});
+
+test('an outage after Yahoo has answered keeps the earlier scores and names the reason the failures began', async () => {
+    const yahooFor = (symbol) => {
+        const index = indexOf(symbol);
+        if (index === 5) return { chart: { result: null, error: { code: 'Not Found', description: 'No data found, symbol may be delisted' } } };
+        return index < 20 ? yahoo() : timedOut();
+    };
+    const { invoke, calls } = bridge({ pages: fullPage, yahooFor });
+    const scan = await startScan(params(100), { invoke });
+    const sent = 20 + CHART_FAILURE_CUTOFF + HYDRATE_CONCURRENCY - 1;
+    assert.equal(calls.charts.length, sent);
+    assert.equal(scan.error, stoppedEarly('Request timed out after 12 s.', 100 - sent), 'not the earlier, unrelated failure');
+    assert.equal(scan.stocks.length, 100);
+    assert.deepEqual(scan.stocks.flatMap((stock, index) => (stock.analysis ? [index] : [])), Array.from({ length: 20 }, (_, i) => i).filter(i => i !== 5));
+    assert.equal(scan.completedAt, null);
+});
+
+test('cached charts neither end nor extend a run of Yahoo failures, and are still served once scoring stops', async (t) => {
+    clearChartCache();
+    t.after(clearChartCache);
+    let now = Date.parse('2026-10-30T14:00:00Z');
+    t.mock.method(Date, 'now', () => now);
+    // Retrieved a minute ago: names Yahoo scored, alternating with names it refused.
+    const refused = { chart: { result: null, error: { code: 'Not Found', description: 'No data found, symbol may be delisted' } } };
+    const warm = bridge({ pages: (page) => (page < 2 ? fullPage(page) : table([])), yahooFor: (symbol) => (indexOf(symbol) % 2 ? refused : yahoo()) });
+    const earlier = await startScan(params(40), { invoke: warm.invoke });
+    const retrievedAt = Object.fromEntries(earlier.stocks.filter(stock => stock.analysis).map(stock => [stock.symbol, stock.analysis.quote.fetchedAt]));
+    assert.equal(Object.keys(retrievedAt).length, 20);
+    now += 60000;
+    // A deeper scope where every other name is new and Yahoo now answers nothing.
+    const mixed = (page) => table(Array.from({ length: PAGE_SIZE }, (_, i) => {
+        const n = page * PAGE_SIZE + i;
+        return row(n + 1, n % 2 ? `NEW${n}` : symbolAt(Math.floor(n / 2 / PAGE_SIZE), (n / 2) % PAGE_SIZE), '-5.00');
+    }));
+    const cold = bridge({ pages: mixed, yahooFor: timedOut });
+    const scan = await startScan(params(80), { invoke: cold.invoke, chartCacheSeconds: 600 });
+    assert.ok(cold.calls.charts.every(symbol => symbol.startsWith('NEW')), 'cached names are not requested');
+    // Only Yahoo's own failures count, so the stop comes with the cutoff-th of them wherever cached answers fall.
+    const sent = CHART_FAILURE_CUTOFF + HYDRATE_CONCURRENCY - 1;
+    assert.equal(cold.calls.charts.length, sent);
+    assert.equal(scan.error, stoppedEarly('Request timed out after 12 s.', 40 - sent), 'the new names never requested');
+    const scored = scan.stocks.filter(stock => stock.analysis);
+    assert.deepEqual(Object.fromEntries(scored.map(stock => [stock.symbol, stock.analysis.quote.fetchedAt])), retrievedAt,
+        'every cached score is shown with its original retrieval time, those listed after the stop included');
+});
+
+test('a run that stops scoring never sends the chart requests it still had waiting for a slot', async (t) => {
+    // Another scope holds half the chart slots until the gate opens, so the run's requests queue for the rest.
+    const held = HYDRATE_CONCURRENCY / 2;
+    let open;
+    const gate = new Promise(resolve => { open = resolve; });
+    t.after(open);
+    const pages = (page, url) => (url.includes('sec_energy') ? losersPage(0, { tag: 'B', sector: 'Energy' }) : page < 2 ? losersPage(page, { tag: 'F' }) : table([]));
+    const { invoke, calls } = bridge({ pages, yahooFor: (symbol) => (symbol.startsWith('B') ? gate.then(() => yahoo()) : timedOut()) });
+    const busy = startScan(params(held, { sector: 'energy' }), { invoke });
+    const scan = await startScan(params(40), { invoke });
+    // The cutoff, plus one request in each slot the run had when it was reached.
+    const sent = CHART_FAILURE_CUTOFF + HYDRATE_CONCURRENCY - held;
+    assert.equal(calls.charts.filter(symbol => symbol.startsWith('F')).length, sent);
+    assert.equal(scan.error, stoppedEarly('Request timed out after 12 s.', 40 - sent));
+    assert.ok(scan.stocks.every(stock => stock.analysisUnavailable));
+    open();
+    assert.ok((await busy).stocks.every(stock => stock.analysis));
+});
+
+test('rows listed after scoring stopped are unavailable at once, even while another scope holds every chart slot', async (t) => {
+    let openPage, openCharts;
+    const pageGate = new Promise(resolve => { openPage = resolve; });
+    const chartGate = new Promise(resolve => { openCharts = resolve; });
+    t.after(() => { openPage(); openCharts(); });
+    const pages = (page, url) => (url.includes('sec_energy') ? losersPage(0, { tag: 'B', sector: 'Energy' })
+        : page === 0 ? losersPage(0, { tag: 'F' }) : page === 1 ? pageGate.then(() => losersPage(1, { tag: 'F' })) : table([]));
+    const { invoke, calls } = bridge({ pages, yahooFor: (symbol) => (symbol.startsWith('B') ? chartGate.then(() => yahoo()) : timedOut()) });
+    const sentFor = (tag) => calls.charts.filter(symbol => symbol.startsWith(tag)).length;
+    // The first page's names fail and stop the scoring...
+    const failing = startScan(params(40), { invoke });
+    await until(() => sentFor('F') === PAGE_SIZE);
+    await wait(5);
+    // ...then another scope takes every chart slot before the second page arrives.
+    const busy = startScan(params(20, { sector: 'energy' }), { invoke });
+    await until(() => sentFor('B') === HYDRATE_CONCURRENCY);
+    openPage();
+    const ended = await Promise.race([failing.then(() => true), wait(50).then(() => false)]);
+    openCharts();
+    assert.ok(ended, 'the run ends without waiting for a slot');
+    const scan = await failing;
+    assert.equal(sentFor('F'), PAGE_SIZE);
+    assert.equal(scan.error, stoppedEarly('Request timed out after 12 s.', PAGE_SIZE));
+    assert.ok((await busy).completedAt);
 });
 
 // ─── Alerts: a bare EventTarget stands in for window ─────────────────────────

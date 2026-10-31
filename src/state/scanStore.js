@@ -21,6 +21,7 @@ export const PAGE_SIZE = 20;          // Finviz screener rows per page
 export const MAX_PAGES = 50;
 export const PAGE_CONCURRENCY = 4;    // screener pages in flight, across all runs
 export const HYDRATE_CONCURRENCY = 8; // Yahoo chart requests in flight, across all runs
+export const CHART_FAILURE_CUTOFF = 2 * HYDRATE_CONCURRENCY; // Yahoo failures in a row that stop a run's scoring
 export const FLUSH_MS = 120;          // how often arriving scores are pushed to the table
 
 // Settings exclusions narrow broad "any sector" scans only; a sector picked on
@@ -34,19 +35,21 @@ const scans = new Map();   // key -> scan state
 const runs = new Map();    // key -> latest run id
 const listeners = new Set();
 // Request slots shared by every run, so scopes scanned at the same time stay
-// within one budget. Requests are served by their scope's latest promotion:
-// starting a run promotes its scope, and so does putting it on screen, so a
-// scope still loading when the Overview returns to it goes back in front.
+// within one budget. Requests are served by their scope's latest promotion,
+// read when a slot frees up: starting a run promotes its scope, and so do
+// putting it on screen and focusScan, so a scope still loading when the
+// Overview returns to it goes back in front.
 const pageSlots = createLimiter(PAGE_CONCURRENCY);
 const chartSlots = createLimiter(HYDRATE_CONCURRENCY);
 const priorities = new Map(); // key -> promotion number, highest served first
 let promotions = 0;
-const promote = (key) => priorities.set(key, ++promotions);
 
+/** Serve this scope's waiting requests before every other scope's, e.g. when the Overview adopts its run in flight. */
+export const focusScan = (key) => { priorities.set(key, ++promotions); };
 export const getScan = (key) => scans.get(key) ?? EMPTY_SCAN;
 export const subscribeScans = (listener) => { listeners.add(listener); return () => listeners.delete(listener); };
 /** Subscribe for the scope on screen: its requests go ahead of scopes left behind. */
-export const watchScan = (key, listener) => { promote(key); return subscribeScans(listener); };
+export const watchScan = (key, listener) => { focusScan(key); return subscribeScans(listener); };
 export const useScan = (key) => useSyncExternalStore(useCallback((listener) => watchScan(key, listener), [key]), () => getScan(key));
 export const scanAge = (scan, now = Date.now()) => (scan.completedAt ? now - Date.parse(scan.completedAt) : Infinity);
 export const resetScans = () => { scans.clear(); runs.clear(); priorities.clear(); alertStates.clear(); };
@@ -57,6 +60,8 @@ const positive = (value) => (typeof value === 'number' && Number.isFinite(value)
 const normalizedSector = (value) => (value || '').toLowerCase().replace(/[^a-z]/g, '');
 // Provider messages quoted in a scan error may or may not end with a full stop.
 const sentence = (text) => (/[.!?]$/.test(text) ? text : `${text}.`);
+// A chart never sent because its run had stopped scoring: no Yahoo failure.
+const notRequested = () => Object.assign(new Error('Not requested: scoring stopped early.'), { notRequested: true });
 
 // ─── Alerts raised from a fresh analysis ─────────────────────────────────────
 // An alert is raised when its condition turns true and stays silent while the
@@ -277,16 +282,37 @@ async function scanScreener(key, { sector, excludedSectors, targetCount }, fetch
         pending.close();
     });
     let attempted = 0, failedCharts = 0, chartFailure = null;
+    // Two full rounds of chart slots failing in a row mean Yahoo refuses or
+    // cannot be reached, not that the names lack history. The run then stops
+    // scoring: it requests no more charts, so a remaining row is scored from a
+    // chart still in the cache or shows as unavailable at once, instead of
+    // waiting out a request timeout. Only Yahoo's own answers count; a cached
+    // chart says nothing about Yahoo now.
+    let streak = 0, streakError = null, stoppedBy = null, skipped = 0;
+    const offline = () => stoppedBy !== null;
+    const countAnswer = (error) => {
+        if (!error) { streak = 0; streakError = null; return; }
+        streakError ??= error;
+        if (++streak >= CHART_FAILURE_CUTOFF) stoppedBy ??= streakError;
+    };
     const scoring = drainQueue(pending, HYDRATE_CONCURRENCY, async (row) => {
-        let analysis = null, error = null;
-        try { analysis = await analyzeSymbol(row.symbol, chart); } catch (failed) { error = failed; }
+        let analysis = null, error = null, cached = false;
+        const noteCached = async (symbol) => { const response = await chart(symbol, { offline }); cached = response.cached; return response; };
+        try { analysis = await analyzeSymbol(row.symbol, noteCached); } catch (failed) { error = failed; }
         if (stale()) return;
+        if (error?.notRequested) {
+            skipped++;
+            scored.set(row.symbol, null); // never requested: unavailable, like a failed chart
+            scheduleFlush();
+            return;
+        }
         attempted++;
         if (error) {
             console.error(`Failed to analyze ${row.symbol}`, error);
             failedCharts++;
             chartFailure ??= error;
         }
+        if (!cached) countAnswer(error);
         scored.set(row.symbol, analysis);
         if (analysis) dispatchAlertsFromAnalysis(row.symbol, analysis, analysis.quote);
         scheduleFlush();
@@ -303,9 +329,12 @@ async function scanScreener(key, { sector, excludedSectors, targetCount }, fetch
         if (combined.size === 0) throw failure;
         errors.push(`Scan stopped after ${combined.size} names. ${sentence(failure.message || 'Finviz quotes are unavailable')} The rows shown were retrieved in this scan.`);
     }
-    // Every chart request failing means Yahoo refused or could not be reached,
-    // not that every name lacks history. Such a scan is not reused.
-    if (attempted > 0 && failedCharts === attempted) {
+    // Scoring that stopped early, or every chart request failing, means Yahoo
+    // refused or could not be reached, not that the names lack history. Such a
+    // scan is not reused.
+    if (skipped > 0) {
+        errors.push(`Yahoo Finance scoring failed for ${CHART_FAILURE_CUTOFF} names in a row: ${sentence(stoppedBy.message || 'request failed')} Scoring stopped early, so technical scores are unavailable for ${skipped} more name${skipped === 1 ? '' : 's'}.`);
+    } else if (attempted > 0 && failedCharts === attempted) {
         errors.push(`Yahoo Finance scoring failed for all ${attempted} names: ${sentence(chartFailure.message || 'request failed')} Technical scores are unavailable.`);
     }
     publish({ final: true }); // previous rows this run did not list again go now
@@ -324,15 +353,21 @@ export async function startScan(params, { invoke = null, chartCacheSeconds = 0, 
     const runId = (runs.get(key) ?? 0) + 1;
     runs.set(key, runId);
     const stale = () => runs.get(key) !== runId;
-    promote(key);
+    focusScan(key);
     patch(key, { loading: true, phase: 'quotes', error: '', startedAt: now(), retained: getScan(key).stocks.length });
     try {
         if (!invoke) throw new Error('Market data requires the desktop app connection. No sample quotes are shown.');
         // A superseded run's request still waiting for a slot is dropped when its turn comes.
-        const request = (slots, channel, ...args) => slots.run(() => (stale() ? Promise.reject(new Error('Superseded scan request dropped.')) : invoke(channel, ...args)),
-            () => priorities.get(key) ?? 0);
-        const fetchPage = (url) => request(pageSlots, 'fetch-url', url);
-        const chart = (symbol) => fetchYahooChart((channel, ...args) => request(chartSlots, channel, ...args), symbol, { range: '1mo', interval: '1d', ttlSeconds: chartCacheSeconds });
+        const request = (slots, send) => slots.run(() => (stale() ? Promise.reject(new Error('Superseded scan request dropped.')) : send()), () => priorities.get(key) ?? 0);
+        const fetchPage = (url) => request(pageSlots, () => invoke('fetch-url', url));
+        // Once its run stops scoring (`offline()`), a chart is served from the
+        // cache or not at all: a request not sent yet never waits for a slot,
+        // and one already waiting is dropped when its turn comes.
+        const chart = (symbol, { offline = () => false } = {}) => fetchYahooChart(
+            (channel, ...args) => (offline()
+                ? Promise.reject(notRequested())
+                : request(chartSlots, () => (offline() ? Promise.reject(notRequested()) : invoke(channel, ...args)))),
+            symbol, { range: '1mo', interval: '1d', ttlSeconds: chartCacheSeconds });
         const { complete } = params.sector === 'photonics'
             ? await scanPhotonics(key, chart, stale)
             : await scanScreener(key, params, fetchPage, chart, stale, timers);

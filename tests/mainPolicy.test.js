@@ -236,6 +236,16 @@ test('webviews may only start on the research sites the stock page offers', () =
   }
 });
 
+test('research webviews need a user gesture before media plays with sound, whatever autoplay policy the page asked for', () => {
+  const { appContents } = start();
+  // Electron's default, 'no-user-gesture-required', lets an ad in a research page play sound unprompted.
+  for (const autoplayPolicy of [undefined, 'no-user-gesture-required', 'document-user-activation-required']) {
+    const { attached, webPreferences } = attachWebview(appContents, researchUrls[0], autoplayPolicy === undefined ? {} : { autoplayPolicy });
+    assert.ok(attached);
+    assert.equal(webPreferences.autoplayPolicy, 'user-gesture-required', String(autoplayPolicy));
+  }
+});
+
 test('webviews always run in the in-memory research session, whatever partition the page asked for', () => {
   const { appContents } = start();
   for (const partition of [undefined, 'persist:finviz', 'persist:research', '']) {

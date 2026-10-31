@@ -128,8 +128,10 @@ export function parseFinvizScreenerPage(html, {
         });
         if (!header) continue;
         const columns = headerCells(header).map(bindingOf);
-        // A field claimed by two columns is ambiguous and stays unbound, unless
-        // only one of them carries the field's column id.
+        // Two passes: a field binds to the one column whose id names it, and
+        // only a field no column's id names falls back to the one column whose
+        // name it is. Two claimants in the deciding pass leave it unbound, so a
+        // new column that merely shares a field's name never displaces it.
         const columnOf = (field) => {
             const claims = columns.flatMap((column, index) => (column.field === field ? [index] : []));
             const identified = claims.filter(index => columns[index].byId);

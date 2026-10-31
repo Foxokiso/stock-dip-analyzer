@@ -8,7 +8,8 @@
 // block the alert rule depends on (the format verifier does the same for toFixed).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { getYahooQuote, getYahooChartPoints, canRaiseTechnicalAlert } from '../src/utils/marketData.js';
 
 const executable = process.argv[2];
@@ -144,7 +145,9 @@ for (let i = 0; i < 300; i++) {
 // ---------------------------------------------------------------------------------------------
 // Exchange-day building block, checked through getYahooChartPoints (the exported path): every
 // zone × instants on each hour boundary (±1 ms) of dates around DST changes and the far future.
-const dayZones = ['America/New_York', 'Europe/London', 'Asia/Tokyo', 'UTC', 'Etc/UTC', 'GMT', 'utc', 'america/new_york', 'US/Eastern', 'Etc/GMT+5', 'Australia/Sydney', 'Asia/Kolkata', 'Asia/Kathmandu', 'Pacific/Chatham', 'Pacific/Kiritimati', 'Pacific/Pago_Pago', 'America/St_Johns', 'Mars/Olympus_Mons', 'Etc/Unknown', 'not a zone', '', null];
+// Matching these names folds an I against an i (see the Turkish run at the end).
+const foldZones = ['europe/istanbul', 'asia/irkutsk', 'AMERICA/NEW_YORK'];
+const dayZones = ['America/New_York', 'Europe/London', 'Asia/Tokyo', 'UTC', 'Etc/UTC', 'GMT', 'utc', 'america/new_york', 'US/Eastern', 'Etc/GMT+5', 'Australia/Sydney', 'Asia/Kolkata', 'Asia/Kathmandu', 'Pacific/Chatham', 'Pacific/Kiritimati', 'Pacific/Pago_Pago', 'America/St_Johns', 'Mars/Olympus_Mons', 'Etc/Unknown', 'not a zone', '', null, ...foldZones];
 const dayDates = ['2026-03-08', '2026-11-01', '2026-03-29', '2026-10-25', '2026-04-05', '2026-10-04', '2007-03-11', '2040-03-11', '1970-01-01', '2000-02-29', '9999-12-31', '2026-10-09'];
 // Only positive instants reach exchangeDay through the exported path (non-positive bars are dropped).
 const day = (seconds, zone) => { if (seconds > 0) cases.push({ kind: 'day', seconds, zone }); };
@@ -249,6 +252,7 @@ const encodeCase = entry => {
     case 'iso': return `iso ${encNum(entry.seconds)}`;
     case 'day': case 'day-throws': return `day ${encNum(entry.seconds)} ${encStr(entry.zone)}`;
     case 'parse': return `parse ${encStr(entry.text)}`;
+    case 'ctype': return `ctype ${encStr(entry.name)}`;
     default: throw new Error(`unknown case kind ${entry.kind}`);
   }
 };
@@ -325,6 +329,10 @@ const compare = (entry, row, label) => {
       near(decNum(row), expected, `${label}: Date.parse(${JSON.stringify(entry.text)})`);
       break;
     }
+    case 'ctype': {
+      assert.notEqual(decStr(row), null, `${label}: the driver could not switch LC_CTYPE to ${entry.name}`);
+      break;
+    }
     default: throw new Error(`unknown case kind ${entry.kind}`);
   }
 };
@@ -374,4 +382,28 @@ for (const zone of ['America/New_York', ':Europe/London', 'Australia/Sydney', 'A
 }
 if (hostZoneName === undefined) delete process.env.TZ;
 else process.env.TZ = hostZoneName;
-console.log(`${cases.length} native/JavaScript marketdata parity cases passed; local-time cases under TZ: ${localRuns.join(', ') || 'none'}`);
+
+// ---------------------------------------------------------------------------------------------
+// Zone names match in any case by folding ASCII letters only. std::tolower would follow the C
+// locale, which a host may take from the environment (Qt does): under a Turkish LC_CTYPE it leaves
+// 'I' unfolded, so 'europe/istanbul' or 'AMERICA/NEW_YORK' fell back to the UTC day. Those cases
+// run again with the driver's LC_CTYPE switched to Turkish. On Linux with glibc's locale sources,
+// configuring native/ compiles tr_TR.UTF-8 into the build tree and CTest passes its directory as
+// DIP_LOCALE_DIR (LOCPATH for this run only); elsewhere an installed Turkish locale is used, or
+// the run is skipped.
+const localeDir = process.env.DIP_LOCALE_DIR;
+const turkishEnv = localeDir && existsSync(join(localeDir, 'tr_TR.UTF-8', 'LC_CTYPE')) ? { ...process.env, LOCPATH: localeDir } : process.env;
+const ctypeOf = name => {
+  const run = spawnSync(executable, [], { input: `ctype ${encStr(name)}\n`, encoding: 'utf8', env: turkishEnv });
+  return run.status === 0 ? decStr(run.stdout.trim()) : null;
+};
+const turkish = ['tr_TR.UTF-8', 'tr_TR.utf8', 'tr_TR', 'Turkish_Turkey.1254', 'tr-TR'].find(name => ctypeOf(name) !== null);
+let turkishRun = 'skipped';
+if (turkish === undefined) {
+  console.warn('Skipping the Turkish LC_CTYPE run: the driver found no Turkish locale');
+} else {
+  const folded = cases.filter(entry => entry.kind === 'day' && foldZones.includes(entry.zone));
+  verify([{ kind: 'ctype', name: turkish }, ...folded], turkishEnv);
+  turkishRun = `${folded.length} under ${turkish}`;
+}
+console.log(`${cases.length} native/JavaScript marketdata parity cases passed; local-time cases under TZ: ${localRuns.join(', ') || 'none'}; zone-name cases under a Turkish LC_CTYPE: ${turkishRun}`);

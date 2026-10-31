@@ -14,8 +14,8 @@ const idGridRows = [
     { symbol: 'NDLS', name: 'Noodles & Company', sector: 'Consumer Cyclical', price: 5.57, change: -59.72, volume: 1, marketCap: 33240000 },
     { symbol: 'TKNO', name: 'Alpha Teknova Inc', sector: 'Healthcare', price: 5.16, change: -30.18, volume: 31497, marketCap: 277030000 },
 ];
-// Inserts an unknown "Exchange" column at grid column `at`, shifting the later columns.
-const withExtraGridColumn = (html, at) => {
+// Inserts an unknown column (by default "Exchange") at grid column `at`, shifting the later columns.
+const withExtraGridColumn = (html, at, { id = 'exchange', label = 'Exchange', value = 'NASD' } = {}) => {
     const doc = new DOMParser().parseFromString(html, 'text/html');
     for (const row of doc.querySelectorAll('[role="row"]')) {
         const cells = [...row.querySelectorAll('[aria-colindex]')];
@@ -27,9 +27,9 @@ const withExtraGridColumn = (html, at) => {
         }
         const extra = neighbour.cloneNode(false);
         extra.setAttribute('aria-colindex', String(at));
-        extra.setAttribute('data-column-id', 'exchange');
+        extra.setAttribute('data-column-id', id);
         extra.removeAttribute('aria-label');
-        extra.textContent = extra.getAttribute('role') === 'columnheader' ? 'Exchange' : 'NASD';
+        extra.textContent = extra.getAttribute('role') === 'columnheader' ? label : value;
         neighbour.parentNode.insertBefore(extra, next ?? neighbour.nextSibling);
     }
     return doc.toString();
@@ -239,6 +239,20 @@ test('a column whose id names a field wins over another that only shares its nam
     // Without ids, two columns of the same name stay ambiguous.
     const legacy = overview(row('AAPL')).replace('<th>P/E</th>', '<th>Price</th>');
     assert.throws(() => parseFinvizScreener(legacy, options), /unavailable|schema/i);
+});
+
+test('a new column labelled like an optional field leaves the column whose id binds that field in place', () => {
+    // An unknown-id column labelled "Volume", before or after the column whose id is volume.
+    const namesake = { id: 'avgVolume', label: 'Volume', value: '9,999,999' };
+    for (const at of [3, 12]) {
+        assert.deepEqual(parseFinvizScreener(withExtraGridColumn(idGrid, at, namesake), options).map(quoteFields), idGridRows, `namesake at ${at}`);
+    }
+    // The name fallback applies only to a field no column's id binds: with the volume id gone,
+    // two columns share the name, so volume stays unavailable rather than guessed.
+    const unidentified = withExtraGridColumn(idGrid.replace('data-column-id="volume"', 'data-column-id="vol"'), 3, namesake);
+    assert.deepEqual(parseFinvizScreener(unidentified, options).map(stock => stock.volume), [null, null]);
+    assert.deepEqual(parseFinvizScreener(unidentified, options).map(({ symbol, price, change }) => ({ symbol, price, change })),
+        idGridRows.map(({ symbol, price, change }) => ({ symbol, price, change })));
 });
 
 test('data-ticker names the row only when the cell links to the same finviz.com quote', () => {

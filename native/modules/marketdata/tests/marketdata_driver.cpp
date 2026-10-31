@@ -10,6 +10,8 @@
 //   iso <seconds>                                                         → quotedAt string | null
 //   day <seconds> <zone>                                                  → "YYYY-MM-DD" | throws
 //   parse <text>                                                          → milliseconds | nan
+//   ctype <locale name>   switches LC_CTYPE for the cases after it, as a host calling
+//                         setlocale would                                 → active name | null
 //
 // Number tokens: null | nan | Infinity | -Infinity | a decimal literal as String(x) prints it
 // (parsed with std::from_chars, which round-trips it exactly and, unlike strtod, ignores the C
@@ -20,6 +22,7 @@
 #include "dip/marketdata.hpp"
 
 #include <charconv>
+#include <clocale>
 #include <cmath>
 #include <iomanip>
 #include <iostream>
@@ -201,6 +204,16 @@ int main() {
             if (!(input >> textToken) || (input >> extra)) ok = false;
             const auto text = ok ? parseString(textToken, ok) : std::nullopt;
             if (ok) out = encodeNumber(dip::marketdata::parseDate(text));
+        } else if (first == "ctype") {
+            std::string nameToken, extra;
+            if (!(input >> nameToken) || (input >> extra)) ok = false;
+            const auto name = ok ? parseString(nameToken, ok) : std::nullopt;
+            if (ok && name) {
+                const char* active = std::setlocale(LC_CTYPE, name->c_str());
+                out = encodeString(active ? std::optional<std::string>(active) : std::nullopt);
+            } else {
+                ok = false;
+            }
         } else {
             const ChartResult result = parseQuoteLine(input, first, ok);
             if (ok) {

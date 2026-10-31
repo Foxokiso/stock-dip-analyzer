@@ -61,7 +61,7 @@ export const DEFAULT_SETTINGS = deepFreeze({
     excludedSectors: [],
     refreshMinutes: 0,        // 0 = manual only
     reuseSeconds: 90,         // returning to the Overview reuses a scan this recent; 0 = always rescan
-    scanDepth: 100,           // 100 | 250 | 500
+    scanDepth: 100,           // the desk offers 100 | 250 | 500; any whole depth up to 500 is kept
     defaultRating: 'All',
     sort: 'score',            // score | change | dip | volume
   },
@@ -111,11 +111,13 @@ export const isPersistableTheme = (theme) => THEMES.some(item => item.id === the
 
 // ── validation ────────────────────────────────────────────────────────────
 // Each rule returns a problem string or null. A choice the desk offers from a
-// list must be one of that list, and a whole-number field a whole number in
-// its range; the sliders (glow, volume) take any number in theirs, and a
-// transient theme is never stored. loadSettings silently substitutes the
-// fallback (the default, unless FALLBACKS repairs the value);
-// parseSettingsImport reports the problems instead.
+// list must be one of that list, except the scan depth: any whole number up to
+// the deepest preset is kept, as v1 saved depths of 10 to 50 and the Overview
+// still offers them. A whole-number field must be a whole number in its range,
+// the sliders (glow, volume) take any number in theirs, and a transient theme
+// is never stored. loadSettings silently substitutes the fallback (the default,
+// unless FALLBACKS repairs the value); parseSettingsImport reports the problems
+// instead.
 const number = (min, max, { integer = false } = {}) => (value) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 'must be a number';
   if (integer && !Number.isInteger(value)) return 'must be a whole number';
@@ -148,7 +150,7 @@ const RULES = {
   'scanner.excludedSectors': sectorList,
   'scanner.refreshMinutes': oneOf(REFRESH_MINUTES),
   'scanner.reuseSeconds': oneOf(REUSE_SECONDS),
-  'scanner.scanDepth': oneOf(SCAN_DEPTHS),
+  'scanner.scanDepth': number(1, Math.max(...SCAN_DEPTHS), { integer: true }),
   'scanner.defaultRating': oneOf(RATING_FILTERS),
   'scanner.sort': oneOf(SORTS.map(item => item.id)),
   'futures.defaultGroup': oneOf(FUTURES_GROUP_IDS),

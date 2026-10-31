@@ -413,6 +413,8 @@ app.on('web-contents-created', (event, contents) => {
 
     // Every <webview> is created without Node, isolated and sandboxed, with no
     // preload of its own, and may only start on one of the research sites.
+    // Its media needs a click or key press there before it plays with sound:
+    // Electron's default autoplay policy lets an ad play sound unprompted.
     contents.on('will-attach-webview', (attach, webPreferences, params) => {
         delete webPreferences.preload;
         delete webPreferences.preloadURL;
@@ -422,6 +424,7 @@ app.on('web-contents-created', (event, contents) => {
         webPreferences.sandbox = true;
         webPreferences.webSecurity = true;
         webPreferences.allowRunningInsecureContent = false;
+        webPreferences.autoplayPolicy = 'user-gesture-required';
         // Whatever partition the page asked for, guests get the research session.
         webPreferences.partition = RESEARCH_PARTITION;
         if (!isResearchUrl(params.src)) attach.preventDefault();
@@ -437,8 +440,9 @@ const isAppClipboardWrite = (contents, permission, details) => permission === 'c
 
 app.whenReady().then(() => {
     // No page in this app, including embedded third-party sites, gets camera,
-    // microphone, location, notifications or any other permission. Handlers
-    // belong to a session, so the research viewers' session gets them too.
+    // microphone, location, notifications or any other permission beyond the
+    // clipboard write above. Handlers belong to a session, so the research
+    // viewers' session gets them too.
     for (const ses of [session.defaultSession, session.fromPartition(RESEARCH_PARTITION)]) {
         ses.setPermissionRequestHandler((contents, permission, callback, details) => callback(isAppClipboardWrite(contents, permission, details)));
         ses.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => isAppClipboardWrite(contents, permission, details));

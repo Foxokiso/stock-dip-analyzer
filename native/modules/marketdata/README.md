@@ -35,7 +35,9 @@ semantics) with the IANA name Yahoo reports. Zone data comes from the **OS ICU
 (`icu.dll`) on Windows/MSVC** and from **tzdata (`/usr/share/zoneinfo`) on
 Linux/libstdc++**; the JavaScript reference uses Node's bundled ICU. Like
 `Intl.DateTimeFormat`, the lookup ignores case and accepts link names
-(`US/Eastern`, `utc`). An unknown zone — or no zone database at all — falls back to
+(`US/Eastern`, `utc`). Case is folded for ASCII letters only, whatever C locale a
+host sets: under a Turkish `LC_CTYPE`, `std::tolower` leaves `I` unfolded, and
+`europe/istanbul` would fall back to UTC. An unknown zone — or no zone database at all — falls back to
 the UTC date exactly like the JavaScript `catch` path
 (`toISOString().slice(0, 10)`, so year 275760 prints `+275760-09`). Instants past
 year 9999 are folded back by whole 400-year Gregorian cycles before asking the
@@ -70,6 +72,8 @@ ported.
 - `alert <price> <quotedAt> <delayMinutes> <historyLength> <nowMillis>` → `1` | `0`
 - `iso <seconds>` → quotedAt | `null`; `day <seconds> <zone>` → `YYYY-MM-DD` | `throws`;
   `parse <text>` → milliseconds | `nan`
+- `ctype <locale name>` switches `LC_CTYPE` for the cases after it, as a host calling
+  `setlocale` would → the active locale name | `null` when it is not available
 
 Numbers are `null` | `nan` | `Infinity` | `-Infinity` | the `String(x)` literal;
 strings are `null` or `s:` + `encodeURIComponent(text)`.
@@ -98,4 +102,10 @@ America/New_York, `:Europe/London`, Australia/Sydney and Asia/Kolkata (the drive
 started with that `TZ`, the reference after `process.env.TZ` is set), including
 times inside each zone's DST gap and overlap, so a UTC CI host still checks the
 transition rule. The whole verifier also passes when run under any of those `TZ`
-values.
+values. Last, it repeats the exchange-day cases for zone names whose match folds an
+`I` against an `i` (`europe/istanbul`, `asia/irkutsk`, `AMERICA/NEW_YORK`) with the
+driver's `LC_CTYPE` switched to Turkish. On Linux the configure step compiles
+`tr_TR.UTF-8` into the build tree with `localedef` when glibc's locale sources are
+installed, and CTest passes that directory as `DIP_LOCALE_DIR` (the verifier sets
+`LOCPATH` for that run only); without a Turkish locale the run is skipped with a
+warning.
