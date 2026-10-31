@@ -65,7 +65,8 @@ API and is excluded when configuring `BUILD_TESTING=OFF`.
 
 ## What CTest runs
 
-Each parity script (`scripts/verify-native-*.mjs`) prints how many cases it compared. At the time of writing:
+Each parity script (`scripts/verify-native-*.mjs`) prints how many cases it
+compared. At the time of writing:
 
 | CTest name | Reference | Cases |
 | --- | --- | --- |
@@ -91,9 +92,11 @@ a comma-decimal locale, and exits with CTest's skip status only when none is
 available. Time-zone names are matched by folding ASCII letters only:
 `std::tolower` would leave `I` unfolded under a Turkish `LC_CTYPE` and send
 `europe/istanbul` to the UTC fallback. The marketdata parity script repeats those
-lookups under a Turkish `LC_CTYPE` (`tr_TR.UTF-8` on Linux), and skips that run
-with a warning where no Turkish locale exists. On Linux the configure step compiles `de_DE.UTF-8` and
-`tr_TR.UTF-8` into `<build>/locales` with `localedef` when glibc's locale sources
-are installed, so both checks also run on CI images that ship no such locale. The
+lookups under a Turkish `LC_CTYPE` (`tr_TR.UTF-8` on Linux). On Linux the
+configure step compiles `de_DE.UTF-8` and `tr_TR.UTF-8` into `<build>/locales`
+with `localedef` when glibc's locale sources are installed, so both checks also
+run on CI images that ship no such locale. The Turkish run is skipped, with a
+warning, only where no Turkish locale exists: when the configure step compiled
+one and the driver cannot switch to it, the marketdata suite fails. The
 host time zone for local-time `Date.parse` forms is taken from `TZ` the way V8
 takes it; see [`modules/marketdata/README.md`](modules/marketdata/README.md).

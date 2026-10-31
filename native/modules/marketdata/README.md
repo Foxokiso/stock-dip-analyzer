@@ -37,8 +37,8 @@ Linux/libstdc++**; the JavaScript reference uses Node's bundled ICU. Like
 `Intl.DateTimeFormat`, the lookup ignores case and accepts link names
 (`US/Eastern`, `utc`). Case is folded for ASCII letters only, whatever C locale a
 host sets: under a Turkish `LC_CTYPE`, `std::tolower` leaves `I` unfolded, and
-`europe/istanbul` would fall back to UTC. An unknown zone — or no zone database at all — falls back to
-the UTC date exactly like the JavaScript `catch` path
+`europe/istanbul` would fall back to UTC. An unknown zone — or no zone database at
+all — falls back to the UTC date exactly like the JavaScript `catch` path
 (`toISOString().slice(0, 10)`, so year 275760 prints `+275760-09`). Instants past
 year 9999 are folded back by whole 400-year Gregorian cycles before asking the
 zone, which keeps 16-bit `std::chrono::year` implementations correct.
@@ -107,5 +107,6 @@ values. Last, it repeats the exchange-day cases for zone names whose match folds
 driver's `LC_CTYPE` switched to Turkish. On Linux the configure step compiles
 `tr_TR.UTF-8` into the build tree with `localedef` when glibc's locale sources are
 installed, and CTest passes that directory as `DIP_LOCALE_DIR` (the verifier sets
-`LOCPATH` for that run only); without a Turkish locale the run is skipped with a
-warning.
+`LOCPATH` for that run only); a driver that cannot switch to that locale then
+fails the suite instead of skipping the run. Only where no Turkish locale exists
+is the run skipped, with a warning.
