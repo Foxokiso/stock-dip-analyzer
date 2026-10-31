@@ -17,9 +17,10 @@ assert.ok(executable, 'Pass the compiled native oilnews test driver');
 // Reference side: one RSS feed per case, built the way the unit test builds its fixtures.
 const escapeXml = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const feed = items => `<rss><channel>${items}</channel></rss>`;
-const item = (title, link, source) =>
+const item = (title, link, source, pubDate) =>
   `<item><title>${escapeXml(title)}</title><link>${escapeXml(link)}</link>` +
-  `${source === undefined ? '' : `<source>${escapeXml(source)}</source>`}</item>`;
+  `${source === undefined ? '' : `<source>${escapeXml(source)}</source>`}` +
+  `${pubDate === undefined ? '' : `<pubDate>${escapeXml(pubDate)}</pubDate>`}</item>`;
 const parse = xml => parseOilNews(xml, { DOMParser });
 
 // The driver is a line protocol: no TAB (field separator), CR or LF, and no other control
@@ -153,6 +154,16 @@ for (const source of sources) {
   addTitle('Title — Dash', source);
   addTitle('A - B - C', source);
 }
+// With a <source>, only its exact " - <source>" suffix leaves the title, so a publisher or a
+// headline containing " - " is never cut in the wrong place; the impact flag reads the result.
+for (const [title, source] of [
+  ['Oil rises 2% - ABC News - Breaking News, Latest News and Videos', 'ABC News - Breaking News, Latest News and Videos'],
+  ['Brent - WTI spread widens', 'Reuters'], ['Crude slips - OilPrice.com', 'Crude Oil Prices Today | OilPrice.com'],
+  ['X - Reuters - Reuters', 'Reuters'], ['Reuters', 'Reuters'], ['- Reuters', 'Reuters'], ['A - Reuters', 'reuters'],
+  ['A - Reuters', ' Reuters '], ['A -  Reuters', 'Reuters'], ['A - Reuters.', 'Reuters'], ['A-Reuters', 'Reuters'],
+  ['Drone strike - War Desk', 'War Desk'], ['Calm day - Strike Desk', 'Strike Desk'], ['Calm day - Strike Desk', 'Desk'],
+  ['Ünïcode headline - Ünïcode Wire', 'Ünïcode Wire'], ['日本 - 日経', '日経'], ['😀 - 😀', '😀'], ['A — Wire', 'Wire'],
+]) addTitle(title, source);
 
 // 8. 500 seeded headline compositions mixing keyword forms, de-escalation phrases, filler,
 //    joiners (including unicode dashes, digits and underscores), casings, suffixes and sources.
@@ -204,7 +215,9 @@ for (let i = 0; i < 50; i++) {
 linkCases.forEach(link => assert.ok(lineSafe(link.replace(/\t/g, '')), `control character in link ${JSON.stringify(link)}`));
 
 // ---------------------------------------------------------------------------------------------
-// Order cases: insertion-order highImpact flags -> display order (first 15, high-impact first, stable).
+// Order cases: one { high, pubDate } per accepted headline in feed order (pubDate is the
+// <pubDate> text, undefined for none) -> display order (newest first with undated last, the
+// first 15 of those, then high-impact first; every step stable).
 const orderCases = [
   [], [false], [true], [false, true], [true, false], [true, true], [false, false],
   [false, true, false, true, false], [true, false, false, true, true, false, true],
@@ -212,11 +225,31 @@ const orderCases = [
   Array(16).fill(false).map((_, i) => i === 14), Array(20).fill(false).map((_, i) => i % 3 === 0),
   Array(30).fill(false).map((_, i) => i >= 15), Array(30).fill(true), Array(15).fill(false).map((_, i) => i === 0),
   Array(15).fill(false).map((_, i) => i === 14), Array(17).fill(false).map((_, i) => i % 2 === 1),
+].map(flags => flags.map(high => ({ high })));
+const base = Date.UTC(2026, 9, 31, 3);
+const dateTexts = [
+  ms => new Date(ms).toUTCString(),                          // RFC 822, as Google News sends it
+  ms => new Date(ms).toISOString(),                          // millisecond precision
+  ms => new Date(ms).toUTCString().replace('GMT', '+0000'),
 ];
-for (let i = 0; i < 60; i++) {
+const rfc822 = dateTexts[0];
+orderCases.push(
+  [{ high: false, pubDate: rfc822(base) }, { high: false, pubDate: rfc822(base) }],
+  [{ high: false }, { high: false, pubDate: rfc822(base) }, { high: true }],
+  [{ high: false, pubDate: 'not a date' }, { high: true, pubDate: rfc822(base - 60_000) }, { high: false, pubDate: '' }],
+  [{ high: false, pubDate: 'Mon, 32 Oct 2026 00:00:00 GMT' }, { high: false, pubDate: ' Fri, 30 Oct 2026 23:59:59 GMT ' }],
+  Array.from({ length: 20 }, (_, i) => ({ high: i % 4 === 0, pubDate: rfc822(base - ((i * 7919) % 20) * 60_000) })),
+  Array.from({ length: 18 }, (_, i) => ({ high: i % 5 === 0, pubDate: i < 3 ? undefined : dateTexts[1](base - (i % 6)) })),
+);
+for (let i = 0; i < 100; i++) {
   const length = Math.floor(random() * 25);
   const bias = random();
-  orderCases.push(Array.from({ length }, () => random() < bias));
+  orderCases.push(Array.from({ length }, () => {
+    const roll = random();
+    const time = base - Math.floor(random() * 48) * 30 * 60_000 - (random() < 0.5 ? 0 : Math.floor(random() * 1000));
+    const pubDate = roll < 0.15 ? undefined : roll < 0.2 ? pick(['not a date', '', '   ']) : pick(dateTexts)(time);
+    return { high: random() < bias, pubDate };
+  }));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -257,15 +290,27 @@ for (let i = 0; i < linkCases.length; i++) {
   assert.equal(linkRows[i], accepted ? '1' : '0', `link case ${i}: ${JSON.stringify(linkCases[i])}`);
 }
 
-// order mode: space-separated flags -> space-separated input indices in display order.
-const orderRows = runDriver('order', orderCases.map(flags => flags.map(Number).join(' ')));
+// order mode: "flag" or "flag@ms" per headline -> space-separated input indices in display order.
+// The time is what the reference sorts on: Date.parse of the ISO time it derives from <pubDate>.
+const publishedMs = pubDate => {
+  const time = pubDate ? new Date(pubDate.trim()).getTime() : NaN;
+  return Number.isFinite(time) ? time : null;
+};
+const orderRows = runDriver('order', orderCases.map(entries => entries.map(({ high, pubDate }) => {
+  const time = publishedMs(pubDate);
+  return time === null ? `${Number(high)}` : `${Number(high)}@${time}`;
+}).join(' ')));
 for (let i = 0; i < orderCases.length; i++) {
-  const flags = orderCases[i];
-  const items = flags.map((high, index) => item(high ? `Drone strike ${index}` : `Calm report ${index}`, `https://example.com/${index}`)).join('');
+  const entries = orderCases[i];
+  const items = entries.map(({ high, pubDate }, index) => item(high ? `Drone strike ${index}` : `Calm report ${index}`, `https://example.com/${index}`, undefined, pubDate)).join('');
   const headlines = parse(feed(items));
-  headlines.forEach((headline, position) => assert.equal(headline.highImpact, flags[Number(headline.link.split('/').pop())], `order case ${i}: reference flag ${position}`));
+  headlines.forEach((headline, position) => {
+    const entry = entries[Number(headline.link.split('/').pop())];
+    assert.equal(headline.highImpact, entry.high, `order case ${i}: reference flag ${position}`);
+    assert.equal(headline.publishedAt === null ? null : Date.parse(headline.publishedAt), publishedMs(entry.pubDate), `order case ${i}: reference time ${position}`);
+  });
   const expected = headlines.map(headline => headline.link.split('/').pop()).join(' ');
-  assert.equal(orderRows[i], expected, `order case ${i}: flags ${flags.map(Number).join('')}`);
+  assert.equal(orderRows[i], expected, `order case ${i}: ${JSON.stringify(entries)}`);
 }
 
 const total = titleCases.length + linkCases.length + orderCases.length;

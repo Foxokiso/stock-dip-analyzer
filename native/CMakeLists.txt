@@ -47,3 +47,30 @@ foreach(module_dir ${DIP_MODULE_DIRS})
     add_subdirectory("${module_dir}")
   endif()
 endforeach()
+
+# The parity drivers never call setlocale, so they cannot catch a host locale changing how
+# numbers parse. This test reads JSON numbers and the futures fixture under a comma-decimal
+# C locale; it exits 77 (reported as skipped) when the system has no such locale.
+if(BUILD_TESTING)
+  add_executable(locale_regression tests/locale_regression.cpp)
+  target_link_libraries(locale_regression PRIVATE dip_futures)
+  dip_set_policy(locale_regression)
+  add_test(NAME locale_regression
+    COMMAND locale_regression "${CMAKE_CURRENT_SOURCE_DIR}/../tests/fixtures/futures-reference.json")
+  set_tests_properties(locale_regression PROPERTIES SKIP_RETURN_CODE 77)
+  # Linux CI images install no comma-decimal locale, so the test would always skip there. Where
+  # glibc's locale sources are present, compile de_DE.UTF-8 into the build tree and point the
+  # test at it. LOCPATH hides the system locale archive, so it is set only once the build worked.
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_program(LOCALEDEF_EXECUTABLE localedef)
+    set(DIP_LOCALE_DIR "${CMAKE_CURRENT_BINARY_DIR}/locales")
+    if(LOCALEDEF_EXECUTABLE AND NOT EXISTS "${DIP_LOCALE_DIR}/de_DE.UTF-8/LC_NUMERIC")
+      file(MAKE_DIRECTORY "${DIP_LOCALE_DIR}")
+      execute_process(COMMAND "${LOCALEDEF_EXECUTABLE}" -c -i de_DE -f UTF-8 "${DIP_LOCALE_DIR}/de_DE.UTF-8"
+        OUTPUT_QUIET ERROR_QUIET)
+    endif()
+    if(EXISTS "${DIP_LOCALE_DIR}/de_DE.UTF-8/LC_NUMERIC")
+      set_tests_properties(locale_regression PROPERTIES ENVIRONMENT "LOCPATH=${DIP_LOCALE_DIR}")
+    endif()
+  endif()
+endif()

@@ -34,6 +34,9 @@ inline constexpr std::string_view kApiUrl = "https://finviz.com/api/futures_all"
 // conservative disclosure is kept. Neither is a freshness SLA.
 inline constexpr int kDelayMinutes = 20;
 inline constexpr std::string_view kDefaultTimeframe = "i5";
+// Quote::chartNote for a series whose last sample does not agree with the quote.
+inline constexpr std::string_view kChartMismatchNote =
+    "Chart hidden: Finviz's samples end away from the quoted price, so they may not be recent.";
 
 struct Timeframe {
     std::string_view id;
@@ -70,7 +73,8 @@ struct Payload {
 // whose attributes contain id="futures-init-data" and type="application/json" (either
 // quote style, either attribute order, ASCII case-insensitive) is parsed as JSON. Nothing
 // is ever evaluated. Throws jsonlite::ParseError for invalid JSON and FuturesError when a
-// page has no such script.
+// page has no such script. `input` is the provider's bytes: they are first decoded as the
+// renderer's Response.text() decodes them (jsonlite::decodeUtf8Lossy).
 Payload readPayload(std::string_view input);
 
 struct Quote {
@@ -89,6 +93,9 @@ struct Quote {
     std::vector<double> sparkline;
     // Key/label pairs (keys are digit strings) in JavaScript enumeration order.
     std::vector<std::pair<std::string, std::string>> chartLabels;
+    // Why source samples are not drawn (kChartMismatchNote); nullopt when they are, or when
+    // the source sent none.
+    std::optional<std::string> chartNote;
     std::string unit;
     std::optional<std::string> quotedAt;   // always nullopt: the source gives no quote time
     std::optional<std::string> contract;   // always nullopt: roots are reference instruments
@@ -98,7 +105,10 @@ struct Quote {
 
 // Validates one source record for `symbol` (identity match plus finite numeric last and
 // change; optional fields null when non-finite; sparkline only when every point is
-// numeric; chart labels only for numeric indexes below the sparkline length).
+// numeric and the last one agrees with the quote, i.e. |last sample - last| is at most
+// max(0.5 % of |last|, high - low) with a missing high or low counting as no range,
+// otherwise no samples and kChartMismatchNote; chart labels only for numeric indexes
+// below the length of the kept sparkline).
 Quote sourceQuote(std::string_view symbol, const jsonlite::Value& data,
                   std::string_view fetchedAt, std::string_view sourceUrl);
 

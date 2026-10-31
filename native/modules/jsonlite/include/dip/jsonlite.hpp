@@ -13,9 +13,12 @@
 //     prototype here, so nothing can be polluted.
 //   * Strings are decoded to UTF-8. A lone surrogate escape (\uD83D without its pair,
 //     which JSON.parse tolerates) is kept in its WTF-8 three-byte form so JavaScript
-//     string semantics survive the round trip. Raw bytes must be well-formed UTF-8.
-//   * Numbers follow the RFC grammar and convert to the nearest double (overflow gives
-//     +-infinity like JavaScript; the value type cannot otherwise hold a non-finite number).
+//     string semantics survive the round trip. Raw bytes must be well-formed UTF-8: pass
+//     bytes from the network through decodeUtf8Lossy first, as the renderer's
+//     Response.text() decodes them before JSON.parse ever sees them.
+//   * Numbers follow the RFC grammar and convert to the nearest double whatever the C
+//     locale (overflow gives +-infinity and underflow +-0 like JavaScript; the value type
+//     cannot otherwise hold a non-finite number).
 //   * Anything else — trailing text, comments, single quotes, NaN, leading zeros, control
 //     characters inside strings, nesting deeper than kMaxDepth — throws ParseError.
 #pragma once
@@ -45,6 +48,7 @@ public:
     Value* find(std::string_view key) noexcept;
     bool contains(std::string_view key) const noexcept { return find(key) != nullptr; }
     // Inserts, or replaces the value of an existing key while keeping its first position.
+    // Searches linearly; parse() indexes the keys of large objects instead.
     void set(std::string key, Value value);
 };
 
@@ -98,8 +102,10 @@ private:
     std::variant<std::nullptr_t, bool, double, std::string, Array, Object> data_;
 };
 
-// Deepest permitted nesting of arrays/objects. JSON.parse has no fixed limit (it fails
-// with a stack overflow far deeper than this); the native parser refuses early instead.
+// Deepest permitted nesting of arrays/objects, the outermost one included. JSON.parse has
+// no depth limit at all (V8's parser is iterative; Node 22 parses 10,000,000 levels), so
+// refusing deeper input is a deliberate divergence that bounds this recursive parser's
+// stack on hostile input. The futures verifier asserts both sides of the limit.
 inline constexpr int kMaxDepth = 512;
 
 // Parses one complete JSON text. Surrounding RFC whitespace (space, tab, LF, CR) is
@@ -120,10 +126,16 @@ std::vector<std::size_t> enumerationOrder(const Object& object);
 //
 // Decodes the code point (or lone surrogate, in WTF-8) that starts at `position`
 // (which must be < text.size()), stores it in `codePoint` and returns its byte length.
-// Malformed bytes decode one byte at a time as that byte's value, so arbitrary page text
-// can be scanned without an exception.
+// An ill-formed sequence decodes as U+FFFD over its maximal subpart, as TextDecoder does
+// (never as a Latin-1 byte: a stray 0xA0 is not a no-break space), so arbitrary text can
+// be scanned without an exception.
 std::size_t decodeUtf8(std::string_view text, std::size_t position, char32_t& codePoint) noexcept;
 // Appends `codePoint` as UTF-8 (WTF-8 for a surrogate code point).
 void appendUtf8(std::string& out, char32_t codePoint);
+// Provider bytes decoded the way the renderer receives them from Response.text() (WHATWG
+// UTF-8 decode): a leading BOM is dropped and each maximal ill-formed subpart becomes
+// U+FFFD, so one mis-encoded byte in a label cannot reject a whole payload. The result is
+// well-formed UTF-8.
+std::string decodeUtf8Lossy(std::string_view bytes);
 
 }  // namespace dip::jsonlite

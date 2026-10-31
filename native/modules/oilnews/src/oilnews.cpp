@@ -110,6 +110,16 @@ SplitTitle splitHeadline(std::string_view rawTitle) {
     return {std::string(rawTitle.substr(0, separator)), std::string(rawTitle.substr(separator + 3))};
 }
 
+std::string_view titleWithoutSource(std::string_view rawTitle, std::string_view source) {
+    // `cut > 0 && rawTitle.endsWith(suffix)`. Byte-wise on UTF-8 this matches the UTF-16
+    // reference: the suffix starts with an ASCII space, so a match begins on a code point.
+    const std::size_t suffixLength = source.size() + 3;
+    if (rawTitle.size() <= suffixLength) return rawTitle;
+    const std::size_t cut = rawTitle.size() - suffixLength;
+    if (rawTitle.substr(cut, 3) != " - " || rawTitle.substr(cut + 3) != source) return rawTitle;
+    return rawTitle.substr(0, cut);
+}
+
 std::string resolveSource(std::optional<std::string_view> sourceElementText, std::string_view rawTitle) {
     if (sourceElementText && !sourceElementText->empty()) return std::string(*sourceElementText);
     return splitHeadline(rawTitle).sourceFromTitle;
@@ -146,19 +156,29 @@ bool isSafeLink(std::string_view link) {
 }
 
 Classified classifyHeadline(std::string_view rawTitle, std::optional<std::string_view> sourceElementText) {
+    if (sourceElementText && !sourceElementText->empty()) {
+        std::string title(titleWithoutSource(rawTitle, *sourceElementText));
+        const bool highImpact = isHighImpact(title);
+        return {std::move(title), std::string(*sourceElementText), highImpact};
+    }
     SplitTitle split = splitHeadline(rawTitle);
     const bool highImpact = isHighImpact(split.title);
-    std::string source = sourceElementText && !sourceElementText->empty()
-        ? std::string(*sourceElementText) : std::move(split.sourceFromTitle);
-    return {std::move(split.title), std::move(source), highImpact};
+    return {std::move(split.title), std::move(split.sourceFromTitle), highImpact};
 }
 
-std::vector<std::size_t> orderHeadlines(const std::vector<bool>& highImpact) {
-    std::vector<std::size_t> order(std::min(highImpact.size(), kMaxHeadlines));
+std::vector<std::size_t> orderHeadlines(const std::vector<HeadlineKey>& headlines) {
+    std::vector<std::size_t> order(headlines.size());
     std::iota(order.begin(), order.end(), std::size_t{0});
+    // newestFirst: an undated headline compares as -Infinity; ties keep feed order.
+    std::stable_sort(order.begin(), order.end(), [&headlines](std::size_t a, std::size_t b) {
+        const std::optional<std::int64_t>& left = headlines[a].publishedMs;
+        const std::optional<std::int64_t>& right = headlines[b].publishedMs;
+        return left.has_value() && (!right.has_value() || *left > *right);
+    });
+    order.resize(std::min(order.size(), kMaxHeadlines));
     // (a, b) => Number(b.highImpact) - Number(a.highImpact) with a stable sort.
-    std::stable_sort(order.begin(), order.end(), [&highImpact](std::size_t a, std::size_t b) {
-        return highImpact[a] && !highImpact[b];
+    std::stable_sort(order.begin(), order.end(), [&headlines](std::size_t a, std::size_t b) {
+        return headlines[a].highImpact && !headlines[b].highImpact;
     });
     return order;
 }

@@ -26,6 +26,10 @@ export const FUTURES_GROUPS = [
     { id: 'currencies', label: 'Currencies', symbols: ['DX', '6E', '6J', '6B', '6C', '6S', '6A', 'BTC', '6N'] },
 ];
 
+// Direction of a source percent change: a missing or unchanged (0 or -0) change is flat, so the
+// desk's arrows and colours agree with its advancing/declining counts.
+export const changeDirection = (changePct) => changePct > 0 ? 'up' : changePct < 0 ? 'down' : 'flat';
+
 const GROUP_BY_SYMBOL = new Map(FUTURES_GROUPS.flatMap(group => group.symbols.map(symbol => [symbol, group.id])));
 const BOND_SYMBOLS = new Set(['ZT', 'ZF', 'ZN', 'TN', 'ZB', 'UB']);
 const SYMBOL_PATTERN = /^[A-Z0-9]{1,8}$/;
@@ -51,14 +55,29 @@ const readPayload = (input) => {
     throw new Error('Finviz response does not contain futures quote JSON.');
 };
 
+// For a thinly traded root, Finviz's 5-minute "sparkline" can be a months-old history that ends
+// far from the quote (TIO's ended at 211.8 while TIO was quoted at 90.71). A series is drawn as
+// the quote's chart only when its last sample lies within the session range of the quote, or
+// within 0.5 % of it when that range is narrower or not supplied.
+export const CHART_MISMATCH_NOTE = "Chart hidden: Finviz's samples end away from the quoted price, so they may not be recent.";
+const PAGE_CHART_NOTE = 'Chart hidden: the Finviz page does not say which interval its samples cover.';
+const endsAtQuote = (sample, last, high, low) => {
+    const range = high !== null && low !== null ? high - low : 0;
+    return Math.abs(sample - last) <= Math.max(0.005 * Math.abs(last), range);
+};
+
 const sourceQuote = (symbol, data, fetchedAt, sourceUrl) => {
     const record = isRecord(data) ? data : {};
     const identityMatches = record.ticker === symbol;
     const last = numeric(record.last);
     const changePct = numeric(record.change);
     const available = identityMatches && last !== null && changePct !== null;
-    const sparkline = available && Array.isArray(record.sparkline) && record.sparkline.every(value => numeric(value) !== null)
+    const high = available ? numeric(record.high) : null;
+    const low = available ? numeric(record.low) : null;
+    const samples = available && Array.isArray(record.sparkline) && record.sparkline.every(value => numeric(value) !== null)
         ? [...record.sparkline] : [];
+    const chartAgrees = samples.length === 0 || endsAtQuote(samples[samples.length - 1], last, high, low);
+    const sparkline = chartAgrees ? samples : [];
     const chartLabels = {};
     if (sparkline.length > 0 && isRecord(record.sparklineDateChanges)) {
         for (const [index, label] of Object.entries(record.sparklineDateChanges)) {
@@ -78,10 +97,12 @@ const sourceQuote = (symbol, data, fetchedAt, sourceUrl) => {
         // native price units: index points, bond points, cents, dollars, etc.
         change: available ? numeric(record.changeUsd) : null,
         prevClose: available ? numeric(record.prevClose) : null,
-        high: available ? numeric(record.high) : null,
-        low: available ? numeric(record.low) : null,
+        high,
+        low,
         sparkline,
         chartLabels,
+        // Why source samples are not drawn; null when they are, or when Finviz sent none.
+        chartNote: chartAgrees ? null : CHART_MISMATCH_NOTE,
         unit: BOND_SYMBOLS.has(symbol) ? 'points' : 'native quote',
         quotedAt: null,
         contract: null,
@@ -182,7 +203,10 @@ export const fetchFinvizFutures = async (ipcRenderer, options = {}) => {
         // quotes, but never label those samples as the requested interval.
         const quotesOnly = {
             ...snapshot,
-            quotes: snapshot.quotes.map(quote => ({ ...quote, sparkline: [], chartLabels: {} })),
+            quotes: snapshot.quotes.map(quote => ({
+                ...quote, sparkline: [], chartLabels: {},
+                chartNote: quote.sparkline.length > 0 ? PAGE_CHART_NOTE : quote.chartNote,
+            })),
         };
         const merged = mergePrevious(quotesOnly, previous);
         return {

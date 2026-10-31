@@ -13,9 +13,10 @@
 //   OK TAB source TAB sourceUrl TAB timeframe TAB status TAB cached TAB partial TAB fetchedAt
 //      TAB attemptedAt TAB quotedAt TAB delayMinutes TAB error TAB quoteCount {TAB quote}
 //   quote       = symbol|name|group|status|price|changePct|change|prevClose|high|low|unit
-//                 |quotedAt|contract|fetchedAt|sourceUrl|sparkline|chartLabels
+//                 |quotedAt|contract|fetchedAt|sourceUrl|sparkline|chartLabels|chartNote
 //   sparkline   = doubles joined by ','          (empty when there are no points)
 //   chartLabels = {key=label;}                   (both strings, in enumeration order)
+//   chartNote   = a string scalar or null
 //
 // Scalars: strings are double-quoted; every UTF-16 code unit of the string outside
 // printable ASCII, or among  " \ | ; = , TAB , is written as \uXXXX (surrogates included),
@@ -123,6 +124,8 @@ void writeQuote(std::ostream& out, const dip::futures::Quote& quote) {
         writeString(out, label);
         out << ';';
     }
+    out << '|';
+    writeOptional(out, quote.chartNote);
 }
 
 void writeSnapshot(std::ostream& out, const dip::futures::Snapshot& snapshot) {

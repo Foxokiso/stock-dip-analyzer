@@ -180,6 +180,18 @@
   border-radius: var(--radius);
   background: var(--wash-p-07);
 }
+/* Finviz's time labels under the focus chart, each at the sample it marks (left set inline). */
+.futures-page .futures-chart-axis {
+  position: relative;
+  height: 13px;
+  margin-top: 6px;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.futures-page .futures-chart-axis > span { position: absolute; top: 0; white-space: nowrap; }
 
 /* ── Status chips: delayed = warning on its 14 % wash, cached = warning with a dashed hairline, unavailable = faint. ── */
 .futures-page .quote-status {

@@ -61,7 +61,8 @@ const BOARD_COLUMNS = [
     { label: 'Price', className: 'numeric' },
     { label: 'Day Δ%', className: 'numeric' },
     { label: 'Off 1M close high', className: 'numeric' },
-    { label: 'RSI', className: 'numeric' },
+    // The scorer's RSI is Cutler's simple average, not the Wilder RSI(14) other sources quote.
+    { label: 'Simple RSI', className: 'numeric', title: "Simple 14-period RSI over one month of closes; Finviz and TradingView show Wilder's RSI" },
     { label: 'Trend', className: 'centered' },
     { label: 'Technical rating', className: 'centered' },
     { label: '', className: 'centered' },
@@ -69,13 +70,15 @@ const BOARD_COLUMNS = [
 
 const RATING_TONE = { 'Strong Buy': 'strong-buy', Buy: 'buy', Hold: 'hold', Sell: 'sell', 'Strong Sell': 'strong-sell' };
 
-const signTone = (value) => value == null ? 'oil-flat' : value >= 0 ? 'oil-up' : 'oil-down';
+// An unchanged quote (0 or -0) is flat, as on the Futures desk and in the Bullish/Bearish filter.
+const signTone = (value) => value > 0 ? 'oil-up' : value < 0 ? 'oil-down' : 'oil-flat';
 
 // ─── One row of a ticker board ───────────────────────────────────────────────
 const BoardRow = ({ row, expanded, onToggle }) => {
     const a = row.analysis;
     const verdict = a ? getVerdict(a.score, a.isZombie) : null;
-    const ratingTone = verdict ? (a.isZombie ? 'muted' : RATING_TONE[verdict.label] || 'muted') : null;
+    // The tone follows the verdict on every page: Strong Sell is danger, never a muted grey.
+    const ratingTone = verdict ? RATING_TONE[verdict.label] || 'muted' : null;
     const rsiTone = a?.rsi == null ? 'oil-flat' : a.rsi <= 30 ? 'oil-up' : a.rsi >= 70 ? 'oil-down' : 'oil-flat';
     const trendTone = a?.trend === 'bullish' ? 'oil-up' : a?.trend === 'bearish' ? 'oil-down' : 'oil-flat';
     const trendGlyph = a?.trend === 'bullish' ? '▲' : a?.trend === 'bearish' ? '▼' : '—';
@@ -154,7 +157,7 @@ const TickerBoard = ({ title, icon, tone, rows, loading, expandedRows, onToggle,
                 <thead>
                     <tr>
                         {BOARD_COLUMNS.map((column, i) => (
-                            <th key={i} scope="col" className={column.className}>
+                            <th key={i} scope="col" className={column.className} title={column.title}>
                                 {column.label || <span className="oil-sr-only">Score breakdown</span>}
                             </th>
                         ))}

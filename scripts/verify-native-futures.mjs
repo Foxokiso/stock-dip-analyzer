@@ -36,6 +36,10 @@ const add = (name, input, options = {}) => {
   }
   cases.push({ name, input, fetchedAt, ...options });
 };
+// Raw provider bytes, possibly ill-formed UTF-8: the driver gets the bytes, and the reference
+// gets what the renderer would, the text Response.text() decodes (TextDecoder does the same).
+const addBytes = (name, bytes) => cases.push({ name, bytes, input: new TextDecoder().decode(bytes), fetchedAt });
+const bytesOf = (...parts) => Buffer.concat(parts.map(part => typeof part === 'string' ? Buffer.from(part, 'utf8') : Buffer.from(part)));
 const text = value => JSON.stringify(value);
 const clone = value => JSON.parse(JSON.stringify(value));
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -159,6 +163,12 @@ for (const field of ['changeUsd', 'prevClose', 'high', 'low']) {
   for (const [label, value] of numberLikes) add(`ES ${field} ${label}`, text(patch('ES', { [field]: value })));
   for (const literal of ['1e999', '-1e999', '1e-999', '-0']) add(`ES ${field} literal ${literal}`, rawLiteral('ES', field, literal));
 }
+// Literals at the edges of the double range, which JSON.parse rounds to +-Infinity ("not
+// numeric"), to 0 or to the smallest subnormal; jsonlite must land on the same side.
+for (const literal of [
+  '1.7976931348623158e308', '1.7976931348623159e308', '-1.7976931348623159e308', '2.4703282292062327e-324',
+  '2.4703282292062328e-324', '0e99999999999999999999', `1${'0'.repeat(330)}`, `0.${'0'.repeat(330)}1`, '1e-99999999999999999999',
+]) add(`ES last literal ${literal.slice(0, 26)}`, rawLiteral('ES', 'last', literal));
 add('zero and negative quotes with non-finite optionals', rawLiteral('ES', 'low', '-1e999').replace('"ES":{', '"ES":{"high":1e999,').replace(text(ES.last), '0').replace(`"change":${text(ES.change)}`, '"change":0,"changeUsd":null,"prevClose":null'));
 add('negative price and percent', text({ ...only('ES'), CL: { ...ES, ticker: 'CL', label: 'Crude Oil WTI', last: -1, change: -101 } }));
 for (const [label, value] of [['mismatch NQ', 'NQ'], ['missing', undefined], ['null', null], ['number', 123], ['lowercase', 'es'], ['trailing space', 'ES '], ['array', ['ES']]]) {
@@ -179,11 +189,35 @@ add('ES label raw UTF-8 bytes', text(patch('ES', { label: 'RAW' })).replace('"RA
 add('ES label with escaped surrogate pair', text(patch('ES', { label: 'RAW' })).replace('"RAW"', '"\\ud83d\\ude00 pair"'));
 add('ES label with unpaired surrogate escapes', text(patch('ES', { label: 'RAW' })).replace('"RAW"', '"\\ud83d\\u0041 \\ude00\\ud83d"'));
 add('ES label with every short escape', text(patch('ES', { label: 'RAW' })).replace('"RAW"', '"\\"\\\\\\/\\b\\f\\n\\r\\t\\u0000\\u001f"'));
-for (const [label, value] of [['partial null', [7800, null, 7866]], ['string point', ['7800', 7866]], ['bool point', [true]], ['nested', [[7866]]], ['object', { 0: 7866 }], ['string', '7866'], ['empty', []], ['missing', undefined], ['null', null], ['mixed magnitudes', [0, -0, 1e-7, 1e21, 123456.789, -2.5]], ['single', [7866]]]) {
+// Series that should be kept end at the quote (ES.last), so they still exercise the points.
+for (const [label, value] of [['partial null', [7800, null, 7866]], ['string point', ['7800', 7866]], ['bool point', [true]], ['nested', [[7866]]], ['object', { 0: 7866 }], ['string', '7866'], ['empty', []], ['missing', undefined], ['null', null], ['mixed magnitudes', [0, -0, 1e-7, 1e21, 123456.789, -2.5, ES.last]], ['single', [ES.last]]]) {
   add(`ES sparkline ${label}`, text(patch('ES', { sparkline: value })));
 }
 add('ES sparkline with overflow point', text(patch('ES', { sparkline: ['@@RAW@@'] })).replace('"@@RAW@@"', '1e999'));
-add('ES sparkline with underflow point', text(patch('ES', { sparkline: ['@@RAW@@', 1] })).replace('"@@RAW@@"', '1e-999'));
+add('ES sparkline with underflow point', text(patch('ES', { sparkline: ['@@RAW@@', ES.last] })).replace('"@@RAW@@"', '1e-999'));
+// A series is the quote's chart only when its last sample agrees with the quote: within the
+// session range, or 0.5 % when that is narrower or missing. Real stale series first (TIO, UX
+// and ZK in one live i5 response), then the edges of the rule.
+const liveI5 = JSON.parse(readFileSync(new URL('../tests/fixtures/futures-i5-2026-10-31.json', import.meta.url), 'utf8')).records;
+add('live i5 records with stale TIO, UX and ZK series', text(liveI5));
+add('live i5 records page-wrapped', page(text(liveI5)));
+const sessionRange = ES.high - ES.low;
+for (const [label, fields] of [
+  ['last sample on the session-range edge', { sparkline: [7800, ES.last - sessionRange] }],
+  ['last sample just past the session range', { sparkline: [7800, ES.last - sessionRange - 0.25] }],
+  ['0.5 % edge without a high', { last: 200, high: null, sparkline: [190, 201] }],
+  ['past 0.5 % without a high', { last: 200, high: null, sparkline: [190, 201.5] }],
+  ['past 0.5 % without a low', { last: 200, low: null, sparkline: [190, 198.5] }],
+  ['high below low adds no range', { last: 200, high: 190, low: 210, sparkline: [190, 198.5] }],
+  ['negative price within 0.5 %', { last: -1, high: null, low: null, sparkline: [-1.002] }],
+  ['zero price and zero sample', { last: 0, change: 0, high: null, low: null, sparkline: [0, 0] }],
+  ['zero price and a tiny sample', { last: 0, change: 0, high: null, low: null, sparkline: [0, 1e-300] }],
+  ['session range overflowing to infinity', { high: 1.7e308, low: -1.7e308, sparkline: [1e300] }],
+  ['only the last sample is compared', { sparkline: [1, ES.last] }],
+  ['a withheld series takes its labels with it', { sparkline: [ES.last, 1], sparklineDateChanges: { 0: 'Oct 10', 1: 'Mar 13' } }],
+  ['single stale sample', { sparkline: [1] }],
+  ['TIO-like stale series', { last: 90.71, high: 90.71, low: 90.71, sparkline: [52.98, 120.5, 211.8], sparklineDateChanges: { 1: 'Mar 13', 2: 'Jul 01' } }],
+]) add(`ES chart agreement: ${label}`, text(patch('ES', fields)));
 const chartLabels = {
   0: 'Oct 10', 5: 'Oct 11', 59: 'last point', 60: 'past the end', 99: 'far', x: 'not an index', '-1': 'negative', '007': 'leading zeros',
   '00': 'double zero', 2: 123, 3: null, 4: 'a label clearly longer than forty characters in total', 6: `${'k'.repeat(39)}\u{1F600}`,
@@ -193,7 +227,7 @@ const chartLabels = {
 add('ES chart labels', text(patch('ES', { sparklineDateChanges: chartLabels })));
 add('ES chart labels in non-canonical text order', text(patch('ES', { sparklineDateChanges: 'RAW' })).replace('"RAW"', '{"5":"five","0":"zero","x":"ex","3":"three","007":"seven","1":"one","4294967294":"max index","4294967295":"beyond","00":"zz"}'));
 add('ES chart labels with duplicate keys', text(patch('ES', { sparklineDateChanges: 'RAW' })).replace('"RAW"', '{"5":"first","0":"zero","5":"second","x":"a","x":"b"}'));
-add('ES chart labels on a 3-point sparkline', text(patch('ES', { sparkline: [1, 2, 3], sparklineDateChanges: { 0: 'a', 2: 'c', 3: 'd' } })));
+add('ES chart labels on a 3-point sparkline', text(patch('ES', { sparkline: [1, 2, ES.last], sparklineDateChanges: { 0: 'a', 2: 'c', 3: 'd' } })));
 add('ES chart labels but empty sparkline', text(patch('ES', { sparkline: [], sparklineDateChanges: { 0: 'a' } })));
 add('ES chart labels but invalid sparkline', text(patch('ES', { sparkline: [1, null], sparklineDateChanges: { 0: 'a' } })));
 add('ES chart labels but unavailable row', text(patch('ES', { last: null, sparklineDateChanges: { 0: 'a' } })));
@@ -217,10 +251,52 @@ add('bond units', text(only('ZT', 'ZF', 'ZN', 'TN', 'ZB', 'UB', 'ZQ', 'SR3')));
 add('every group represented once', text(only('ES', 'ZN', 'CL', 'GC', 'ZC', 'KC', '6E')));
 add('duplicate top-level key keeps first position, last value', `{"ES":${text({ ...ES, last: 1 })},"ZB":${text(fixture.ZB)},"ES":${text({ ...ES, last: 2, label: 'Second ES' })}}`);
 add('duplicate field inside a record', '{"ES":{"ticker":"ES","last":1,"change":0,"last":7866,"label":"a","label":"b"}}');
+// Objects larger than an ordinary record have their members indexed; a repeated key must still
+// keep its first position and take the last value.
+add('duplicate keys in a large object keep first position, last value', appendKeys({ ES: { ...ES, last: 1 } }, [
+  ...Array.from({ length: 40 }, (_, i) => [`K${i}`, i % 3 ? null : { ...ES, ticker: `K${i}`, label: `Root ${i}` }]),
+  ['ES', { ...ES, last: 2, label: 'Second ES' }], ['K5', { ...ES, ticker: 'K5', label: 'Replaced K5' }], ['K39', null], ['K0', 7],
+]));
+add('chart labels with repeated keys in a large object', text(patch('ES', { sparklineDateChanges: 'RAW' })).replace('"RAW"', `{${[
+  ...Array.from({ length: 40 }, (_, i) => `"${i}":"label ${i}"`), '"x":"a"', '"5":"five again"', '"39":"last again"', '"x":"b"', '"0":"zero again"',
+].join(',')}}`));
 add('__proto__ field inside a record is ordinary', text(patch('ES', { ['__proto__']: { last: 1 } })));
 add('single row', text(only('ES')));
 add('deeply nested extra key', `{"ES":${text(ES)},"DEEP":${'['.repeat(100)}${']'.repeat(100)}}`);
+// jsonlite refuses nesting deeper than kMaxDepth (512 levels, the top-level object included);
+// JSON.parse has no depth limit at all. The limit itself is parity, one level more is the
+// documented divergence and must be rejected natively.
+add('nesting at the native depth limit', `{"ES":${text(ES)},"DEEP":${'['.repeat(511)}${']'.repeat(511)}}`);
+add('nesting one level past the native depth limit', `{"ES":${text(ES)},"DEEP":${'['.repeat(512)}${']'.repeat(512)}}`,
+  { nativeRejects: /^Invalid JSON: nesting too deep \(offset \d+\)$/ });
 add('half the rows mutated', text(Object.fromEntries(symbols.map((symbol, index) => [symbol, index % 2 ? fixture[symbol] : { ...fixture[symbol], last: null }]))));
+
+// 4b. Raw bytes that are not well-formed UTF-8. Inside a string they become U+FFFD and the
+//     payload stays usable; outside one (a stray 0xA0 or an overlong space) they are U+FFFD
+//     too, never whitespace, so the payload is rejected like JSON.parse rejects it.
+const [labelHead, labelTail] = text(patch('ES', { label: '@@LABEL@@' })).split('"@@LABEL@@"');
+const withLabel = (...parts) => bytesOf(`${labelHead}"`, ...parts, `"${labelTail}`);
+for (const [label, raw] of [
+  ['a Latin-1 byte', [0xE9]], ['a CESU-8 surrogate', [0xED, 0xA0, 0xBD]], ['an overlong slash', [0xC0, 0xAF]],
+  ['an overlong NUL', [0xC0, 0x80]], ['a truncated euro sign', [0xE2, 0x82]], ['a truncated emoji', [0xF0, 0x9F, 0x98]],
+  ['a code point above U+10FFFF', [0xF4, 0x90, 0x80, 0x80]], ['a stray continuation byte', [0x80]], ['an F5 lead', [0xF5]],
+  ['an FF byte', [0xFF]], ['an encoded U+FFFD', [0xEF, 0xBF, 0xBD]], ['a noncharacter', [0xEF, 0xBF, 0xBF]],
+  ['a four-byte overlong', [0xF0, 0x8F, 0xBF, 0xBF]], ['an overlong C1 pair', [0xC1, 0xBF]],
+]) addBytes(`ES label with ${label}`, withLabel('Caf', raw, ' end'));
+addBytes('ES label of 99 units then a truncated emoji', withLabel('y'.repeat(99), [0xF0, 0x9F, 0x98], 'z'));
+addBytes('ES label that is only ill-formed bytes', withLabel([0xC0, 0xC1, 0xF8]));
+addBytes('ill-formed bytes in a chart label', bytesOf(text(patch('ES', { sparklineDateChanges: { 0: '@@L@@' } })).split('@@L@@')[0], [0xE9, 0x80], text(patch('ES', { sparklineDateChanges: { 0: '@@L@@' } })).split('@@L@@')[1]));
+addBytes('ill-formed byte inside a key', bytesOf('{"E', [0xC3], `S":${text(ES)},"ZB":${text(fixture.ZB)}}`));
+addBytes('stray A0 before the JSON', bytesOf([0xA0], fixtureText));
+addBytes('two A0 bytes before a page', bytesOf([0xA0, 0xA0], page(fixtureText)));
+addBytes('overlong space before the JSON', bytesOf([0xE0, 0x80, 0xA0], fixtureText));
+addBytes('four-byte overlong space before the JSON', bytesOf([0xF0, 0x80, 0x80, 0xA0], fixtureText));
+addBytes('overlong space after the JSON', bytesOf(fixtureText, [0xC0, 0xA0]));
+addBytes('overlong space between script attributes', bytesOf('<script id="futures-init-data"', [0xC0, 0xA0], `type="application/json">${fixtureText}</script>`));
+addBytes('ill-formed byte between members', bytesOf(`{"ES":${text(ES)},`, [0xFF], `"ZB":${text(fixture.ZB)}}`));
+addBytes('ill-formed bytes in the page outside the script', bytesOf('<html><head><title>Futures ', [0xE9, 0xFF, 0xED, 0xA0, 0x80], `</title></head><body>${page(fixtureText)}</body></html>`));
+addBytes('leading BOM bytes', bytesOf([0xEF, 0xBB, 0xBF], fixtureText));
+addBytes('leading BOM then a stray A0', bytesOf([0xEF, 0xBB, 0xBF, 0xA0], fixtureText));
 
 // 5. 300 seeded mutations of the fixture (deterministic LCG; no randomness at compare time).
 let seed = 0x27f0a1;
@@ -281,8 +357,8 @@ for (let i = 0; i < 300; i++) {
 
 // ---------------------------------------------------------------------------------------------
 // Run the driver.
-const encode = ({ input, timeframe, fetchedAt: stamp, sourceUrl }) => [
-  Buffer.from(input, 'utf8').toString('base64'),
+const encode = ({ input, bytes, timeframe, fetchedAt: stamp, sourceUrl }) => [
+  (bytes ?? Buffer.from(input, 'utf8')).toString('base64'),
   timeframe === undefined ? 'null' : timeframe,
   stamp,
   sourceUrl === undefined ? 'null' : sourceUrl,
@@ -312,8 +388,9 @@ const headerKeys = ['source', 'sourceUrl', 'timeframe', 'status', 'cached', 'par
 const quoteKeys = ['symbol', 'name', 'group', 'status', 'price', 'changePct', 'change', 'prevClose', 'high', 'low', 'unit', 'quotedAt', 'contract', 'fetchedAt', 'sourceUrl'];
 let snapshots = 0;
 let rejections = 0;
+let divergences = 0;
 for (let i = 0; i < cases.length; i++) {
-  const { name, input, timeframe, fetchedAt: stamp, sourceUrl } = cases[i];
+  const { name, input, timeframe, fetchedAt: stamp, sourceUrl, nativeRejects } = cases[i];
   const label = `case ${i} (${name})`;
   let expected = null;
   let failure = null;
@@ -323,10 +400,22 @@ for (let i = 0; i < cases.length; i++) {
     failure = error;
   }
   const row = rows[i];
+  if (nativeRejects) {
+    assert.equal(failure, null, `${label}: the reference accepts this payload`);
+    assert.ok(row.startsWith('ERROR\t'), `${label}: the documented native limit must reject it, got ${row.slice(0, 160)}`);
+    assert.match(row.slice('ERROR\t'.length), nativeRejects, `${label}: documented native divergence`);
+    divergences++;
+    continue;
+  }
   if (failure) {
     assert.ok(row.startsWith('ERROR\t'), `${label}: reference threw "${failure.message}" but native returned ${row.slice(0, 160)}`);
-    assert.match(failure.message, /Finviz|JSON|quote/i, label);
-    assert.match(row.slice('ERROR\t'.length), /Finviz|JSON|quote/i, `${label}: native error text`);
+    const message = row.slice('ERROR\t'.length);
+    if (failure instanceof SyntaxError) {
+      // V8 and jsonlite word JSON syntax errors differently; the kind of rejection must match.
+      assert.match(message, /^Invalid JSON: /, `${label}: JSON.parse rejected this text, native said "${message}"`);
+    } else {
+      assert.equal(message, failure.message, `${label}: rejection message`);
+    }
     rejections++;
     continue;
   }
@@ -339,7 +428,7 @@ for (let i = 0; i < cases.length; i++) {
   assert.equal(groups.length, expected.quotes.length, `${label}: quote groups`);
   expected.quotes.forEach((quote, q) => {
     const parts = groups[q].split('|');
-    assert.equal(parts.length, 17, `${label}: quote ${q} field count`);
+    assert.equal(parts.length, 18, `${label}: quote ${q} field count`);
     quoteKeys.forEach((key, k) => same(parts[k], quote[key], `${label}: ${quote.symbol}.${key}`));
     const sparkline = parts[15] === '' ? [] : parts[15].split(',').map(Number);
     assert.equal(sparkline.length, quote.sparkline.length, `${label}: ${quote.symbol} sparkline length`);
@@ -349,9 +438,24 @@ for (let i = 0; i < cases.length; i++) {
       return [JSON.parse(pair.slice(0, at)), JSON.parse(pair.slice(at + 1))];
     });
     assert.deepEqual(labels, Object.entries(quote.chartLabels), `${label}: ${quote.symbol} chartLabels`);
+    same(parts[17], quote.chartNote, `${label}: ${quote.symbol}.chartNote`);
   });
   snapshots++;
 }
 assert.ok(snapshots > 0 && rejections > 0, 'both accepted and rejected payloads must be covered');
 assert.ok(!run.stdout.includes('Zombie Corp') && !run.stdout.includes('Mock News'));
-console.log(`${cases.length} native/JavaScript futures parity cases passed (${snapshots} snapshots, ${rejections} rejections)`);
+
+// ---------------------------------------------------------------------------------------------
+// Scale: JSON.parse reads an object in linear time, and so must jsonlite. One payload with
+// 150,000 members (about 1.6 MB) runs on its own. Linear parsing takes about 0.2 s (2.5 s in a
+// sanitizer debug build); the quadratic duplicate-key search it replaced took about 40 s.
+const huge = `{"ES":${text(ES)},${Array.from({ length: 150_000 }, (_, i) => `"k${i}":${i}`).join(',')}}`;
+const started = process.hrtime.bigint();
+const scale = spawnSync(executable, [], { input: `${encode({ input: huge, timeframe: 'i5', fetchedAt })}\n`, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 120_000 });
+const seconds = Number(process.hrtime.bigint() - started) / 1e9;
+assert.equal(scale.status, 0, scale.error?.message || scale.stderr);
+assert.ok(scale.stdout.startsWith('OK\t'), 'the 150,000-member payload parses');
+assert.equal(Number(scale.stdout.split('\t')[12]), parseFinvizFutures(huge, { fetchedAt, timeframe: 'i5' }).quotes.length, 'quote count of the 150,000-member payload');
+assert.ok(seconds < 15, `a 150,000-member object took ${seconds.toFixed(2)} s; object parsing must stay linear`);
+assert.ok(divergences > 0, 'the documented depth divergence must be exercised');
+console.log(`${cases.length} native/JavaScript futures parity cases passed (${snapshots} snapshots, ${rejections} rejections, ${divergences} documented divergence); 150,000 members in ${seconds.toFixed(2)} s`);
