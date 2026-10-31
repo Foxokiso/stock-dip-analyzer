@@ -6,9 +6,9 @@ import { createElement } from 'react';
 // otherwise delays every cold route switch by exactly that much.
 //
 // A failed import is not cached here: the next preload() or render imports
-// again. Whether that can succeed is up to the browser; Chromium fails a
-// repeat import of a URL whose fetch failed without asking again, which is why
-// the desk's error panel offers Reload. A render that was waiting on the
+// again. Whether that can succeed is up to the browser: the Chromium that
+// Electron 45 ships fetches a failed module again, while older Chromium fails
+// the repeat import without fetching. A render that was waiting on the
 // failed import throws its Error for the nearest error boundary instead;
 // throwing the rejected promise again would make React re-render on it
 // forever. That error stays until the next preload(), because React renders

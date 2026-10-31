@@ -34,11 +34,12 @@ export default class ErrorBoundary extends Component {
     }
 }
 
-// The standard fallback. Chromium keeps a failed chunk import failed until the
-// window reloads, so Reload is the dependable way back; Go to Overview leaves
-// the failed desk without reloading. Where that is a route change, the route
-// change resets the boundary (`resetsOnNavigation`). Resetting here as well
-// would first render the failed desk again at its old location, and React
+// The standard fallback. A desk whose chunk failed while it rendered keeps that
+// error until the window reloads (see preloadable.js), and older Chromium also
+// keeps the failed import, so Reload is the dependable way back; Go to Overview
+// leaves the failed desk without reloading. Where that is a route change, the
+// route change resets the boundary (`resetsOnNavigation`). Resetting here as
+// well would first render the failed desk again at its old location, and React
 // would report that error as an uncaught "recovered" one.
 export function ErrorPanel({ title, error, reset, resetsOnNavigation = false }) {
     const goToOverview = () => {
