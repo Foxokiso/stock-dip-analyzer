@@ -111,17 +111,20 @@ export function liveFailures(report, { packaged = false, dataOptional = false } 
  * refused rather than measured, as it may serve another checkout. A server that
  * exits before it answers fails the start at once, with its own reason, and one
  * that never answers is killed: a failed start leaves nothing running.
- * @param {{ url: string, command: string[], cwd?: string, attempts?: number, interval?: number }} options  command: the executable, then its arguments; attempts: polls of the URL, interval ms apart
+ * @param {{ url: string, command: string[], cwd?: string, attempts?: number, interval?: number, echo?: boolean }} options  command: the executable, then its arguments; attempts: polls of the URL, interval ms apart; echo: also show the server's output in this terminal (npm start)
  * @returns {Promise<import('node:child_process').ChildProcess>}
  */
-export async function startDevServer({ url, command, cwd, attempts = 60, interval = 500 }) {
+export async function startDevServer({ url, command, cwd, attempts = 60, interval = 500, echo = false }) {
   const answers = () => fetch(url, { signal: AbortSignal.timeout(2000) }).catch(() => null);
   if (await answers()) throw new Error(`something already answers on ${url} (npm run dev, or a server an earlier run left behind); stop it and run again`);
   const [executable, ...args] = command;
-  const server = spawn(executable, args, { cwd, stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, NO_COLOR: '1' } });
+  const server = spawn(executable, args, { cwd, stdio: ['ignore', echo ? 'inherit' : 'ignore', 'pipe'], env: { ...process.env, NO_COLOR: '1' } });
   let exited = null;
   let stderr = '';
-  server.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(0, 400); });
+  server.stderr.on('data', chunk => {
+    if (stderr.length < 400) stderr = (stderr + chunk).slice(0, 400);
+    if (echo) process.stderr.write(chunk);
+  });
   server.once('error', error => { exited ??= error.message; });
   // 'close', not 'exit': only then has everything it wrote to stderr been read.
   server.once('close', (code, signal) => { exited ??= signal ?? `exit code ${code}`; });
