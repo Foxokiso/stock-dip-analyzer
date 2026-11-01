@@ -1,41 +1,79 @@
 // Browser regressions use recorded source data; fixtures never enter runtime views.
+// UI_BASE_URL may be the Vite dev server or `vite preview` of a production build;
+// only the latter carries the Content Security Policy and the minified CSS, so
+// run both. Any policy violation fails the run.
 import { chromium } from 'playwright';
 import { readFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
+import { stubBridge, watcher } from './ui-harness.mjs';
 const artifactDir=fileURLToPath(new URL('../artifacts/', import.meta.url));
 const baseUrl=process.env.UI_BASE_URL || 'http://127.0.0.1:5174';
 await mkdir(artifactDir,{recursive:true});
 const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
-const page=await browser.newPage({viewport:{width:1440,height:1050}});
-const errors=[];
-page.on('pageerror',error=>errors.push(error.message));
-await page.route(/https:\/\/(s3\.tradingview|fonts\.googleapis|fonts\.gstatic)/,route=>route.abort());
+const errors=[], cspViolations=[];
+const watch=watcher(errors,cspViolations);
+const fixture=name=>readFile(new URL(`../tests/fixtures/${name}`,import.meta.url),'utf8');
+// null when the page fits the viewport; otherwise the outermost boxes past its
+// right edge that no clipping or scrolling ancestor contains.
+const overflowAt=page=>page.evaluate(()=>{
+ const width=window.innerWidth;
+ if (document.documentElement.scrollWidth<=width) return null;
+ const contained=el=>{ for (let node=el.parentElement;node&&node!==document.body;node=node.parentElement) if (getComputedStyle(node).overflowX!=='visible') return true; return false; };
+ const offenders=[...document.body.querySelectorAll('*')].filter(el=>el.getBoundingClientRect().right>width+0.5&&!contained(el));
+ return `scrollWidth ${document.documentElement.scrollWidth}: `+offenders.slice(0,4).map(el=>`${[el.tagName.toLowerCase(),...el.classList].join('.')} (right ${Math.round(el.getBoundingClientRect().right)})`).join(', ');
+});
+const page=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
 await page.goto(baseUrl+'/#/futures');
 await page.getByText('Quotes unavailable',{exact:true}).waitFor();
 assert.equal(await page.locator('.futures-table tbody tr').count(),0);
-assert.equal(await page.locator('.chart-caption').last().textContent(),'Finviz source samples · intradayUnavailable');
+assert.equal(await page.locator('.chart-caption').last().textContent(),'Finviz source samples · 5-minuteUnavailable');
 await page.screenshot({path:artifactDir+'/futures-unavailable.png',fullPage:true});
-for (const url of ['/#/','/#/etfs','/#/oil','/#/discovery','/#/stock/AAPL','/#/settings']) {
- await page.goto(baseUrl+url);
- await page.waitForTimeout(700);
- assert.equal(await page.getByText('Zombie Corp',{exact:true}).count(),0);
- assert.equal(await page.getByText('Mock News',{exact:false}).count(),0);
+// Without the desktop bridge every desk renders its heading, one h1 in <main>, and
+// its own unavailable notices, shows no price, names itself in the window title and
+// fits the viewport, wide and at 390 px. Settings states the alert rules (C1.5).
+const ROUTES=[
+ {path:'/#/',title:'Overview',root:'.dashboard',heading:/Market Dips|Overview/,notices:['Market data requires the desktop app connection. No sample quotes are shown.','Market quotes require the desktop app connection.']},
+ {path:'/#/futures',title:'Futures',root:'.futures-page',heading:/See the market|Futures/,notices:['Quotes unavailable','Futures data requires the Electron desktop app.','Market data is unavailable']},
+ {path:'/#/etfs',title:'ETF rankings',root:'.etf-awards-page',heading:/ETF/,notices:['ETF quotes require the desktop app connection.','Rankings unavailable.']},
+ {path:'/#/oil',title:'Oil Watch',root:'.oil-watch-page',heading:/Oil Watch/,notices:['Oil Watch quotes require the desktop app connection.','News feed requires the desktop app connection.','Market quotes require the desktop app connection.']},
+ {path:'/#/discovery',title:'Discovery',root:'.discovery-page',heading:/Discovery/,notices:['Discovery quotes require the desktop app connection.','Scanner unavailable.']},
+ {path:'/#/stock/AAPL',title:'AAPL — Stock',root:'.stock-details',heading:/AAPL/,notices:['Market data requires the desktop app connection. No sample quotes are shown.','Finviz statistics and news require the desktop app connection.','Failed to load 1-month chart data for AAPL.','52-week position unavailable']},
+ {path:'/#/settings',title:'Settings',root:'.settings-page',heading:/^Settings$/,notices:['Minimum score applies to Bullish alerts only; breakout, breakdown and bearish alerts are raised regardless of score.','Not reported by Yahoo’s chart endpoint','Technical alerts use only quotes whose own timestamp is at most 5 minutes old.']},
+ {path:'/#/stock/',title:'Page not found',root:null,heading:/Page not found/,notices:[]},
+];
+for (const viewport of [{width:1440,height:1050},{width:390,height:844}]) {
+ await page.setViewportSize(viewport);
+ for (const route of ROUTES) {
+  await page.goto(baseUrl+route.path);
+  const desk=route.root?page.locator('main').locator(route.root).first():page.locator('main');
+  await desk.getByRole('heading',{name:route.heading}).first().waitFor();
+  assert.equal(await page.locator('main h1').count(),1,`${route.path} has no single h1 in <main>`);
+  for (const notice of route.notices) await desk.getByText(notice,{exact:true}).first().waitFor();
+  assert.equal(await page.title(),`${route.title} — Dip Analyzer PRO`);
+  assert.doesNotMatch(await page.locator('main').innerText(),/\$\d/,`${route.path} shows a price without a desktop bridge`);
+  assert.equal(await overflowAt(page),null,`${route.path} overflows the ${viewport.width} px viewport`);
+ }
 }
+await page.setViewportSize({width:1440,height:1050});
+await page.goto(baseUrl+'/#/settings');
 // Appearance settings must reach rendered elements, not stop at <html>.
 await page.getByRole('heading',{name:'Appearance',exact:true}).waitFor();
 await page.getByRole('radiogroup',{name:'Motion',exact:true}).getByText('Reduced',{exact:true}).click();
 await page.getByRole('radiogroup',{name:'Density',exact:true}).getByText('Compact',{exact:true}).click();
 await page.getByLabel('Glow intensity',{exact:true}).focus();
 await page.getByLabel('Glow intensity',{exact:true}).press('Home');
+// Tokens are compared as numbers: the production build minifies 0.73 to '.73'
+// (and 270ms to '.27s'), so their text differs between dev and the bundle.
 const appearanceApplied=()=> {
  const body=getComputedStyle(document.body);
+ const token=name=>parseFloat(body.getPropertyValue(name));
  const dot=document.querySelector('.status-dot');
- return body.getPropertyValue('--density').trim()==='0.73'
-  && body.getPropertyValue('--gap').trim()==='19px'
-  && body.getPropertyValue('--glow-intensity').trim()==='0'
-  && body.getPropertyValue('--t-fast').trim()==='0ms'
-  && dot && getComputedStyle(dot,'::after').opacity==='0';
+ return token('--density')===0.73
+  && token('--gap')===19
+  && token('--glow-intensity')===0
+  && token('--t-fast')===0
+  && dot && Number(getComputedStyle(dot,'::after').opacity)===0;
 };
 await page.waitForFunction(appearanceApplied);
 assert.equal(await page.locator('.app-container').evaluate(node=>getComputedStyle(node).paddingLeft),'28px');
@@ -57,16 +95,10 @@ await page.locator('.settings-error').waitFor();
 assert.match(await page.locator('.settings-error').textContent(),/alerts must be an object/);
 assert.deepEqual(JSON.parse(await page.getByLabel('Export',{exact:true}).inputValue()),preferencesBeforeImport);
 await page.getByRole('button',{name:'Reset Appearance to defaults',exact:true}).click();
-await page.waitForFunction(()=>getComputedStyle(document.body).getPropertyValue('--density').trim()==='1');
-const liveData=await readFile(new URL('../tests/fixtures/futures-reference.json',import.meta.url),'utf8');
-await page.addInitScript(({liveData})=>{
- window.__failQuotes=false;
- window.require=()=>({ipcRenderer:{invoke:async(_method,url)=>{
-  if (window.__failQuotes) throw new Error('Controlled network failure');
-  if (url.includes('/api/futures_all')) return liveData;
-  throw new Error('Unexpected endpoint');
- }}});
-},{liveData});
+await page.waitForFunction(()=>parseFloat(getComputedStyle(document.body).getPropertyValue('--density'))===1);
+const liveData=await fixture('futures-reference.json');
+const FUTURES_API='https://finviz.com/api/futures_all?timeframe=i5';
+await stubBridge(page,{urls:{[FUTURES_API]:liveData}});
 await page.goto(baseUrl+'/#/futures');
 await page.reload();
 await page.locator('.futures-table tbody tr').nth(58).waitFor();
@@ -80,14 +112,501 @@ await page.getByLabel('Search futures').fill('');
 await page.getByRole('button',{name:'All markets',exact:true}).click();
 await page.screenshot({path:artifactDir+'/futures-desktop.png',fullPage:true});
 const fetchedBefore=await page.locator('.source-banner-time').textContent();
-await page.evaluate(()=>window.__failQuotes=true);
+// A refused refresh reaches the desk in the provider's own words, without Electron's IPC wrapping.
+await page.evaluate(()=>window.__failWith='Finviz returned HTTP 429 Too Many Requests');
 await page.getByRole('button',{name:'Refresh quotes',exact:true}).click();
 await page.getByText('Refresh incomplete · previous quotes retained',{exact:true}).waitFor();
+const refusal=await page.locator('.futures-page .data-notice',{hasText:'Refresh incomplete'}).textContent();
+assert.match(refusal,/Finviz refresh failed: Finviz returned HTTP 429 Too Many Requests; Finviz returned HTTP 429 Too Many Requests/);
+assert.doesNotMatch(refusal,/Error invoking remote method/);
 assert.equal(await page.locator('.source-banner-time').textContent(),fetchedBefore);
 assert.equal(await page.locator('.futures-table tbody .quote-status.cached').count(),59);
 await page.setViewportSize({width:390,height:844});
 await page.screenshot({path:artifactDir+'/futures-mobile.png',fullPage:true});
-assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'page overflows narrow viewport');
+assert.equal(await overflowAt(page),null,'the futures desk overflows the 390 px viewport');
+// The documented legacy bridge (src/utils/bridge.js keeps it for browser scripts):
+// the same recorded futures through window.require('electron').ipcRenderer.invoke.
+const legacy=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+await legacy.addInitScript(({liveData,url})=>{
+ window.require=name=>(name==='electron'?{ipcRenderer:{invoke:async(channel,requested)=>{
+  if (channel==='fetch-url'&&requested===url) return liveData;
+  throw new Error(`No recorded response for ${requested}`);
+ }}}:null);
+},{liveData,url:FUTURES_API});
+await legacy.goto(baseUrl+'/#/futures');
+await legacy.locator('.futures-table tbody tr').nth(58).waitFor();
+assert.equal(await legacy.evaluate(()=>typeof window.dipAnalyzer),'undefined');
+await legacy.close();
+// Data settings through a recording bridge. A number field commits on blur only
+// (U18): clearing the 12 and typing 45 sends and saves nothing until the field is
+// left, then exactly one configure-network 45. Chart cache and request timeout
+// survive a reload and an export → reset → import round trip (U17). A fresh load
+// sends the saved timeout before any provider request (U15).
+const savedData=p=>p.evaluate(()=>JSON.parse(localStorage.getItem('dipAnalyzerSettingsV2')).data);
+const sentTimeouts=p=>p.evaluate(()=>window.__calls.filter(([channel])=>channel==='configure-network').map(([,options])=>options.requestTimeoutSeconds));
+const firstCall=p=>p.evaluate(()=>window.__calls[0]);
+const data=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+await stubBridge(data);
+await data.goto(baseUrl+'/#/settings');
+const timeoutField=data.getByLabel('Request timeout',{exact:true});
+const chartCache=data.getByRole('radiogroup',{name:'Chart cache',exact:true});
+await timeoutField.waitFor();
+const sentBefore=await sentTimeouts(data);
+assert.deepEqual([...new Set(sentBefore)],[12]);
+await timeoutField.fill('');
+await timeoutField.pressSequentially('4');
+assert.deepEqual(await savedData(data),{chartCacheSeconds:0,requestTimeoutSeconds:12},'a cleared field or a 4 is saved mid-edit');
+await timeoutField.pressSequentially('5');
+assert.deepEqual(await sentTimeouts(data),sentBefore,'a timeout is sent mid-edit');
+assert.deepEqual(await savedData(data),{chartCacheSeconds:0,requestTimeoutSeconds:12},'a timeout is saved mid-edit');
+await timeoutField.press('Tab');
+await data.waitForFunction(()=>window.__calls.at(-1)[1]?.requestTimeoutSeconds===45);
+assert.deepEqual(await sentTimeouts(data),[...sentBefore,45]);
+await chartCache.getByText('5 min',{exact:true}).click();
+assert.deepEqual(await savedData(data),{chartCacheSeconds:300,requestTimeoutSeconds:45});
+await data.reload();
+await timeoutField.waitFor();
+assert.deepEqual(await firstCall(data),['configure-network',{requestTimeoutSeconds:45}]);
+assert.equal(await timeoutField.inputValue(),'45');
+assert.ok(await chartCache.getByRole('radio',{name:'5 min',exact:true}).isChecked());
+const exported=await data.getByLabel('Export',{exact:true}).inputValue();
+assert.deepEqual(JSON.parse(exported).data,{chartCacheSeconds:300,requestTimeoutSeconds:45});
+await data.getByRole('button',{name:'Reset Data & sources to defaults',exact:true}).click();
+assert.deepEqual(await savedData(data),{chartCacheSeconds:0,requestTimeoutSeconds:12});
+assert.equal(await timeoutField.inputValue(),'12');
+await data.getByLabel('Import',{exact:true}).fill(exported);
+await data.getByRole('button',{name:'Apply',exact:true}).click();
+await data.getByText(/^Settings applied\./).waitFor();
+assert.deepEqual(await savedData(data),{chartCacheSeconds:300,requestTimeoutSeconds:45});
+await data.reload();
+assert.equal(await timeoutField.inputValue(),'45');
+assert.ok(await chartCache.getByRole('radio',{name:'5 min',exact:true}).isChecked());
+for (const path of ['/#/','/#/futures']) {
+ await data.goto(baseUrl+path);
+ await data.reload();
+ await data.waitForFunction(()=>window.__calls.some(([channel])=>channel!=='configure-network'));
+ assert.deepEqual(await firstCall(data),['configure-network',{requestTimeoutSeconds:45}],`${path}: the saved timeout goes first`);
+}
+await data.close();
+// Backup → Copy with the clipboard write refused (U13): the instruction stays, with
+// the export focused and fully selected, past the 2.7 s a confirmation lasts. A copy
+// of part of it is not confirmed and leaves the clipboard alone, and moving on to
+// another field drops the instruction; a copy of all of it is confirmed, and the
+// confirmation fades. A working clipboard gets the export.
+const MANUAL_COPY='Clipboard unavailable — the text is selected; copy it manually.';
+const PARTIAL_COPY='Not all of the text was selected — select all of it and copy again.';
+const clipboardContext=await browser.newContext({viewport:{width:1440,height:1050}});
+await clipboardContext.grantPermissions(['clipboard-read','clipboard-write'],{origin:new URL(baseUrl).origin});
+const backup=await watch(await clipboardContext.newPage());
+await backup.addInitScript(()=>{
+ const write=navigator.clipboard.writeText.bind(navigator.clipboard);
+ window.__seedClipboard=text=>write(text);
+ window.__refuseClipboard=true;
+ window.__clipboardWrites=[];
+ Object.defineProperty(navigator.clipboard,'writeText',{configurable:true,value:text=>(window.__refuseClipboard
+  ?Promise.reject(new DOMException('Write permission denied.','NotAllowedError'))
+  :(window.__clipboardWrites.push(text),write(text)))});
+});
+await backup.goto(baseUrl+'/#/settings');
+const exportBox=backup.getByLabel('Export',{exact:true});
+const copyStatus=backup.locator('.settings-field',{has:exportBox}).locator('.settings-status');
+// Windows' clipboard hands copied text back with CRLF line breaks.
+const clipboardText=()=>backup.evaluate(()=>navigator.clipboard.readText()).then(text=>text.replace(/\r\n/g,'\n'));
+const exportText=await exportBox.inputValue();
+await backup.evaluate(()=>window.__seedClipboard('SENTINEL'));
+await backup.getByRole('button',{name:'Copy',exact:true}).click();
+await copyStatus.getByText(MANUAL_COPY,{exact:true}).waitFor();
+assert.deepEqual(await exportBox.evaluate(box=>[box===document.activeElement,box.selectionStart,box.selectionEnd===box.value.length]),[true,0,true]);
+await backup.waitForTimeout(3500);
+assert.equal(await copyStatus.textContent(),MANUAL_COPY,'the manual-copy instruction faded');
+await exportBox.evaluate(box=>box.setSelectionRange(5,5));
+await backup.keyboard.press('Control+C');
+await copyStatus.getByText(PARTIAL_COPY,{exact:true}).waitFor();
+assert.equal(await clipboardText(),'SENTINEL');
+assert.equal(await backup.getByRole('button',{name:'Copied',exact:true}).count(),0);
+// Moving on to another field drops the instruction; Copy asks again.
+await backup.getByLabel('Import',{exact:true}).focus();
+await copyStatus.getByText(PARTIAL_COPY,{exact:true}).waitFor({state:'detached',timeout:2000});
+assert.equal(await copyStatus.textContent(),'');
+await backup.getByRole('button',{name:'Copy',exact:true}).click();
+await copyStatus.getByText(MANUAL_COPY,{exact:true}).waitFor();
+await backup.keyboard.press('Control+A');
+await backup.keyboard.press('Control+C');
+await copyStatus.getByText('Copied to the clipboard.',{exact:true}).waitFor();
+assert.equal(await clipboardText(),exportText);
+await backup.getByRole('button',{name:'Copied',exact:true}).waitFor();
+await backup.getByRole('button',{name:'Copy',exact:true}).waitFor({timeout:5000});
+assert.equal(await copyStatus.textContent(),'');
+await backup.evaluate(()=>{ window.__refuseClipboard=false; return window.__seedClipboard('SENTINEL'); });
+await backup.getByRole('button',{name:'Copy',exact:true}).click();
+await copyStatus.getByText('Copied to the clipboard.',{exact:true}).waitFor();
+assert.deepEqual(await backup.evaluate(()=>window.__clipboardWrites),[exportText]);
+assert.equal(await clipboardText(),exportText);
+await clipboardContext.close();
+// The stock page from recorded data: Yahoo charts of the 2026-10-30 session (AAPL,
+// a Hold; PLUG, a sub-$5 Strong Sell) and Finviz's AAPL quote page of the next morning.
+const recordedStock={
+ urls:{'https://finviz.com/stock?t=AAPL&p=d':await fixture('finviz-quote-AAPL-2026-10-31.html')},
+ charts:{'AAPL 1mo 1d':await fixture('yahoo-chart-AAPL-1mo-2026-10-30.json'),'PLUG 1mo 1d':await fixture('yahoo-chart-PLUG-1mo-2026-10-30.json')},
+};
+const toneOf=(p,selectors)=>p.evaluate(selectors=>selectors.map(selector=>[...document.querySelector(selector).classList].find(name=>/--(success|warning|danger|muted)$/.test(name))),selectors);
+const stock=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+await stubBridge(stock,recordedStock);
+await stock.goto(baseUrl+'/#/stock/AAPL');
+// U45: statistics, headlines with their publishers, and the 52-week strip from the quote page.
+await stock.locator('.sd-range-caption').waitFor();
+assert.equal(await stock.locator('.sd-range-caption').textContent(),'Current $344.63 — 93% of the Finviz 52-week range');
+assert.deepEqual(await stock.locator('.sd-range-bound').allTextContents(),['$243.42','$351.73']);
+assert.equal(await stock.locator('.sd-stat').count(),16);
+assert.equal(await stock.locator('.sd-news-item').count(),10);
+assert.deepEqual((await stock.locator('.sd-news-source').allTextContents()).slice(0,3),['Barrons.com','Investing.com','Bloomberg']);
+assert.ok((await stock.locator('.sd-news-time').allTextContents()).every(time=>time.endsWith(' ET')));
+// U35: a Hold carries the warning tone on the dip pill, the score box and the verdict chip.
+assert.equal(await stock.locator('.sd-verdict').textContent(),'Hold');
+assert.deepEqual(await toneOf(stock,['.sd-title .sd-pill','.sd-score','.sd-verdict']),['sd-pill--warning','sd-score--warning','sd-verdict--warning']);
+// U06: the chart is TradingView's page in a sandboxed iframe without popups; its
+// loader script never runs in the document that holds the bridge.
+const tradingView=async(p,container)=>{
+ const frame=p.locator(`${container} iframe`);
+ await frame.waitFor({state:'attached'});
+ assert.equal(await frame.getAttribute('sandbox'),'allow-scripts allow-same-origin');
+ assert.match(await frame.getAttribute('src'),/^https:\/\/s\.tradingview\.com\/widgetembed\//);
+ assert.deepEqual(await p.evaluate(()=>[document.querySelectorAll('script[src*="tradingview"], script[src*="tv.js"]').length,typeof window.TradingView]),[0,'undefined']);
+};
+await tradingView(stock,'#tv_stockdetail_chart');
+// Switching symbol never pairs the new symbol with the previous one's quote.
+await stock.evaluate(()=>{
+ window.__frames=[];
+ new MutationObserver(()=>window.__frames.push([document.querySelector('.sd-symbol')?.textContent,document.querySelector('.sd-quote-line strong')?.textContent]))
+  .observe(document.body,{subtree:true,childList:true,characterData:true});
+});
+await stock.goto(baseUrl+'/#/stock/PLUG');
+await stock.locator('.sd-verdict',{hasText:'Strong Sell'}).waitFor();
+assert.ok(!(await stock.evaluate(()=>window.__frames)).some(([symbol,price])=>symbol==='PLUG'&&price==='$344.63'),'PLUG was shown with AAPL\'s quote');
+// U35: a Strong Sell carries the danger tone throughout.
+assert.deepEqual(await toneOf(stock,['.sd-title .sd-pill','.sd-score','.sd-verdict']),['sd-pill--danger','sd-score--danger','sd-verdict--danger']);
+// U44: the sub-$5 series keeps every price tick at $0 or above, with distinct labels,
+// and its line spans most of the plot instead of a sliver.
+await stock.locator('.sd-chart .recharts-area-curve').waitFor();
+const axis=await stock.evaluate(()=>{
+ const chart=document.querySelector('.sd-chart');
+ const grid=chart.querySelector('.recharts-cartesian-grid').getBoundingClientRect();
+ return {
+  ticks:[...chart.querySelectorAll('.recharts-yAxis-tick-labels .recharts-cartesian-axis-tick-value')].map(node=>node.textContent),
+  fill:chart.querySelector('.recharts-area-curve').getBoundingClientRect().height/grid.height,
+ };
+});
+const tickPrices=axis.ticks.map(tick=>Number(tick.replace(/^\$/,'')));
+assert.ok(tickPrices.length>=3&&tickPrices.every(price=>price>=0&&price<5),`price ticks ${axis.ticks.join(' ')}`);
+assert.equal(new Set(axis.ticks).size,axis.ticks.length,`repeated tick labels ${axis.ticks.join(' ')}`);
+assert.ok(axis.fill>0.5,`the price line spans ${axis.fill.toFixed(2)} of the plot`);
+// With Finviz failing, its sections say so and the 52-week strip uses Yahoo's range.
+for (const notice of ['Finviz statistics and news refresh failed. Please retry.','Statistics unavailable','News unavailable from Finviz.']) await stock.getByText(notice,{exact:true}).waitFor();
+assert.match(await stock.locator('.sd-range-caption').textContent(),/^Current \$1\.\d\d — \d+% of the Yahoo Finance 52-week range$/);
+assert.doesNotMatch(await stock.locator('main').innerText(),/Error invoking remote method/);
+await stock.goto(baseUrl+'/#/discovery');
+await tradingView(stock,'#tv_discovery_chart');
+await stock.close();
+// U67: each source loads on its own: Finviz's sections fill while Yahoo is still
+// pending, and the score shows while Finviz is still loading.
+const slowStock=async delays=>{
+ const p=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+ await stubBridge(p,{...recordedStock,delays});
+ await p.goto(baseUrl+'/#/stock/AAPL');
+ return p;
+};
+let slow=await slowStock({'fetch-yahoo-chart':4000,'fetch-url':100});
+await slow.locator('.sd-news-item').nth(9).waitFor();
+assert.equal(await slow.locator('.sd-stat').count(),16);
+assert.ok(await slow.locator('.sd-quote-line--pending').isVisible(),'the Finviz sections waited for Yahoo');
+await slow.close();
+slow=await slowStock({'fetch-yahoo-chart':100,'fetch-url':4000});
+await slow.locator('.sd-score').waitFor();
+assert.ok(await slow.getByText('Loading Finviz statistics…',{exact:true}).isVisible(),'the score waited for Finviz');
+await slow.close();
+// integration-3: the stock page's refresh schedule restarts with the symbol. With
+// a 1-minute refresh, PLUG opened 55 s after AAPL is not fetched again when AAPL's
+// schedule falls due; its own refresh comes a full minute after it opened.
+const scheduled=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+await scheduled.clock.install();
+await stubBridge(scheduled,recordedStock);
+await scheduled.goto(baseUrl+'/#/settings');
+await scheduled.getByRole('radiogroup',{name:'Refresh interval',exact:true}).getByText('1 min',{exact:true}).click();
+await scheduled.evaluate(()=>{ location.hash='#/stock/AAPL'; });
+await scheduled.locator('.sd-verdict',{hasText:'Hold'}).waitFor();
+await scheduled.clock.runFor(55_000);
+await scheduled.evaluate(()=>{ location.hash='#/stock/PLUG'; });
+await scheduled.locator('.sd-verdict',{hasText:'Strong Sell'}).waitFor();
+const plugRequests=()=>scheduled.evaluate(()=>window.__calls.filter(([,...args])=>args.some(arg=>String(arg).includes('PLUG'))).length);
+const plugLoaded=await plugRequests();
+await scheduled.clock.runFor(30_000);
+await scheduled.waitForTimeout(300);
+assert.equal(await plugRequests(),plugLoaded,'AAPL\'s refresh schedule fetched PLUG again');
+await scheduled.clock.runFor(31_000);
+await scheduled.waitForFunction(count=>window.__calls.filter(([,...args])=>args.some(arg=>String(arg).includes('PLUG'))).length===count*2,plugLoaded);
+await scheduled.close();
+// U33: an Overview symbol is a focusable link, and Enter opens its stock page with
+// one history entry. The recorded losers page; Yahoo is unavailable, so rows stay
+// unscored. The RelVol column is gone (U26).
+const overview=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+await stubBridge(overview,{urls:{'https://finviz.com/screener/stocks?v=111&o=change&r=1':await fixture('ui/finviz-losers-r1-2026-10-31.html')}});
+await overview.goto(baseUrl+'/#/');
+await overview.locator('.dash-row').nth(19).waitFor();
+await overview.waitForFunction(()=>!document.querySelector('.dash-spinner'));
+assert.equal(await overview.getByRole('columnheader',{name:/RelVol/}).count(),0);
+// U34: at 1280 px the source lines wrap instead of clipping, so the quote and
+// retrieval times keep their zone.
+await overview.setViewportSize({width:1280,height:1050});
+const metaLines=await overview.locator('.dash-meta').evaluateAll(lines=>lines.map(line=>({text:line.textContent,clipped:line.scrollWidth>line.clientWidth})));
+assert.equal(metaLines.filter(line=>line.text.startsWith('Retrieved: ')).length,20);
+assert.deepEqual(metaLines.filter(line=>line.clipped).map(line=>line.text),[],'source lines are clipped at 1280 px');
+const symbolLink=overview.locator('.dash-row').first().getByRole('link');
+const symbol=await symbolLink.textContent();
+assert.equal(await symbolLink.getAttribute('href'),`#/stock/${symbol}`);
+await symbolLink.focus();
+assert.ok(await symbolLink.evaluate(link=>link===document.activeElement),'the symbol link takes focus');
+const historyBefore=await overview.evaluate(()=>history.length);
+await overview.keyboard.press('Enter');
+await overview.locator('.sd-symbol',{hasText:symbol}).waitFor();
+assert.equal(await overview.evaluate(()=>history.length),historyBefore+1);
+await overview.close();
+// ui-1: a desk opened from a scrolled page opens at the top. At 1280×800 every
+// Overview row is below the fold; the stock page opened from a lower row paints
+// no frame at the Overview's offset, and its focused h1 is in view.
+const scrolled=await watch(await browser.newPage({viewport:{width:1280,height:800}}));
+await stubBridge(scrolled,{urls:{'https://finviz.com/screener/stocks?v=111&o=change&r=1':await fixture('ui/finviz-losers-r1-2026-10-31.html')}});
+await scrolled.goto(baseUrl+'/#/');
+const lowerLink=scrolled.locator('.dash-row').nth(15).getByRole('link');
+await lowerLink.scrollIntoViewIfNeeded();
+assert.ok(await scrolled.evaluate(()=>window.scrollY)>1000,'the Overview is scrolled to a lower row');
+await scrolled.evaluate(()=>{
+ window.__stockOffsets=[];
+ const frame=()=>{ if (document.querySelector('main .stock-details')) window.__stockOffsets.push(window.scrollY); if (window.__stockOffsets.length<10) requestAnimationFrame(frame); };
+ requestAnimationFrame(frame);
+});
+await lowerLink.focus();
+await scrolled.keyboard.press('Enter');
+await scrolled.waitForFunction(()=>window.__stockOffsets.length===10);
+const opened=await scrolled.evaluate(()=>{
+ const h1=document.querySelector('main h1'), box=h1.getBoundingClientRect();
+ return {offsets:[...new Set(window.__stockOffsets)],focused:document.activeElement===h1,inView:box.top>=0&&box.bottom<=innerHeight};
+});
+assert.deepEqual(opened,{offsets:[0],focused:true,inView:true});
+await scrolled.close();
+// U23: arrowing through Sector scans only the value it settles on, and Refresh
+// pressed before a pick has settled scans that pick once, not the previous scope.
+const sectors=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+await stubBridge(sectors,{urls:{'https://finviz.com/screener/stocks?v=111&o=change&r=1':await fixture('ui/finviz-losers-r1-2026-10-31.html')}});
+await sectors.goto(baseUrl+'/#/');
+await sectors.waitForFunction(()=>document.querySelectorAll('.dash-row').length===20&&!document.querySelector('.dash-spinner'));
+const scannedScopes=()=>sectors.evaluate(()=>window.__calls.filter(([channel,url])=>channel==='fetch-url'&&new URL(url).searchParams.get('r')==='1').map(([,url])=>new URL(url).searchParams.get('f')??'any'));
+const sectorSelect=sectors.getByLabel('Sector',{exact:true});
+await sectorSelect.focus();
+for (let i=0;i<3;i++) await sectors.keyboard.press('ArrowDown');
+await sectors.waitForTimeout(700);
+assert.deepEqual(await scannedScopes(),['any','sec_consumercyclical']);
+await sectors.keyboard.press('ArrowDown');
+await sectors.getByRole('button',{name:'Refresh quotes',exact:true}).click();
+await sectors.waitForTimeout(700);
+assert.deepEqual(await scannedScopes(),['any','sec_consumercyclical','sec_consumerdefensive']);
+await sectors.close();
+// U58: the stock page's chunk fails to load during the idle warm-up, and the first visit
+// imports it again once the warm-up import has failed: a visit that starts while it is
+// still failing shares its failure, whatever the browser. Chromium that fetches a failed
+// module again (the 156 Electron 45 ships) then renders the page; older Chromium keeps
+// the failed fetch, so the desk shows its error panel, and Reload recovers it. A
+// production build modulepreloads the chunk and imports it at once, so there a
+// re-fetching Chromium already retries during the warm-up.
+const STOCK_CHUNK=/\/StockDetails[^/]*\.jsx?(\?|$)/;
+const deskErrorOn=page=>page.getByRole('alert').filter({has:page.getByRole('heading',{name:'This desk hit an error',exact:true})});
+const warmFailure=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+let warmRequests=0;
+await warmFailure.route(STOCK_CHUNK,route=>(warmRequests++===0?route.abort():route.continue()));
+const warmFailed=warmFailure.waitForEvent('requestfailed',{predicate:request=>STOCK_CHUNK.test(request.url()),timeout:10000}).then(()=>true,()=>false);
+await warmFailure.goto(baseUrl+'/#/');
+assert.ok(await warmFailed&&warmRequests>=1,'the stock page chunk is warmed up after startup');
+// The page learns of the failure about when the script does; its import rejects just after.
+await warmFailure.waitForTimeout(250);
+await warmFailure.goto(baseUrl+'/#/stock/AAPL');
+const stockDesk=warmFailure.locator('main .stock-details');
+await stockDesk.or(deskErrorOn(warmFailure)).first().waitFor();
+const failedImportRefetched=await stockDesk.count()===1;
+if (failedImportRefetched) assert.ok(warmRequests>=2,'the chunk was fetched again after the failed request');
+else {
+ await deskErrorOn(warmFailure).getByRole('button',{name:'Reload',exact:true}).click();
+ await stockDesk.waitFor();
+}
+await warmFailure.close();
+// While the chunk cannot be fetched at all, the desk shows its error panel once, without
+// an uncaught error, and the header and navigation stay usable. Go to Overview leaves it;
+// once the chunk can load again, Reload recovers it.
+const chunk=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+const boundaryLogs=[];
+chunk.on('console',message=>{ if (message.type()==='error'&&message.text().startsWith('Render error caught by an error boundary')) boundaryLogs.push(message.text()); });
+let chunkRequests=0;
+let chunkBlocked=true;
+await chunk.route(STOCK_CHUNK,route=>{ chunkRequests++; return chunkBlocked?route.abort():route.continue(); });
+await chunk.goto(baseUrl+'/#/');
+for (let i=0;i<100&&chunkRequests===0;i++) await chunk.waitForTimeout(50);
+assert.ok(chunkRequests>=1,'the stock page chunk is warmed up after startup');
+await chunk.goto(baseUrl+'/#/stock/AAPL');
+const deskError=deskErrorOn(chunk);
+await deskError.waitFor();
+assert.equal(await chunk.getByRole('navigation',{name:'Main navigation',exact:true}).count(),1);
+assert.equal(boundaryLogs.length,1,'the failed desk is logged once');
+await deskError.getByRole('button',{name:'Go to Overview',exact:true}).click();
+await chunk.locator('main .dashboard').waitFor();
+// ui-2: the boundary clears its error in the render that opens the next desk, so
+// that desk's h1 takes focus instead of the panel's, which then left the page.
+assert.ok(await chunk.locator('main .dashboard h1').evaluate(h1=>h1===document.activeElement),'Go to Overview leaves focus on the page');
+await chunk.goto(baseUrl+'/#/stock/AAPL');
+chunkBlocked=false;
+await deskError.getByRole('button',{name:'Reload',exact:true}).click();
+await chunk.locator('main .stock-details').waitFor();
+await chunk.close();
+// ui-2: an Overview that fails while it renders (here in its Symbol sort) recovers
+// in place from Go to Overview, and focus moves to its h1, not to the page.
+const failing=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+await stubBridge(failing,{urls:{'https://finviz.com/screener/stocks?v=111&o=change&r=1':await fixture('ui/finviz-losers-r1-2026-10-31.html')}});
+await failing.goto(baseUrl+'/#/');
+await failing.locator('.dash-row').nth(19).waitFor();
+await failing.evaluate(()=>{
+ const compare=String.prototype.localeCompare;
+ window.__breakSort=true;
+ String.prototype.localeCompare=function(...args){ if (window.__breakSort) throw new Error('sort failed'); return compare.apply(this,args); };
+});
+await failing.getByRole('columnheader',{name:/^Symbol/}).click();
+await deskErrorOn(failing).waitFor();
+await failing.evaluate(()=>{ window.__breakSort=false; });
+await deskErrorOn(failing).getByRole('button',{name:'Go to Overview',exact:true}).press('Enter');
+await failing.locator('main .dashboard').waitFor();
+assert.ok(await failing.locator('main .dashboard h1').evaluate(h1=>h1===document.activeElement),'the Overview recovered in place without focus');
+await failing.close();
+// ui-7: at 320 px Seizure Mode's controls wrap clear of the alert history toggle.
+// ui-3: they leave with the mode, so End now hands focus back to the button that
+// started it on Settings, and to the desk's h1 on another desk.
+const seizure=await watch(await browser.newPage({viewport:{width:320,height:800}}));
+await seizure.goto(baseUrl+'/#/settings');
+const startSeizure=async page=>{
+ await page.getByRole('button',{name:'Run Seizure Mode…',exact:true}).press('Enter');
+ await page.getByRole('button',{name:'Start Seizure Mode',exact:true}).press('Enter');
+ await page.waitForFunction(()=>document.body.classList.contains('theme-seizure'));
+};
+// Where focus is once the mode has ended: the desk's h1, a control's name, or a tag.
+const focusAfterSeizure=async page=>{
+ await page.waitForFunction(()=>!document.body.classList.contains('theme-seizure'));
+ return page.evaluate(()=>{ const active=document.activeElement; return active.matches('main h1')?'h1':active.matches('button, a')?active.textContent:active.tagName; });
+};
+const endSeizure=async page=>{
+ await page.getByRole('button',{name:'End now',exact:true}).press('Enter');
+ return focusAfterSeizure(page);
+};
+await startSeizure(seizure);
+assert.ok(await seizure.evaluate(()=>{
+ const toggle=document.querySelector('.alert-history-toggle'), box=toggle.getBoundingClientRect();
+ const clear=[...document.querySelectorAll('.seizure-controls button')].map(button=>button.getBoundingClientRect()).every(control=>control.right<=box.left||control.bottom<=box.top);
+ return clear&&toggle.contains(document.elementFromPoint(box.left+box.width/2,box.top+box.height/2));
+}),'the Seizure Mode controls cover the alert history toggle at 320 px');
+assert.equal(await endSeizure(seizure),'Run Seizure Mode…');
+await startSeizure(seizure);
+await seizure.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:/^Futures/}).click();
+await seizure.locator('main .futures-page').waitFor();
+assert.equal(await endSeizure(seizure),'h1');
+await seizure.close();
+// ui-3: the 20 s reversion takes the controls away as well. Focus on them goes back
+// to the button that started the mode; focus anywhere else stays where it is.
+const reverting=await watch(await browser.newPage({viewport:{width:1280,height:800}}));
+await reverting.clock.install();
+await reverting.goto(baseUrl+'/#/settings');
+await startSeizure(reverting);
+await reverting.getByRole('button',{name:'End now',exact:true}).focus();
+await reverting.clock.runFor(20_500);
+assert.equal(await focusAfterSeizure(reverting),'Run Seizure Mode…');
+await startSeizure(reverting);
+await reverting.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:/^Oil Watch/}).focus();
+await reverting.clock.runFor(20_500);
+assert.equal(await focusAfterSeizure(reverting),'Oil Watch');
+await reverting.close();
+// ui-6: forced colours (Windows High Contrast) repaint the wash that marks a selected
+// option and the current desk's nav item; the system selection colours mark them.
+const forced=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+await forced.emulateMedia({forcedColors:'active'});
+await forced.goto(baseUrl+'/#/settings');
+const forcedMotion=forced.getByRole('radiogroup',{name:'Motion',exact:true});
+const systemOption=forcedMotion.locator('.segmented-option',{hasText:'System'});
+await forcedMotion.getByText('System',{exact:true}).click();
+const systemSelected=await systemOption.screenshot();
+await forcedMotion.getByText('Reduced',{exact:true}).click();
+assert.ok(!systemSelected.equals(await systemOption.screenshot()),'a selected option looks unselected under forced colours');
+const futuresLink=forced.getByRole('navigation',{name:'Main navigation',exact:true}).getByRole('link',{name:/^Futures/});
+const futuresElsewhere=await futuresLink.screenshot();
+await futuresLink.click();
+await forced.locator('main .futures-page').waitFor();
+await forced.mouse.move(0,0);
+assert.ok(!futuresElsewhere.equals(await futuresLink.screenshot()),'the current desk\'s nav item looks like the others under forced colours');
+await forced.close();
+// ui-6: keyboard focus stays visible on and beside a selection. Selecting a row or
+// sorting a column with the keyboard leaves focus there; in the dark scheme a
+// Highlight ring on SelectedItem measured 1.1:1. A ring inside a selected row takes
+// the selection's text colour, and the sorted header (no selection) keeps Canvas.
+const forcedDark=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+await forcedDark.emulateMedia({forcedColors:'active',colorScheme:'dark',reducedMotion:'reduce'});
+const losersPage=await fixture('ui/finviz-losers-r1-2026-10-31.html');
+await stubBridge(forcedDark,{urls:{
+ 'https://finviz.com/screener/stocks?v=111&o=change&r=1':losersPage,
+ 'https://finviz.com/screener/stocks?v=111&s=ta_unusualvolume&f=ta_volatility_mo5&o=-volume':losersPage,
+ [FUTURES_API]:liveData,
+}});
+// The focus ring's contrast with the ground it is drawn on: the first opaque
+// background from the control itself (an inset ring) or from its parent up, else Canvas.
+const ringContrast=control=>control.evaluate(el=>{
+ const rgba=value=>{ const [r,g,b,a=1]=value.match(/[\d.]+/g).map(Number); return [r,g,b,a]; };
+ const lum=([r,g,b])=>[r,g,b].map(c=>((c/=255)<=0.04045?c/12.92:((c+0.055)/1.055)**2.4)).reduce((sum,c,i)=>sum+c*[0.2126,0.7152,0.0722][i],0);
+ const style=getComputedStyle(el);
+ let ground;
+ for (let node=parseFloat(style.outlineOffset)<0?el:el.parentElement;node&&!ground;node=node.parentElement) {
+  const background=rgba(getComputedStyle(node).backgroundColor);
+  if (background[3]===1) ground=background;
+ }
+ if (!ground) {
+  const canvas=document.body.appendChild(document.createElement('div'));
+  canvas.style.background='Canvas';
+  ground=rgba(getComputedStyle(canvas).backgroundColor);
+  canvas.remove();
+ }
+ const [r,g,b,a]=rgba(style.outlineColor), ring=[r,g,b].map((c,i)=>c*a+ground[i]*(1-a));
+ const [lighter,darker]=[lum(ring),lum(ground)].sort((x,y)=>y-x);
+ return el.matches(':focus-visible')&&style.outlineStyle!=='none'?(lighter+0.05)/(darker+0.05):0;
+});
+const pressEnter=async control=>{ await control.focus(); await control.press('Enter'); };
+await forcedDark.goto(baseUrl+'/#/discovery');
+const discoveryRow=forcedDark.locator('.discovery-stock-row').nth(2);
+await pressEnter(discoveryRow.locator('.discovery-ticker-button'));
+await forcedDark.locator('.discovery-stock-row.is-selected').waitFor();
+assert.ok(await ringContrast(discoveryRow.locator('.discovery-ticker-button'))>=3,'focus on the selected Discovery row is not visible under forced colours');
+await forcedDark.goto(baseUrl+'/#/futures');
+const futuresRow=forcedDark.locator('.futures-table tbody tr').nth(1);
+await pressEnter(futuresRow.locator('.instrument-button'));
+await forcedDark.locator('.futures-table tbody tr.selected-row').waitFor();
+assert.ok(await ringContrast(futuresRow.locator('.instrument-button'))>=3,'focus on the selected Futures row is not visible under forced colours');
+await forcedDark.goto(baseUrl+'/#/');
+await forcedDark.locator('.dash-row').nth(3).waitFor();
+const symbolHeader=forcedDark.getByRole('columnheader',{name:/^Symbol/});
+await pressEnter(symbolHeader);
+await forcedDark.locator('.dash-th.is-active',{hasText:'Symbol'}).waitFor();
+assert.ok(await ringContrast(symbolHeader)>=3,'focus on the sorted column header is not visible under forced colours');
+await forcedDark.close();
+// With storage refused on every access (site data blocked), every desk still renders.
+const noStorage=await watch(await browser.newPage({viewport:{width:1440,height:1050}}));
+await noStorage.addInitScript(()=>Object.defineProperty(window,'localStorage',{configurable:true,get(){ throw new DOMException('The operation is insecure.','SecurityError'); }}));
+for (const route of ROUTES.filter(route=>route.root)) {
+ await noStorage.goto(baseUrl+route.path);
+ await noStorage.reload();
+ await noStorage.locator('main').locator(route.root).first().getByRole('heading',{name:route.heading}).first().waitFor();
+ assert.equal(await noStorage.getByRole('heading',{name:/hit an error$/}).count(),0,`${route.path} failed without storage`);
+}
+await noStorage.close();
 assert.deepEqual(errors,[]);
-console.log(JSON.stringify({routes:7,instruments:59,rates:8,cached:59,narrowWidth:390,pageErrors:errors,screenshots:artifactDir},null,2));
+assert.deepEqual(cspViolations,[],'Content Security Policy violations');
+console.log(JSON.stringify({routes:ROUTES.length,widths:[1440,390],instruments:59,rates:8,cached:59,legacyBridge:true,failedImportRefetched,dataSettings:{chartCacheSeconds:300,requestTimeoutSeconds:45},plugTicks:axis.ticks,plugFill:Number(axis.fill.toFixed(2)),pageErrors:errors,cspViolations,screenshots:artifactDir},null,2));
 await browser.close();

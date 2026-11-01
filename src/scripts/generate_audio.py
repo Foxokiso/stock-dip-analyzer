@@ -3,8 +3,12 @@ import struct
 import math
 import os
 
-# Generate an ominous, alien-like drone sound
-filename = "c:/Users/Frunk/experim,ents/stock-dip-analyzer/src/assets/alien_ominous.wav"
+# Generate an ominous, alien-like drone sound, written to src/assets next to the
+# clip the app ships. The app plays alien_ominous.mp3, encoded from this WAV with
+#   ffmpeg -i alien_ominous.wav -codec:a libmp3lame -q:a 6 alien_ominous.mp3
+# (ffmpeg 6.1.1 reproduces the shipped file byte for byte); the WAV is not shipped.
+assets = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "assets")
+filename = os.path.normpath(os.path.join(assets, "alien_ominous.wav"))
 os.makedirs(os.path.dirname(filename), exist_ok=True)
 
 sample_rate = 44100

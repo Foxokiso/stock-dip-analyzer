@@ -3,11 +3,11 @@
 #include "dip/marketdata.hpp"
 
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 #include <stdexcept>
 #include <string_view>
@@ -97,12 +97,16 @@ std::optional<std::int64_t> clipTimeValue(double millis) {
     return static_cast<std::int64_t>(std::trunc(millis));
 }
 
+// Zone names are ASCII. std::tolower would follow the C locale (under tr_TR 'I' does not
+// fold to 'i'), so only ASCII letters are folded.
+char lowerAscii(char c) {
+    return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+}
+
 bool equalsIgnoreCase(std::string_view left, std::string_view right) {
     if (left.size() != right.size()) return false;
     for (std::size_t i = 0; i < left.size(); ++i) {
-        const auto a = static_cast<unsigned char>(left[i]);
-        const auto b = static_cast<unsigned char>(right[i]);
-        if (std::tolower(a) != std::tolower(b)) return false;
+        if (lowerAscii(left[i]) != lowerAscii(right[i])) return false;
     }
     return true;
 }
@@ -166,16 +170,45 @@ std::optional<std::int64_t> offsetAtLocal(const std::chrono::time_zone& zone, st
     }
 }
 
-// The host zone, as Date.parse would use for local-time forms. Without one, UTC.
-std::int64_t localToUtc(std::int64_t localMillis) {
+// std::getenv, without MSVC's C4996 deprecation warning.
+std::optional<std::string> environmentVariable(const char* name) {
+#ifdef _MSC_VER
+    char* value = nullptr;
+    std::size_t length = 0;
+    if (_dupenv_s(&value, &length, name) != 0 || value == nullptr) return std::nullopt;
+    std::string text(value);
+    std::free(value);
+    return text;
+#else
+    const char* value = std::getenv(name);
+    return value ? std::optional<std::string>(value) : std::nullopt;
+#endif
+}
+
+// The zone Date.parse uses for local-time forms. V8 asks ICU, which reads the TZ variable
+// before the system setting, while libstdc++'s current_zone() only reads /etc/localtime; so
+// TZ comes first: an IANA name, optionally ':'-prefixed. An empty TZ, or one that names no
+// zone, means UTC as it does for V8 on Linux (POSIX rule strings and file paths, which ICU
+// maps to a fixed offset, are not ported). nullptr also stands for "no zone database".
+const std::chrono::time_zone* hostZone() {
     try {
-        const auto* zone = std::chrono::current_zone();
-        if (zone == nullptr) return localMillis;
-        const auto offset = offsetAtLocal(*zone, localMillis);
-        return offset ? localMillis - *offset * 1000 : localMillis;
+        const auto variable = environmentVariable("TZ");
+        if (!variable) return std::chrono::current_zone();
+        std::string_view name = *variable;
+        if (!name.empty() && name.front() == ':') name.remove_prefix(1);
+        if (name.starts_with("posix/") || name.starts_with("right/")) name.remove_prefix(6);
+        return name.empty() ? nullptr : std::chrono::locate_zone(name);
     } catch (...) {
-        return localMillis;
+        return nullptr;
     }
+}
+
+// Local wall-clock milliseconds to UTC in the host zone. Without one, UTC.
+std::int64_t localToUtc(std::int64_t localMillis) {
+    const auto* zone = hostZone();
+    if (zone == nullptr) return localMillis;
+    const auto offset = offsetAtLocal(*zone, localMillis);
+    return offset ? localMillis - *offset * 1000 : localMillis;
 }
 
 struct Scanner {
@@ -366,12 +399,14 @@ Quote getYahooQuote(const ChartResult& result, const QuoteOptions& options) {
     return quote;
 }
 
+// Freshness is measured from the quote's own time (Yahoo's chart meta never states a delay);
+// a stated delay must be zero, and a quote up to a minute ahead is clock skew.
 bool canRaiseTechnicalAlert(const Quote& quote, double historyLength, double nowMs) {
     const double quoteTime = parseDate(quote.quotedAt);
     const double age = nowMs - quoteTime;
     return positive(quote.price).has_value() && historyLength >= 15
-        && quote.delayMinutes.has_value() && *quote.delayMinutes == 0
-        && std::isfinite(quoteTime) && age >= 0 && age <= 5 * 60 * 1000;
+        && (!quote.delayMinutes || *quote.delayMinutes == 0)
+        && std::isfinite(quoteTime) && age >= -60 * 1000 && age <= 5 * 60 * 1000;
 }
 
 bool canRaiseTechnicalAlert(const Quote& quote, double historyLength) {

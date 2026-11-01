@@ -11,13 +11,28 @@ const legacyInvoke = () => {
     } catch { return null; }
 };
 
+// Electron rejects an invoke with "Error invoking remote method '<channel>':
+// <Name>: <message>". The main process words its errors for people, so the
+// desks get that message alone.
+const IPC_ERROR_PREFIX = /^Error invoking remote method '[^']*': (?:\w*Error: )?/;
+const readableError = (error) => {
+    const message = String(error?.message ?? error);
+    return IPC_ERROR_PREFIX.test(message) ? new Error(message.replace(IPC_ERROR_PREFIX, ''), { cause: error }) : error;
+};
+
 /** @returns {((channel: string, ...args: any[]) => Promise<any>) | null} null outside the desktop app */
 export function getInvoke() {
     if (typeof window === 'undefined') return null;
     const bridged = window.dipAnalyzer?.invoke;
-    if (typeof bridged === 'function') return (channel, ...args) => bridged(channel, ...args);
-    const legacy = legacyInvoke();
-    return legacy ? (channel, ...args) => legacy(channel, ...args) : null;
+    const bridge = typeof bridged === 'function' ? bridged : legacyInvoke();
+    if (!bridge) return null;
+    return async (channel, ...args) => {
+        try {
+            return await bridge(channel, ...args);
+        } catch (error) {
+            throw readableError(error);
+        }
+    };
 }
 
 export const hasDesktop = () => getInvoke() !== null;

@@ -4,6 +4,7 @@
 //            results in input order, each one reported as it lands.
 // createQueue / drainQueue — a producer/consumer pair for streams whose items
 //            arrive over time (screener pages feeding score hydration).
+// createLimiter — request slots shared by several producers, served by priority.
 
 /**
  * @template T, R
@@ -63,6 +64,38 @@ export function createQueue() {
                 await new Promise(resolve => waiters.push(resolve));
             }
             return items.shift();
+        },
+    };
+}
+
+/**
+ * At most `concurrency` tasks run at once across every caller. A freed slot
+ * goes to the waiting task of highest priority at that moment, the earliest
+ * of them on a tie. A priority given as a function is read then, so a task
+ * can be promoted while it waits. A finished task hands its slot straight to
+ * the next one, so a newcomer can never slip in between.
+ */
+export function createLimiter(concurrency) {
+    const width = Math.max(1, Math.floor(concurrency) || 1);
+    const waiting = []; // { rank, start }, in arrival order
+    let active = 0;
+    const release = () => {
+        if (waiting.length === 0) { active--; return; }
+        const ranks = waiting.map(entry => entry.rank());
+        const next = ranks.reduce((best, rank, index) => (rank > ranks[best] ? index : best), 0);
+        waiting.splice(next, 1)[0].start();
+    };
+    return {
+        get active() { return active; },
+        get waiting() { return waiting.length; },
+        async run(task, priority = 0) {
+            if (active < width) {
+                active++;
+            } else {
+                const rank = typeof priority === 'function' ? priority : () => priority;
+                await new Promise(start => waiting.push({ rank, start }));
+            }
+            try { return await task(); } finally { release(); }
         },
     };
 }

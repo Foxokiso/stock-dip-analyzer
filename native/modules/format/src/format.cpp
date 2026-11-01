@@ -3,7 +3,9 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <stdexcept>
+#include <string>
 #include <system_error>
 #include <vector>
 
@@ -181,6 +183,27 @@ std::string groupThousands(const std::string& integer) {
     }
     return out;
 }
+
+// A value that rounds to zero is shown unsigned: "-0.00" would read as a fall.
+std::string unsignedZero(std::string text) {
+    if (text.size() > 1 && text[0] == '-' && text.find_first_not_of("0.", 1) == std::string::npos) text.erase(0, 1);
+    return text;
+}
+
+// toFixed output whose magnitude is 1000 or more: four or more integer digits, or the
+// exponent form toFixed switches to at 1e21.
+bool atLeastThousand(const std::string& text) {
+    const std::size_t start = text[0] == '-' ? 1 : 0;
+    const std::size_t end = text.find_first_of(".e", start);
+    return (end == std::string::npos ? text.size() : end) - start >= 4 || text.find('e') != std::string::npos;
+}
+
+struct CompactUnit {
+    double divisor;
+    const char* suffix;
+    int digits;
+};
+constexpr CompactUnit kCompactUnits[] = {{1e3, "K", 1}, {1e6, "M", 2}, {1e9, "B", 2}, {1e12, "T", 2}};
 }  // namespace
 
 std::string numberToString(double value) {
@@ -279,24 +302,28 @@ std::string toLocaleStringEnUS(double value) {
 std::string formatCompact(std::optional<double> value) {
     if (!value || !std::isfinite(*value)) return kUnavailable;
     const double n = *value;
-    const double abs = std::fabs(n);
-    if (abs >= 1e12) return toFixed(n / 1e12, 2) + "T";
-    if (abs >= 1e9) return toFixed(n / 1e9, 2) + "B";
-    if (abs >= 1e6) return toFixed(n / 1e6, 2) + "M";
-    if (abs >= 1e3) return toFixed(n / 1e3, 1) + "K";
-    return toLocaleStringEnUS(n);
+    // JavaScript formats with signDisplay "negative": in en-US, toLocaleString() unsigned at zero.
+    if (std::fabs(n) < 1e3) return unsignedZero(toLocaleStringEnUS(n));
+    // The unit is chosen after rounding, so 999,950 is "1.00M", never "1000.0K".
+    const std::size_t last = std::size(kCompactUnits) - 1;
+    for (std::size_t i = 0; i < last; ++i) {
+        const std::string text = toFixed(n / kCompactUnits[i].divisor, kCompactUnits[i].digits);
+        if (!atLeastThousand(text)) return text + kCompactUnits[i].suffix;
+    }
+    return toFixed(n / kCompactUnits[last].divisor, kCompactUnits[last].digits) + kCompactUnits[last].suffix;
 }
 
-// 2.345 -> "+2.35%", -1.2 -> "-1.20%", unavailable -> "—"
+// 2.345 -> "+2.35%", -1.2 -> "-1.20%", -0.001 -> "0.00%", unavailable -> "—"
 std::string formatPct(std::optional<double> value, int digits) {
     if (!value || !std::isfinite(*value)) return kUnavailable;
-    const double n = *value;
-    return (n > 0 ? "+" : "") + toFixed(n, digits) + "%";
+    const std::string text = unsignedZero(toFixed(*value, digits));
+    const bool positive = text[0] != '-' && text.find_first_not_of("0.") != std::string::npos;
+    return (positive ? "+" : "") + text + "%";
 }
 
 // 12.3456 -> "$12.35", unavailable -> "—"
 std::string formatPrice(std::optional<double> value) {
     if (!value || !std::isfinite(*value)) return kUnavailable;
-    return "$" + toFixed(*value, 2);
+    return "$" + unsignedZero(toFixed(*value, 2));
 }
 }  // namespace dip::format

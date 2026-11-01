@@ -22,18 +22,29 @@ time (`fetchedAt`) stays separate from the source quote time (`quotedAt`).
   truncated toward zero, years past 9999 written `+YYYYYY`); **delayMinutes** keeps a
   finite value `>= 0` (including `-0`); **currency** / **exchangeTimezone** pass
   through only when they are strings; **changePct** is `(price - prev) / prev * 100`.
-- **canRaiseTechnicalAlert**: positive price, `historyLength >= 15`,
-  `delayMinutes === 0`, and a parseable `quotedAt` between five minutes ago and now.
+- **canRaiseTechnicalAlert**: positive price, `historyLength >= 15`, a parseable
+  `quotedAt` between five minutes ago and one minute ahead (clock skew), and a delay
+  that is either not reported (`null`) or exactly `0`. Yahoo's chart meta never
+  reports `exchangeDataDelayedBy`, so the quote's own age decides: during trading a
+  delayed feed's last trade is older than five minutes.
 
 ## Time zones
 
 The exchange day uses `std::chrono` (`time_zone::get_info`, i.e. `zoned_time`
 semantics) with the IANA name Yahoo reports. Zone data comes from the **OS ICU
 (`icu.dll`) on Windows/MSVC** and from **tzdata (`/usr/share/zoneinfo`) on
-Linux/libstdc++**; the JavaScript reference uses Node's bundled ICU. Like
+Linux/libstdc++**; the JavaScript reference uses Node's bundled ICU. Building
+the module therefore needs a standard library with the C++20 time-zone database:
+GCC 13+ with libstdc++'s default (C++11) ABI, or MSVC 2019 16.10+. On Windows,
+that zone data needs Windows 10 version 1903 or later, or Windows Server 2022 or
+later, at run time. Microsoft documents a run-time error from the time-zone
+calls on older Windows; the module catches errors from them, so there every zone
+would take the UTC fallback described below (not tried on such a system). Like
 `Intl.DateTimeFormat`, the lookup ignores case and accepts link names
-(`US/Eastern`, `utc`). An unknown zone — or no zone database at all — falls back to
-the UTC date exactly like the JavaScript `catch` path
+(`US/Eastern`, `utc`). Case is folded for ASCII letters only, whatever C locale a
+host sets: under a Turkish `LC_CTYPE`, `std::tolower` leaves `I` unfolded, and
+`europe/istanbul` would fall back to UTC. An unknown zone — or no zone database at
+all — falls back to the UTC date exactly like the JavaScript `catch` path
 (`toISOString().slice(0, 10)`, so year 275760 prints `+275760-09`). Instants past
 year 9999 are folded back by whole 400-year Gregorian cycles before asking the
 zone, which keeps 16-bit `std::chrono::year` implementations correct.
@@ -45,6 +56,15 @@ forms are UTC; date-time forms without an offset are host-local, using the offse
 in force *before* a transition inside a DST gap or overlap (ECMAScript `LocalTZA`,
 which `std::chrono::local_info::first` provides). V8's lenient legacy formats
 (`"Oct 9 2026"`, `"2026-1-9"`, `"2026-10-09Z"`) are not ported and parse as `NaN`.
+
+The host zone is found the way V8 (through ICU) finds it: the `TZ` environment
+variable when it is set — an IANA name, optionally `:`-prefixed, as in
+`TZ=America/New_York` — and otherwise `std::chrono::current_zone()`. libstdc++'s
+`current_zone()` reads only `/etc/localtime`, so without this step a `TZ` setting
+made the port and the Electron app disagree by the zone's offset. An empty `TZ`, or
+one that names no zone, means UTC, as it does for V8 on Linux; `TZ` values that are
+POSIX rule strings or file paths (which ICU turns into a fixed offset) are not
+ported.
 
 ## Driver protocol
 
@@ -58,6 +78,8 @@ which `std::chrono::local_info::first` provides). V8's lenient legacy formats
 - `alert <price> <quotedAt> <delayMinutes> <historyLength> <nowMillis>` → `1` | `0`
 - `iso <seconds>` → quotedAt | `null`; `day <seconds> <zone>` → `YYYY-MM-DD` | `throws`;
   `parse <text>` → milliseconds | `nan`
+- `ctype <locale name>` switches `LC_CTYPE` for the cases after it, as a host calling
+  `setlocale` would → the active locale name | `null` when it is not available
 
 Numbers are `null` | `nan` | `Infinity` | `-Infinity` | the `String(x)` literal;
 strings are `null` or `s:` + `encodeURIComponent(text)`.
@@ -74,9 +96,23 @@ node scripts/verify-native-marketdata.mjs artifacts/native-marketdata/modules/ma
 
 `scripts/verify-native-marketdata.mjs` imports the real `src/utils/marketData.js`
 and compares with relative tolerance `1e-12` for doubles and exact equality for
-strings. It covers every case in `tests/marketData.test.js`, object-shape probes,
-DST boundaries for America/New_York, Europe/London and Australia/Sydney, Asia/Tokyo,
-aliased and lower-case zone names, unknown zones, invalid timestamps, `Infinity`
-closes, far-future instants, 300 seeded quote cases, and the `exchangeDay`,
-`isoTime` and `Date.parse` building blocks (the last against the engine, as the
-format verifier does for `toFixed`).
+strings. It covers every case in `tests/marketData.test.js`, the recorded Yahoo
+responses in `tests/fixtures`, object-shape probes, DST boundaries for
+America/New_York, Europe/London and Australia/Sydney, Asia/Tokyo, aliased and
+lower-case zone names, unknown zones, invalid timestamps, `Infinity` closes,
+far-future instants, 300 seeded quote cases, the alert gate's delay, age, skew and
+history boundaries, and the `exchangeDay`, `isoTime` and `Date.parse` building
+blocks (the last against the engine, as the format verifier does for `toFixed`).
+It then re-runs the local-time `Date.parse` and alert cases with `TZ` set to
+America/New_York, `:Europe/London`, Australia/Sydney and Asia/Kolkata (the driver
+started with that `TZ`, the reference after `process.env.TZ` is set), including
+times inside each zone's DST gap and overlap, so a UTC CI host still checks the
+transition rule. The whole verifier also passes when run under any of those `TZ`
+values. Last, it repeats the exchange-day cases for zone names whose match folds an
+`I` against an `i` (`europe/istanbul`, `asia/irkutsk`, `AMERICA/NEW_YORK`) with the
+driver's `LC_CTYPE` switched to Turkish. On Linux the configure step compiles
+`tr_TR.UTF-8` into the build tree with `localedef` when glibc's locale sources are
+installed, and CTest passes that directory as `DIP_LOCALE_DIR` (the verifier sets
+`LOCPATH` for that run only); a driver that cannot switch to that locale then
+fails the suite instead of skipping the run. Only where no Turkish locale exists
+is the run skipped, with a warning.

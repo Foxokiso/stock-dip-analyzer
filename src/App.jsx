@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef, Suspense } from 'react'
-import { HashRouter as Router, Routes, Route, NavLink } from 'react-router-dom'
-import { Activity, LayoutDashboard, Settings, Palette, Trophy, Compass, Droplet, ChartNoAxesCombined, ArrowUpRight } from 'lucide-react'
+import { useState, useEffect, useLayoutEffect, useRef, Suspense } from 'react'
+import { HashRouter as Router, Routes, Route, NavLink, useLocation, matchPath } from 'react-router-dom'
+import { Activity, LayoutDashboard, Settings, Palette, Trophy, Compass, Droplet, ChartNoAxesCombined, ArrowUpRight, VolumeX } from 'lucide-react'
 import './App.css'
 import { getLocalNewsHeadlines } from './utils/telemetry'
 import { preloadable } from './utils/preloadable.js'
 import { SettingsProvider } from './state/settings.jsx'
 import { useSettings } from './state/settingsContext.js'
-import { THEMES, DEFAULT_SETTINGS, RATING_FILTERS } from './state/settingsSchema.js'
+import { THEMES, DEFAULT_SETTINGS, RATING_FILTERS, isTransientTheme } from './state/settingsSchema.js'
+import ErrorBoundary, { ErrorPanel } from './components/ErrorBoundary.jsx'
 
 import Dashboard from './pages/Dashboard'
 import LiveAlerts from './components/LiveAlerts'
@@ -18,12 +19,26 @@ import ETFAwards from './pages/ETFAwards'
 import Discovery from './pages/Discovery'
 import OilWatch from './pages/OilWatch'
 import SettingsPage from './pages/Settings'
+import NotFound from './pages/NotFound'
 
 // Only the stock page carries the charting library; it is warmed during idle
 // time right after startup so clicking a row never waits on it.
 const StockDetails = preloadable(() => import('./pages/StockDetails'));
 
 const RATING_LABELS = { All: 'All Ratings', 'Sell/Strong Sell': 'Sell / Strong Sell' };
+// Seizure Mode drone master gain: its original 0.15 at the default alert
+// volume and above (never louder than it was), proportionally quieter below.
+const DRONE_GAIN = 0.15;
+const droneGain = (volume) => DRONE_GAIN * Math.min(1, volume / DEFAULT_SETTINGS.alerts.volume);
+
+// Window title per desk: "Overview — Dip Analyzer PRO", "AAPL — Stock — Dip Analyzer PRO".
+const APP_TITLE = 'Dip Analyzer PRO';
+const DESK_TITLES = [['/', 'Overview'], ['/futures', 'Futures'], ['/etfs', 'ETF rankings'], ['/oil', 'Oil Watch'], ['/discovery', 'Discovery'], ['/settings', 'Settings']];
+const deskTitle = (pathname) => {
+  const stock = matchPath('/stock/:symbol', pathname);
+  if (stock) return `${stock.params.symbol} — Stock`;
+  return DESK_TITLES.find(([path]) => matchPath(path, pathname))?.[1] ?? 'Page not found';
+};
 
 const getSeverityLevel = (text) => {
   if (!text) return 'normal';
@@ -31,6 +46,76 @@ const getSeverityLevel = (text) => {
   const severeWords = ['crash', 'plunge', 'crisis', 'dead', 'kill', 'blood', 'doom', 'disaster', 'warning', 'collapse', 'fail', 'emergency', 'panic', 'terror', 'threat', 'tragedy', 'fatal', 'down', 'loss'];
   return severeWords.some(w => lower.includes(w)) ? 'severe' : 'normal';
 };
+
+// Error fallbacks: the whole workspace (outside the router), one desk (the
+// header and navigation stay usable) and the alert layer.
+const WorkspaceError = (props) => <div className="app-container"><ErrorPanel title="Dip Analyzer PRO hit an error" {...props} /></div>;
+// Leaving a failed desk for the Overview is a route change, which resets the
+// desk's boundary; on the Overview itself there is none, so the panel resets.
+function DeskError(props) {
+  const { pathname } = useLocation();
+  return <ErrorPanel title="This desk hit an error" resetsOnNavigation={pathname !== '/'} {...props} />;
+}
+const AlertsError = () => (
+  <p className="alerts-error" role="alert">
+    Alerts stopped after an error.
+    <button type="button" className="btn btn-outline" onClick={() => window.location.reload()}>Reload</button>
+  </p>
+);
+
+// The desk's h1 takes focus, so keyboard and screen-reader users start there and
+// hear its name; <main> takes it while a desk is still loading.
+const focusDesk = (main) => (main?.querySelector('h1[tabindex]') ?? main)?.focus();
+
+// Seizure Mode's controls leave with the mode, so focus inside them would fall
+// to the page. It goes back to the control that started the mode while that is
+// still shown (Settings' Run Seizure Mode…), and otherwise to the desk's h1.
+const leaveSeizureControls = (controls, opener) => {
+  if (!controls?.contains(document.activeElement)) return;
+  if (opener?.isConnected && opener !== document.body) opener.focus();
+  else focusDesk(document.querySelector('main'));
+};
+
+// The routed desk. Its boundary resets when the route changes.
+function Desk({ excludedSectors, autoRefreshInterval, globalFilter }) {
+  const { pathname } = useLocation();
+  const mainRef = useRef(null);
+  const announcedPath = useRef(pathname);
+
+  // Name the window after the desk. After a route change (not on the first
+  // load, and not again for the same desk) the new desk opens at the top, not
+  // at the previous desk's scroll offset, and its h1 takes focus. A layout
+  // effect, so no frame of the new desk is painted at the old offset.
+  useLayoutEffect(() => {
+    document.title = `${deskTitle(pathname)} — ${APP_TITLE}`;
+    if (announcedPath.current === pathname) return;
+    announcedPath.current = pathname;
+    window.scrollTo(0, 0);
+    focusDesk(mainRef.current);
+  }, [pathname]);
+
+  return (
+    <main ref={mainRef} tabIndex={-1}>
+      <ErrorBoundary resetKey={pathname} fallback={DeskError} onReset={() => focusDesk(mainRef.current)}>
+        <Suspense fallback={<div className="desk-empty" role="status">Opening workspace…</div>}>
+          <Routes>
+            <Route path="/" element={<>
+              <div className="overview-intro"><div><div className="eyebrow"><span className="eyebrow-line" aria-hidden="true" />YOUR RESEARCH DESK</div><span>Find the dip. Understand the context.</span></div><NavLink to="/futures">Explore the futures desk <ArrowUpRight size={16} aria-hidden="true" /></NavLink></div>
+              <Dashboard excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />
+            </>} />
+            <Route path="/futures" element={<Futures autoRefreshInterval={autoRefreshInterval} />} />
+            <Route path="/stock/:symbol" element={<StockDetails autoRefreshInterval={autoRefreshInterval} />} />
+            <Route path="/etfs" element={<ETFAwards excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
+            <Route path="/oil" element={<OilWatch autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
+            <Route path="/discovery" element={<Discovery excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </Suspense>
+      </ErrorBoundary>
+    </main>
+  );
+}
 
 function Workspace() {
   const { settings, update } = useSettings();
@@ -47,13 +132,21 @@ function Workspace() {
     if (theme !== 'theme-seizure') previousThemeRef.current = theme;
   }, [theme]);
 
-  // The header filter starts from, and follows, Settings → Scanner → default rating.
+  // The header filter starts from, and follows, Settings → Scanner → default
+  // rating: a change of that setting replaces the pick, during this render.
   const [globalFilter, setGlobalFilter] = useState(defaultRating);
-  useEffect(() => { setGlobalFilter(defaultRating); }, [defaultRating]);
+  const [filterDefault, setFilterDefault] = useState(defaultRating);
+  if (filterDefault !== defaultRating) {
+    setFilterDefault(defaultRating);
+    setGlobalFilter(defaultRating);
+  }
 
-  // Warm the stock page chunk once the first paint and the initial scan requests are out.
+  // Warm the stock page chunk once the first paint and the initial scan requests
+  // are out. A failed warm-up is retried by the first visit; a failure while a
+  // visit renders stays until the window reloads (see preloadable.js), which the
+  // desk's error panel offers.
   useEffect(() => {
-    const warm = () => { StockDetails.preload().catch(() => { /* retried on first visit */ }); };
+    const warm = () => { StockDetails.preload().catch(() => { /* not cached: the first visit imports again */ }); };
     if (typeof window.requestIdleCallback === 'function') {
       const id = window.requestIdleCallback(warm, { timeout: 3000 });
       return () => window.cancelIdleCallback(id);
@@ -62,64 +155,103 @@ function Workspace() {
     return () => clearTimeout(id);
   }, []);
 
-  // 20 Second Reversion & Audio Control for Seizure Mode
+  // Seizure Mode starts only from its confirmation, which carries the
+  // photosensitivity warning. The header select does not list it, and the
+  // Settings desk offers it as a button outside its theme cards; a request to
+  // switch to it (that button) gets the warning instead and the theme stays.
+  const seizureConfirm = useRef(null);
+  const seizureConfirmed = useRef(false);
+  // The control that asked for the mode, and the mode's own controls.
+  const seizureOpener = useRef(null);
+  const seizureControls = useRef(null);
+  useLayoutEffect(() => {
+    if (theme !== 'theme-seizure') {
+      seizureConfirmed.current = false;
+      return;
+    }
+    if (seizureConfirmed.current) return;
+    update('appearance.theme', previousThemeRef.current);
+    if (!seizureConfirm.current?.open) {
+      seizureOpener.current = document.activeElement;
+      seizureConfirm.current?.showModal();
+    }
+  }, [theme, update]);
+
+  const [droneMuted, setDroneMuted] = useState(false);
+  const startSeizureMode = () => {
+    seizureConfirmed.current = true;
+    seizureConfirm.current?.close();
+    setDroneMuted(false);
+    setTheme('theme-seizure');
+  };
+  const endSeizureMode = () => {
+    leaveSeizureControls(seizureControls.current, seizureOpener.current);
+    setTheme(previousThemeRef.current);
+  };
+
+  // 20 Second Reversion
   useEffect(() => {
-    let timer;
+    if (theme !== 'theme-seizure' || !seizureConfirmed.current) return undefined;
+    const timer = setTimeout(() => {
+      leaveSeizureControls(seizureControls.current, seizureOpener.current);
+      update('appearance.theme', previousThemeRef.current);
+    }, 20000);
+    return () => clearTimeout(timer);
+  }, [theme, update]);
+
+  // The drone follows Settings → Alerts → Sound and Volume (the volume can
+  // only turn it down, see droneGain) and the mode's own Mute control.
+  const droneVolume = settings.alerts.sound ? settings.alerts.volume : 0;
+  useEffect(() => {
+    if (theme !== 'theme-seizure' || !seizureConfirmed.current || droneMuted || droneVolume <= 0) return undefined;
     let audioCtx;
-    let oscillators = [];
+    const oscillators = [];
 
-    if (theme === 'theme-seizure') {
-      timer = setTimeout(() => {
-        setTheme(previousThemeRef.current || DEFAULT_SETTINGS.appearance.theme);
-      }, 20000);
+    // Play continuous ambient, creepy low-volume drone
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AudioContext();
 
-      // Play continuous ambient, creepy low-volume drone
-      try {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        audioCtx = new AudioContext();
+      const gainNode = audioCtx.createGain();
+      gainNode.gain.value = droneGain(droneVolume);
+      gainNode.connect(audioCtx.destination);
 
-        const gainNode = audioCtx.createGain();
-        gainNode.gain.value = 0.15; // Balanced volume
-        gainNode.connect(audioCtx.destination);
+      // 297 Hz fundamental and 27 Hz subharmonic
+      const frequencies = [
+        { freq: 297, type: 'triangle', gain: 0.2 }, // Whistle-like fundamental
+        { freq: 27, type: 'sine', gain: 1.0 }        // Sub-bass 11th subharmonic
+      ];
 
-        // 297 Hz fundamental and 27 Hz subharmonic
-        const frequencies = [
-          { freq: 297, type: 'triangle', gain: 0.2 }, // Whistle-like fundamental
-          { freq: 27, type: 'sine', gain: 1.0 }        // Sub-bass 11th subharmonic
-        ];
+      frequencies.forEach(({ freq, type, gain }) => {
+        const osc = audioCtx.createOscillator();
+        osc.type = type;
+        osc.frequency.value = freq;
 
-        frequencies.forEach(({ freq, type, gain }) => {
-          const osc = audioCtx.createOscillator();
-          osc.type = type;
-          osc.frequency.value = freq;
+        const indivGain = audioCtx.createGain();
+        indivGain.gain.value = gain;
 
-          const indivGain = audioCtx.createGain();
-          indivGain.gain.value = gain;
+        // LFO to create a wobbling, uneasy feeling
+        const lfo = audioCtx.createOscillator();
+        lfo.type = 'sine';
+        lfo.frequency.value = 0.2; // Very slow breathing wobble
 
-          // LFO to create a wobbling, uneasy feeling
-          const lfo = audioCtx.createOscillator();
-          lfo.type = 'sine';
-          lfo.frequency.value = 0.2; // Very slow breathing wobble
+        const lfoGain = audioCtx.createGain();
+        lfoGain.gain.value = freq * 0.015; // subtle pitch variation
 
-          const lfoGain = audioCtx.createGain();
-          lfoGain.gain.value = freq * 0.015; // subtle pitch variation
+        lfo.connect(lfoGain);
+        lfoGain.connect(osc.frequency);
 
-          lfo.connect(lfoGain);
-          lfoGain.connect(osc.frequency);
-
-          osc.connect(indivGain);
-          indivGain.connect(gainNode);
-          osc.start();
-          lfo.start();
-          oscillators.push(osc, lfo);
-        });
-      } catch (err) {
-        console.error("Audio API blocked or failed.", err);
-      }
+        osc.connect(indivGain);
+        indivGain.connect(gainNode);
+        osc.start();
+        lfo.start();
+        oscillators.push(osc, lfo);
+      });
+    } catch (err) {
+      console.error("Audio API blocked or failed.", err);
     }
 
     return () => {
-      if (timer) clearTimeout(timer);
       if (audioCtx) {
         oscillators.forEach(osc => {
           try { osc.stop(); } catch { /* ignore */ }
@@ -127,8 +259,7 @@ function Workspace() {
         audioCtx.close();
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme]);
+  }, [theme, droneMuted, droneVolume]);
 
   // Cryptic Telemetry (Local News logic)
   const [telemetryData, setTelemetryData] = useState([]);
@@ -138,7 +269,7 @@ function Workspace() {
     let timeoutId;
     let isActive = true;
 
-    if (theme === 'theme-seizure') {
+    if (theme === 'theme-seizure' && seizureConfirmed.current) {
       getLocalNewsHeadlines().then(lines => {
         if (!isActive) return;
         setTelemetryData(lines);
@@ -170,34 +301,48 @@ function Workspace() {
     <Router>
       <div className="app-container">
 
-        {/* DOOMSDAY OVERLAY */}
+        {/* DOOMSDAY OVERLAY: decoration, so it is hidden from assistive technology */}
         {theme === 'theme-seizure' && telemetryData.length > 0 && (
-          <div className="telemetry-overlay">
-            <h1
+          <div className="telemetry-overlay" aria-hidden="true">
+            <p
               key={currentLine}
               className={`telemetry-text severity-${getSeverityLevel(telemetryData[currentLine])}`}
             >
               {telemetryData[currentLine]}
-            </h1>
+            </p>
+          </div>
+        )}
+        {theme === 'theme-seizure' && (
+          <div className="seizure-controls" ref={seizureControls} role="group" aria-label="Seizure Mode">
+            {droneVolume > 0 && (
+              <button type="button" className="btn btn-outline" aria-pressed={droneMuted} onClick={() => setDroneMuted(muted => !muted)}>
+                <VolumeX size={15} aria-hidden="true" />Mute drone
+              </button>
+            )}
+            <button type="button" className="btn btn-outline" onClick={endSeizureMode}>End now</button>
           </div>
         )}
 
         <header className="workspace-header">
           <div className="workspace-topbar">
-            <NavLink to="/" className="workspace-brand" aria-label="Dip Analyzer home">
+            <NavLink to="/" className="workspace-brand">
               <span className="brand-mark" aria-hidden="true"><Activity size={22} /></span>
-              <span className="brand-text"><strong>dip<span className="brand-light">analyzer</span><sup>PRO</sup></strong><small>Market intelligence workspace</small></span>
+              <span className="brand-text"><strong>dip<span className="brand-light">analyzer</span> <sup>PRO</sup></strong><small>Market intelligence workspace</small></span>
             </NavLink>
             <div className="workspace-preferences">
               <span className="workspace-source-note"><span className="status-dot" aria-hidden="true" />Source timing disclosed</span>
               <label className="compact-select"><span>Ratings</span>
-                <select aria-label="Global rating filter" value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)}>
+                <select value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)}>
                   {RATING_FILTERS.map(item => <option key={item} value={item}>{RATING_LABELS[item] ?? item}</option>)}
                 </select>
               </label>
               <label className="compact-select theme-select"><Palette size={14} aria-hidden="true" /><span>Theme</span>
+                {/* Arrowing through a closed select applies each option, so the
+                    transient Seizure Mode is listed only while it runs. */}
                 <select aria-label="Visual theme" value={theme} onChange={(e) => setTheme(e.target.value)}>
-                  {THEMES.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
+                  {THEMES.filter(item => !isTransientTheme(item.id) || item.id === theme).map(item => (
+                    <option key={item.id} value={item.id} disabled={isTransientTheme(item.id)}>{item.label}</option>
+                  ))}
                 </select>
               </label>
             </div>
@@ -212,24 +357,24 @@ function Workspace() {
           </nav>
         </header>
 
-        <main>
-          <Suspense fallback={<div className="desk-empty" role="status">Opening workspace…</div>}>
-          <Routes>
-            <Route path="/" element={<>
-              <div className="overview-intro"><div><div className="eyebrow"><span className="eyebrow-line" aria-hidden="true" />YOUR RESEARCH DESK</div><span>Find the dip. Understand the context.</span></div><NavLink to="/futures">Explore the futures desk <ArrowUpRight size={16} aria-hidden="true" /></NavLink></div>
-              <Dashboard excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />
-            </>} />
-            <Route path="/futures" element={<Futures autoRefreshInterval={autoRefreshInterval} />} />
-            <Route path="/stock/:symbol" element={<StockDetails autoRefreshInterval={autoRefreshInterval} />} />
-            <Route path="/etfs" element={<ETFAwards excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
-            <Route path="/oil" element={<OilWatch autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
-            <Route path="/discovery" element={<Discovery excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
-            <Route path="/settings" element={<SettingsPage />} />
-          </Routes>
-          </Suspense>
-        </main>
+        <Desk excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />
 
-        <LiveAlerts />
+        <ErrorBoundary fallback={AlertsError}>
+          <LiveAlerts />
+        </ErrorBoundary>
+
+        <dialog ref={seizureConfirm} className="seizure-confirm glass-panel" aria-labelledby="seizure-confirm-title" aria-describedby="seizure-confirm-warning">
+          <h2 id="seizure-confirm-title">Start Seizure Mode?</h2>
+          <p id="seizure-confirm-warning">
+            <strong>Photosensitivity warning.</strong> For 20 seconds the screen darkens and pulses, and large headlines fade in and out over every desk.{' '}
+            {droneVolume > 0 ? 'A low drone plays, quieter if your alert volume is turned down; the mode has its own mute.' : 'It stays silent, because alert sound is off or at zero volume in Settings → Alerts.'}{' '}
+            It ends by itself and is never saved.
+          </p>
+          <div className="seizure-confirm-actions">
+            <button type="button" className="btn btn-outline" onClick={() => seizureConfirm.current?.close()}>Cancel</button>
+            <button type="button" className="btn btn-primary" onClick={startSeizureMode}>Start Seizure Mode</button>
+          </div>
+        </dialog>
       </div>
     </Router>
   )
@@ -237,8 +382,10 @@ function Workspace() {
 
 export default function App() {
   return (
-    <SettingsProvider>
-      <Workspace />
-    </SettingsProvider>
+    <ErrorBoundary fallback={WorkspaceError}>
+      <SettingsProvider>
+        <Workspace />
+      </SettingsProvider>
+    </ErrorBoundary>
   )
 }

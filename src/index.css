@@ -1,80 +1,6 @@
-/* "Modern" workstation theme: solid surfaces keep large market boards fast.
-   The default theme (Pierce/27) and shared role tokens live in styles/tokens.css. */
-.theme-majestic {
-  --bg-dark: #101419;
-  --bg-card: #171d24;
-  --bg-card-hover: #1c242d;
-  --primary: #a8ddcb;
-  --primary-gradient: linear-gradient(120deg, #bce6d8, #a8ddcb);
-  --secondary: #a6b6cc;
-  --secondary-gradient: linear-gradient(120deg, #bdc9d9, #a6b6cc);
-  --text-main: #edf0e9;
-  --text-muted: #96a1ad;
-  --success: #9cdbc1;
-  --danger: #ed979a;
-  --warning: #d7b56f;
-  --font-heading: 'Inter', 'Segoe UI', system-ui, sans-serif;
-  --font-body: 'Inter', 'Segoe UI', system-ui, sans-serif;
-  --glass-border: 1px solid #2a333d;
-  --glass-shadow: none;
-  --glass-blur: none;
-  --bg-image: none;
-  --line: #2a333d;
-}
-
-.theme-trippy {
-  /* Spacious, Mind-bending Neon Theme */
-  --bg-dark: #0a0118;
-  --bg-card: rgba(10, 2, 25, 0.4);
-  --bg-card-hover: rgba(20, 5, 45, 0.7);
-
-  --primary: #00ffcc;
-  --primary-gradient: linear-gradient(135deg, #00ffcc 0%, #00bfff 100%);
-  --secondary: #ff00ff;
-  --secondary-gradient: linear-gradient(135deg, #ff00ff 0%, #ff1493 100%);
-
-  --text-main: #ffffff;
-  --text-muted: #a09cb0;
-
-  --success: #39ff14;
-  --danger: #ff003c;
-  --warning: #fce205;
-
-  --glass-border: 1px solid rgba(0, 255, 204, 0.2);
-  --glass-shadow: 0 0 40px 0 rgba(255, 0, 255, 0.15);
-  --glass-blur: blur(20px);
-
-  --bg-image: radial-gradient(circle at 10% 20%, rgba(0, 255, 204, 0.15), transparent 50%),
-    radial-gradient(circle at 90% 80%, rgba(255, 0, 255, 0.15), transparent 50%),
-    radial-gradient(circle at 50% 50%, rgba(0, 191, 255, 0.1), transparent 60%);
-}
-
-.theme-orange {
-  /* Intense, High-Contrast Erotic Orange Theme */
-  --bg-dark: #0d0a08;
-  --bg-card: rgba(20, 10, 5, 0.7);
-  --bg-card-hover: rgba(35, 15, 5, 0.9);
-
-  --primary: #ff4500;
-  --primary-gradient: linear-gradient(135deg, #ff8c00 0%, #ff4500 100%);
-  --secondary: #b22222;
-  --secondary-gradient: linear-gradient(135deg, #b22222 0%, #8b0000 100%);
-
-  --text-main: #fff5ee;
-  --text-muted: #8c7366;
-
-  --success: #00fa9a;
-  --danger: #dc143c;
-  --warning: #ffd700;
-
-  --glass-border: 1px solid rgba(255, 69, 0, 0.3);
-  --glass-shadow: 0 8px 32px 0 rgba(255, 69, 0, 0.2);
-  --glass-blur: blur(12px);
-
-  --bg-image: radial-gradient(circle at 30% 70%, rgba(255, 69, 0, 0.1), transparent 40%),
-    radial-gradient(circle at 70% 30%, rgba(255, 140, 0, 0.08), transparent 40%);
-}
-
+/* Alien Fractal and the Seizure Mode stunt: alternate themes that bring their
+   own looks. The default theme (Pierce/27), the Modern workstation theme and
+   the shared role tokens live in styles/tokens.css. */
 .theme-anime {
   /* Alien Fractal Dimension Aesthetic */
   --bg-dark: #050014;
@@ -87,7 +13,8 @@
   --secondary-gradient: linear-gradient(135deg, #7f00ff 0%, #b800ff 100%);
 
   --text-main: #e0d5ff;
-  --text-muted: #8c78c8;
+  /* #8c78c8 lifted a little: muted pills on --bg-raised measured exactly 4.50:1. */
+  --text-muted: #917dcc;
 
   --success: #00ff7f;
   --danger: #ff0055;
@@ -108,7 +35,22 @@
     radial-gradient(circle at 90% 30%, rgba(0, 255, 204, 0.12) 0%, transparent 45%);
 }
 
+/* The breathing hue lives on a fixed layer that carries the background glows.
+   A filter on <body> would make body the containing block of every fixed
+   element (toasts, the alert history button and drawer) and push them down
+   the page. Isolation keeps the layer above body's own colour. */
 body.theme-anime {
+  isolation: isolate;
+  background-image: none;
+}
+
+body.theme-anime::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--bg-image);
   animation: alien-breath 6s ease-in-out infinite alternate;
 }
 
@@ -145,6 +87,13 @@ body.theme-anime .btn:hover {
   border-color: transparent;
 }
 
+/* The glass shows the fixed glows through. Under the cyan one, the lifted danger
+   on a selected Discovery row measured 4.48:1, so that row's wash sits on
+   --bg-dark (the opaque ground) instead, as the Overview's verdict chips do. */
+body.theme-anime .discovery-page .discovery-stock-row.is-selected {
+  background: linear-gradient(var(--wash-p-14), var(--wash-p-14)) var(--bg-dark);
+}
+
 .theme-seizure {
   /* ========================================
    * TOXIC ABYSS / MESS-UP AESTHETIC
@@ -159,9 +108,9 @@ body.theme-anime .btn:hover {
   --secondary: #002a11;
   --secondary-gradient: linear-gradient(135deg, #002a11 0%, #000c05 100%);
 
-  /* READABLE: pale sickly green for main, deep moss for muted */
+  /* READABLE: pale sickly green for main, moss for muted (6:1 on the abyss) */
   --text-main: #c4e6cd;
-  --text-muted: #2f5c40;
+  --text-muted: #509b6d;
 
   /* Everything is toxic */
   --success: #002a11;
@@ -187,28 +136,14 @@ body.theme-anime .btn:hover {
   /* Same terrifying serif font */
   --font-heading: 'Georgia', 'Times New Roman', serif;
   --font-body: 'Georgia', 'Times New Roman', serif;
+
+  /* The ring follows the sickly primary: the near-black secondary hid it */
+  --focus-ring: 0 0 0 2px var(--bg-dark), 0 0 0 4px var(--primary);
 }
 
 body.theme-seizure {
   background-color: #000;
   color: var(--text-main);
-  /* Subtle full-page slow pulse using only opacity on the ::before — no layout shift */
-  animation: grim-body-breathe 4s ease-in-out infinite;
-}
-
-/* ── Slow oppressive breathing effect on bg — GPU only ── */
-@keyframes grim-body-breathe {
-  0% {
-    filter: brightness(1.0);
-  }
-
-  50% {
-    filter: brightness(0.85);
-  }
-
-  100% {
-    filter: brightness(1.0);
-  }
 }
 
 /* ── Scanline + vignette overlay, absolutely no layout touching ── */
@@ -218,8 +153,13 @@ body.theme-seizure::before {
   inset: 0;
   pointer-events: none;
   z-index: 9997;
-  /* Heavy dark vignette corners - sickly purple/black */
+  /* Toxic green scanlines over heavy dark vignette corners - sickly purple/black */
   background:
+    repeating-linear-gradient(0deg,
+      transparent 0px,
+      transparent 2px,
+      rgba(0, 200, 80, 0.03) 2px,
+      rgba(0, 200, 80, 0.03) 3px),
     radial-gradient(ellipse at center, transparent 30%, rgba(2, 0, 5, 0.95) 100%);
   animation: grim-vignette-pulse 2s ease-in-out infinite alternate;
 }
@@ -234,20 +174,28 @@ body.theme-seizure::before {
   }
 }
 
-/* ── Toxic green scanline glow layer ── */
+/* ── Slow oppressive breathing: a black layer dims the page by up to 15 %.
+   It replaces brightness() on <body>, which would re-anchor every fixed
+   element to the document instead of the window. ── */
 body.theme-seizure::after {
   content: '';
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 9998;
-  background:
-    repeating-linear-gradient(0deg,
-      transparent 0px,
-      transparent 2px,
-      rgba(0, 200, 80, 0.03) 2px,
-      rgba(0, 200, 80, 0.03) 3px);
-  /* Removed animation to prevent GPU layout thrashing on full screen layer */
+  z-index: 9996;
+  background: #000;
+  opacity: 0;
+  animation: grim-body-breathe 4s ease-in-out infinite;
+}
+
+@keyframes grim-body-breathe {
+  0%, 100% {
+    opacity: 0;
+  }
+
+  50% {
+    opacity: 0.15;
+  }
 }
 
 /* ── Panels: stark, hard shadow glow ── */
@@ -280,7 +228,7 @@ body.theme-seizure a {
 }
 
 body.theme-seizure .text-muted {
-  color: #2f5c40 !important;
+  color: var(--text-muted) !important;
 }
 
 body.theme-seizure a:hover {
@@ -315,7 +263,8 @@ body.theme-seizure h3 {
   /* Removed mix-blend-mode as it causes full screen compositing lag */
 }
 
-/* ── Telemetry headline text: sickly green glow, very readable, grim slow fade ── */
+/* ── Telemetry headline text: sickly green glow, very readable, grim slow fade.
+   A decorative <p>; spacing and the rule below match the headings it replaced. ── */
 .telemetry-text {
   font-family: 'Georgia', 'Times New Roman', serif;
   font-weight: 900;
@@ -323,10 +272,11 @@ body.theme-seizure h3 {
   text-align: center;
   color: #effcf2;
   text-transform: uppercase;
-  margin: 0;
-  padding: 0 60px;
+  margin: 0 0 0.5em;
+  padding: 0 60px 0.3em;
+  border-bottom: 1px solid rgba(0, 100, 30, 0.3);
   line-height: 0.9;
-  letter-spacing: 0.15em;
+  letter-spacing: 0.05em;
   white-space: pre-wrap;
   word-wrap: break-word;
   /* Simplified text shadow to prevent GPU stall */
@@ -359,6 +309,33 @@ body.theme-seizure h3 {
     transform: scale(1.05) translateY(-2px);
   }
 }
+
+/* ── Seizure Mode controls (mute, end now) above the overlay, and its warning.
+   The controls keep clear of the alert history toggle in the bottom-right
+   corner (components.css sizes it), and wrap upwards in a narrow window instead
+   of covering it. ── */
+.seizure-controls {
+  position: fixed;
+  left: var(--gap);
+  bottom: var(--gap);
+  z-index: 9999;
+  max-width: calc(100% - var(--history-toggle-size) - 3 * var(--gap));
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.seizure-controls [aria-pressed='true'] { background: var(--wash-p-27); border-color: var(--primary); }
+.seizure-confirm {
+  width: min(440px, calc(100vw - 2 * var(--gap)));
+  margin: auto;
+  padding: 24px;
+  color: var(--text-main);
+}
+.seizure-confirm::backdrop { background: oklch(0 0 0 / 0.73); }
+.seizure-confirm h2 { font-size: 18px; font-weight: 500; letter-spacing: -0.3px; margin-bottom: 10px; }
+.seizure-confirm p { font-size: 12px; line-height: 1.6; color: var(--text-muted); }
+.seizure-confirm strong { color: var(--warning); font-weight: 600; }
+.seizure-confirm-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 
 /* Severity-high variant: Creepier, more distorted hallucination */
 .severity-severe {
@@ -410,9 +387,10 @@ body.theme-seizure h3 {
  * sheet does not ship are derived with the 27 rule (alpha at 27/14/7 %,
  * lightness·chroma × 0.73/0.46/0.27). Layout is unchanged from v1; page
  * stylesheets (styles/pages/*.css, styles/components.css) build on these
- * rules with page-scoped selectors, and the theme blocks above keep winning
- * through their higher specificity. The app shell (header, nav, brand) lives
- * in App.css; the Settings desk in styles/settings.css.
+ * rules with page-scoped selectors; the body.theme-* rules above outrank
+ * them, the Modern overrides at the end of this file do not. The app shell
+ * (header, nav, brand) lives in App.css; the Settings desk in
+ * styles/settings.css.
  * ════════════════════════════════════════════════════════════════════════ */
 
 /* ── reset & ground ── */
@@ -464,6 +442,30 @@ code, kbd, samp, pre, .mono { font-family: var(--font-mono); font-variant-numeri
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
+}
+/* Forced colours (Windows High Contrast) drop every box-shadow, and with it the
+   ring; a system-colour outline takes its place. !important outranks the page
+   rules that pair outline: none with their ring. */
+@media (forced-colors: active) {
+  :focus-visible { outline: 2px solid Highlight !important; }
+}
+
+/* ── selected states: a wash, an inset edge, a glow or an underline, all of
+   which forced colours repaint or drop. The current nav item, the pressed and
+   selected options and the selected rows take the system selection colours
+   instead; a Highlight outline would read as focus. (The brand link is
+   aria-current on the Overview as well, and stays as it is; so does the sorted
+   column's header, which is no selection: its arrow marks it.) A focus ring
+   drawn on that ground, around a control inside a selected row, takes the
+   selection's text colour: a Highlight ring all but vanishes on SelectedItem. ── */
+@media (forced-colors: active) {
+  :is(.segmented-option.is-active, .settings-index .is-active, .is-selected, .selected, .selected-row, .nav-link.active, [aria-pressed='true']) {
+    forced-color-adjust: none;
+    background: SelectedItem !important;
+    color: SelectedItemText !important;
+  }
+  :is(.segmented-option.is-active, .settings-index .is-active, .is-selected, .selected, .selected-row, .nav-link.active, [aria-pressed='true']) * { color: inherit !important; }
+  :is(.segmented-option.is-active, .settings-index .is-active, .is-selected, .selected, .selected-row, .nav-link.active, [aria-pressed='true']) :focus-visible { outline-color: SelectedItemText !important; }
 }
 
 /* ── panels: sheen, hairline, long shadow (brief silk rule 1) ── */
@@ -602,26 +604,6 @@ option { background-color: var(--bg-dark); color: var(--text-main); }
   border: 0;
 }
 
-/* ── rating pulses: a 27 px halo of the tone that breathes on --t-pulse ── */
-.rating-pulse-success, .rating-pulse-warning, .rating-pulse-danger {
-  position: relative;
-  isolation: isolate;
-}
-.rating-pulse-success::after, .rating-pulse-warning::after, .rating-pulse-danger::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  z-index: -1;
-  pointer-events: none;
-  box-shadow: 0 0 27px color-mix(in oklch, var(--pulse-tone) 27%, transparent);
-  animation: pierce-pulse var(--t-pulse) ease-in-out infinite;
-  opacity: var(--glow-intensity);
-}
-.rating-pulse-success { --pulse-tone: var(--success); }
-.rating-pulse-warning { --pulse-tone: var(--warning); }
-.rating-pulse-danger { --pulse-tone: var(--danger); }
-
 /* ── motion: the OS preference and the in-app setting zero every animation.
    "Motion: full" overrides the OS; "reduced" applies regardless of it. ── */
 @media (prefers-reduced-motion: reduce) {
@@ -658,15 +640,16 @@ html[data-motion='reduced'] *, html[data-motion='reduced'] *::before, html[data-
 .eyebrow-line { width: 18px; height: 1px; background: var(--pierce-gradient); }
 .page-heading { gap: 16px; margin-bottom: var(--gap); flex-wrap: wrap; }
 .page-heading .eyebrow { margin-bottom: 10px; }
-.page-heading h2 {
+.page-heading h1 {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-bottom: 10px;
   font-size: 29px;
   font-weight: 500;
+  letter-spacing: -0.03em;
 }
-.page-heading h2 svg { color: var(--primary); }
+.page-heading h1 svg { color: var(--primary); }
 .page-heading p { font-size: 12px; color: var(--text-muted); }
 .desk-heading { display: flex; align-items: center; justify-content: space-between; gap: 22px; margin-bottom: var(--gap); }
 .desk-heading h1 {
@@ -680,7 +663,7 @@ html[data-motion='reduced'] *, html[data-motion='reduced'] *::before, html[data-
 .desk-heading > button { flex-shrink: 0; }
 .dashboard > .flex-between { flex-wrap: wrap; gap: 16px; }
 .dashboard > .flex-between > .flex-center { flex-wrap: wrap; }
-.dashboard h2 { font-size: 24px; }
+.dashboard h1 { font-size: 24px; }
 .dashboard p { font-size: 12px; }
 
 /* source banner, delay chip, data notice: caution is --warning, info is --primary */
@@ -895,11 +878,49 @@ td.numeric, th.numeric, .numeric { text-align: right; }
   text-align: center;
 }
 .desk-empty h3 { font-size: 15px; font-weight: 500; color: var(--text-main); margin: 0; }
+.desk-empty h1 { font-size: 20px; font-weight: 500; margin: 0; }
+.desk-empty code { overflow-wrap: anywhere; }
 .desk-empty p { font-size: 11px; max-width: 350px; }
 .desk-empty a { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; }
 .desk-empty > svg { color: var(--primary); opacity: var(--m1); }
 .desk-bottom { display: flex; justify-content: space-between; gap: 15px; padding: 23px 2px 0; font-size: 9px; color: var(--text-muted); letter-spacing: 0.4px; }
 .is-spinning { animation: spin calc(var(--t-slow) * 2) linear infinite; }
+
+/* render-error fallbacks (components/ErrorBoundary.jsx): a failed desk, the
+   whole workspace, or the alert layer */
+.desk-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  max-width: 640px;
+  margin: var(--gap) auto;
+  padding: 30px;
+  color: var(--text-muted);
+}
+.desk-error > svg { color: var(--warning); }
+.desk-error h1 { margin: 0; font-size: 20px; font-weight: 500; }
+.desk-error p { font-size: 12px; }
+.desk-error-detail { font-family: var(--font-mono); font-size: 11px; overflow-wrap: anywhere; }
+.desk-error-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+.alerts-error {
+  position: fixed;
+  right: var(--gap);
+  bottom: var(--gap);
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - var(--gap) * 2);
+  padding: 8px 8px 8px 15px;
+  font-size: 11px;
+  color: var(--text-main);
+  background: var(--bg-raised);
+  border: 1px solid color-mix(in oklch, var(--warning) 46%, var(--line));
+  border-radius: var(--radius);
+}
+/* Sized to the notice, so it covers as little of the desk as it can. */
+.alerts-error .btn { padding: 6px 12px; font-size: 11px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* market pulse strip */
@@ -920,7 +941,7 @@ td.numeric, th.numeric, .numeric { text-align: right; }
 /* ETF rankings & discovery (layout unchanged; page css refines the style) */
 .etf-leaders-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-top: var(--gap); }
 .etf-leader-panel { padding: 23px 21px; }
-.etf-leader-panel h3, .discovery-chart-panel h3, .discovery-results-panel h3 { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 500; margin-bottom: 12px; }
+.etf-leader-panel h2, .discovery-chart-panel h2, .discovery-results-panel h2 { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 500; margin-bottom: 12px; }
 .etf-leader-row { display: flex; justify-content: space-between; gap: 15px; padding: 17px 0; border-bottom: 1px solid var(--line); }
 .etf-leader-symbol { display: flex; align-items: baseline; gap: 12px; font-size: 12px; min-width: 0; }
 .etf-leader-symbol > span { font-size: 10px; }
@@ -936,16 +957,13 @@ td.numeric, th.numeric, .numeric { text-align: right; }
 .discovery-ticker-button { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; border: 0; background: none; color: var(--text-main); cursor: pointer; font-size: 12px; border-radius: var(--radius-sm); }
 .discovery-stock-values { display: flex; flex-direction: column; gap: 5px; font-size: 12px; text-align: right; margin-left: auto; font-family: var(--font-mono); }
 
-/* ── Modern theme: solid surfaces, no glows, the ring still shows ── */
+/* ── Modern theme: solid surfaces, no glows. Page skins with the same
+   specificity load later and override these on their own desks. ── */
 .theme-majestic .text-gradient { background: none; color: var(--text-main); -webkit-text-fill-color: var(--text-main); }
 .theme-majestic .btn { border-radius: var(--radius-sm); font-size: 12px; padding: 10px 14px; font-weight: 600; letter-spacing: 0; }
 .theme-majestic .btn::after { display: none; }
-.theme-majestic .btn:hover, .theme-majestic .btn:active { transform: none !important; filter: none; }
 .theme-majestic .btn-outline { background: var(--bg-card); border-color: var(--line); }
 .theme-majestic .btn-outline:hover { background: var(--bg-card-hover); border-color: var(--line-strong); }
-.theme-majestic a:hover { filter: none; }
-.theme-majestic input:focus, .theme-majestic select:focus, .theme-majestic textarea:focus { transform: none; box-shadow: var(--focus-ring); }
-.theme-majestic [class*='rating-pulse']::after { animation: none; }
 .theme-majestic .alert-history-toggle { width: 36px !important; height: 36px !important; right: 12px !important; bottom: 12px !important; background: var(--bg-card) !important; color: var(--text-muted) !important; border: 1px solid var(--line) !important; box-shadow: none !important; border-radius: var(--radius) !important; }
 
 /* ── responsive: breakpoints and the layout they set are unchanged ── */

@@ -16,13 +16,15 @@
   /* The boards' tables scroll inside their panels; the page root must never pass that
      min-content width up to the shell, or a narrow viewport gets a horizontal scrollbar. */
   min-width: 0;
-  --oil-wash-ok-07: color-mix(in oklch, var(--success) 7%, transparent);
   --oil-wash-bad-07: color-mix(in oklch, var(--danger) 7%, transparent);
   --oil-wash-warn-07: color-mix(in oklch, var(--warning) 7%, transparent);
   --oil-warning-46: oklch(from var(--warning) calc(l * var(--m2)) calc(c * var(--m2)) h);
   --oil-line-p: color-mix(in oklch, var(--primary) 27%, var(--line));
   --oil-line-s: color-mix(in oklch, var(--secondary) 27%, var(--line));
   --oil-line-warn: color-mix(in oklch, var(--warning) 27%, var(--line));
+  /* Danger lifted 27 % toward white (the Overview's chip recipe): small danger
+     text on a danger wash stays above 4.5:1, hovered or not. */
+  --oil-danger-lift: oklch(from var(--danger) calc(l + (1 - l) * var(--m3)) c h);
   --oil-gutter: 23px;
   --oil-cell-y: calc(8px * var(--density, 1));
 }
@@ -136,7 +138,7 @@
   gap: var(--gap-xs);
   padding: var(--gap-sm) var(--oil-gutter) var(--gap-xs);
 }
-.oil-board-head h3 {
+.oil-board-head h2 {
   display: flex;
   align-items: center;
   gap: var(--gap-xs);
@@ -237,8 +239,16 @@
 .oil-up { color: var(--success); }
 .oil-down { color: var(--danger); }
 .oil-flat { color: var(--text-muted); }
+/* The selected row's primary wash is the lightest row ground: there, down text
+   takes the lifted danger and the faint quote lines muted ink, to keep 4.5:1. */
+.oil-row.is-expanded .oil-down { color: var(--oil-danger-lift); }
+.oil-watch-page .oil-row.is-expanded .quote-meta:not(.oil-stale) { color: var(--text-muted); }
 
-/* Technical rating chip: tone follows the verdict label, never a colour string from the scorer. */
+/* Technical rating chip: tone follows the verdict label, never a colour string from the scorer.
+   Each tone's 7 % / 14 % wash is mixed into the ink ground instead of laid over the row, so a
+   hovered or expanded row cannot pull the chip text below 4.5:1 (danger is the tightest). The
+   mix is in srgb, which is how a translucent wash composites, so each chip keeps the tint it
+   had over the row; oklch would turn the hue toward the ground's violet. */
 .oil-rating {
   display: inline-block;
   padding: 2px 8px;
@@ -251,11 +261,11 @@
   letter-spacing: 0.03em;
   white-space: nowrap;
 }
-.oil-rating--strong-buy { color: var(--success); background: var(--wash-ok-14); border-color: var(--success-46); }
-.oil-rating--buy { color: var(--success); background: var(--oil-wash-ok-07); border-color: var(--success-46); }
-.oil-rating--hold { color: var(--warning); background: var(--wash-warn-14); border-color: var(--oil-warning-46); }
-.oil-rating--sell { color: var(--danger); background: var(--oil-wash-bad-07); border-color: var(--danger-46); }
-.oil-rating--strong-sell { color: var(--danger); background: var(--wash-bad-14); border-color: var(--danger-46); }
+.oil-rating--strong-buy { color: var(--success); background: color-mix(in srgb, var(--success) 14%, var(--bg-dark)); border-color: var(--success-46); }
+.oil-rating--buy { color: var(--success); background: color-mix(in srgb, var(--success) 7%, var(--bg-dark)); border-color: var(--success-46); }
+.oil-rating--hold { color: var(--warning); background: color-mix(in srgb, var(--warning) 14%, var(--bg-dark)); border-color: var(--oil-warning-46); }
+.oil-rating--sell { color: var(--danger); background: color-mix(in srgb, var(--danger) 7%, var(--bg-dark)); border-color: var(--danger-46); }
+.oil-rating--strong-sell { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, var(--bg-dark)); border-color: var(--danger-46); }
 .oil-rating--muted { color: var(--text-muted); background: var(--bg-raised); border-color: var(--line-strong); }
 
 /* Breakdown toggle: lit with the primary glow (scaled by the glow setting) while its row is open. */
@@ -373,7 +383,7 @@
 .oil-news-meta > span:first-child { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-faint); }
 .oil-news-title { font-size: 12px; line-height: 1.45; color: var(--text-main); }
 
-/* HIGH IMPACT badge: danger text on the 14 % danger wash with a hairline danger-46 border. */
+/* HIGH IMPACT badge: lifted danger text on the 14 % danger wash with a hairline danger-46 border. */
 .oil-badge-impact {
   display: inline-flex;
   align-items: center;
@@ -382,7 +392,7 @@
   border: 1px solid var(--danger-46);
   border-radius: var(--radius-sm);
   background: var(--wash-bad-14);
-  color: var(--danger);
+  color: var(--oil-danger-lift);
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.06em;

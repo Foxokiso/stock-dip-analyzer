@@ -15,6 +15,11 @@ dist-ssr
 # Packaged application and installers (electron-builder output)
 release/
 
+# Code-signing material; electron-builder auto-loads electron-builder.env
+electron-builder.env
+*.pfx
+*.p12
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -28,3 +33,6 @@ release/
 
 # Browser verification output
 artifacts/
+
+# The alert sound's source WAV, written by src/scripts/generate_audio.py; only the MP3 ships
+src/assets/*.wav

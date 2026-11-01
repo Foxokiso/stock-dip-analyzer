@@ -47,3 +47,42 @@ foreach(module_dir ${DIP_MODULE_DIRS})
     add_subdirectory("${module_dir}")
   endif()
 endforeach()
+
+# The parity drivers never call setlocale, so they cannot catch a host locale changing how
+# numbers parse. This test reads JSON numbers and the futures fixture under a comma-decimal
+# C locale; it exits 77 (reported as skipped) when the system has no such locale.
+if(BUILD_TESTING)
+  add_executable(locale_regression tests/locale_regression.cpp)
+  target_link_libraries(locale_regression PRIVATE dip_futures)
+  dip_set_policy(locale_regression)
+  add_test(NAME locale_regression
+    COMMAND locale_regression "${CMAKE_CURRENT_SOURCE_DIR}/../tests/fixtures/futures-reference.json")
+  set_tests_properties(locale_regression PROPERTIES SKIP_RETURN_CODE 77)
+  # Linux CI images install no comma-decimal locale, so the test would always skip there. Where
+  # glibc's locale sources are present, compile de_DE.UTF-8 into the build tree and point the
+  # test at it. LOCPATH hides the system locale archive, so it is set only once the build worked:
+  # localedef writes one file per category and setlocale(LC_ALL) needs every one, so a stamp in
+  # the locale's directory marks a run that finished (exit 1 is a finished run with warnings;
+  # 4 wrote nothing). An interrupted run leaves no stamp and is redone by the next configure.
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_program(LOCALEDEF_EXECUTABLE localedef)
+    set(DIP_LOCALE_DIR "${CMAKE_CURRENT_BINARY_DIR}/locales")
+    set(DIP_LOCALE_STAMP "${DIP_LOCALE_DIR}/de_DE.UTF-8/localedef.stamp")
+    if(LOCALEDEF_EXECUTABLE AND NOT EXISTS "${DIP_LOCALE_STAMP}")
+      file(MAKE_DIRECTORY "${DIP_LOCALE_DIR}")
+      execute_process(COMMAND "${LOCALEDEF_EXECUTABLE}" -c -i de_DE -f UTF-8 "${DIP_LOCALE_DIR}/de_DE.UTF-8"
+        RESULT_VARIABLE DIP_LOCALEDEF_RESULT OUTPUT_QUIET ERROR_QUIET)
+      if(DIP_LOCALEDEF_RESULT EQUAL 0 OR DIP_LOCALEDEF_RESULT EQUAL 1)
+        file(TOUCH "${DIP_LOCALE_STAMP}")
+      endif()
+    endif()
+    # As with the Turkish marketdata run, a locale the build supplied but the test cannot
+    # activate then fails it instead of skipping it: a broken setup must not turn it off.
+    # Configuring again does not repair a directory damaged after its stamp was written (a
+    # deleted file, or files a newer glibc cannot read); the failure says to delete it, so
+    # that the next configure compiles it anew.
+    if(EXISTS "${DIP_LOCALE_STAMP}")
+      set_tests_properties(locale_regression PROPERTIES ENVIRONMENT "LOCPATH=${DIP_LOCALE_DIR};DIP_LOCALE_REQUIRED=1")
+    endif()
+  endif()
+endif()

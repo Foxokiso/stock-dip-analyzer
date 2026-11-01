@@ -5,18 +5,23 @@
 //   titles: one trimmed raw <title> per line, optionally followed by a TAB and the
 //           trimmed <source> element text. Output: title TAB source TAB 0|1.
 //   links:  one trimmed <link> per line. Output: 0|1 (safe).
-//   order:  one line of space-separated 0/1 highImpact flags in insertion order.
+//   order:  one line of space-separated tokens, one per accepted headline in feed order:
+//           the 0/1 highImpact flag, followed by @ and Date.parse(publishedAt) in Unix
+//           milliseconds when the headline is dated ("1@1761879394000", "0").
 //           Output: the display order as space-separated indices.
 //
 // Input is UTF-8 bytes; titles must not contain TAB, CR or LF (line protocol).
 // No floating-point values are emitted, so no precision setting is needed.
 #include "dip/oilnews.hpp"
 
+#include <charconv>
+#include <cstdint>
 #include <iostream>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 int main(int argc, char** argv) {
@@ -32,11 +37,25 @@ int main(int argc, char** argv) {
             std::cout << (dip::oilnews::isSafeLink(line) ? '1' : '0') << '\n';
         } else if (mode == "order") {
             std::istringstream input(line);
-            std::vector<bool> flags;
-            int flag = 0;
-            while (input >> flag) flags.push_back(flag != 0);
+            std::vector<dip::oilnews::HeadlineKey> headlines;
+            std::string token;
+            while (input >> token) {
+                dip::oilnews::HeadlineKey key;
+                key.highImpact = token[0] == '1';
+                if (const std::size_t at = token.find('@'); at != std::string::npos) {
+                    std::int64_t milliseconds = 0;
+                    const char* const end = token.data() + token.size();
+                    const auto result = std::from_chars(token.data() + at + 1, end, milliseconds);
+                    if (result.ec != std::errc{} || result.ptr != end) {
+                        std::cerr << "oilnews_driver: bad order token " << token << '\n';
+                        return 2;
+                    }
+                    key.publishedMs = milliseconds;
+                }
+                headlines.push_back(key);
+            }
             const char* separator = "";
-            for (const std::size_t index : dip::oilnews::orderHeadlines(flags)) {
+            for (const std::size_t index : dip::oilnews::orderHeadlines(headlines)) {
                 std::cout << separator << index;
                 separator = " ";
             }

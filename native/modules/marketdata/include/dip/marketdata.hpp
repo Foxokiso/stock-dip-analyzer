@@ -20,8 +20,9 @@
 //    time value truncated toward zero, years beyond 9999 written as +YYYYYY.
 //  * delayMinutes keeps a finite value >= 0 (including -0); currency and the exchange
 //    zone are passed through only when they are strings.
-//  * canRaiseTechnicalAlert: positive price, at least 15 bars, delayMinutes === 0, and a
-//    parseable quotedAt no older than five minutes (and not in the future).
+//  * canRaiseTechnicalAlert: positive price, at least 15 bars, a parseable quotedAt at most
+//    five minutes old and at most one minute ahead (clock skew), and a delay that is either
+//    not reported (nullopt; Yahoo's chart meta never reports one) or exactly zero.
 //
 // Time zones: the exchange day is computed with std::chrono (time_zone::get_info /
 // zoned_time semantics) from the IANA zone name Yahoo reports. Zone data therefore
@@ -41,6 +42,9 @@
 // date-time forms without an offset are local time, using the offset in force before a
 // transition inside a DST gap or overlap, as ECMAScript requires. V8's lenient legacy
 // fallback formats ("Oct 9 2026", "2026-1-9", ...) are not ported and parse as NaN.
+// Local time is the host zone as V8 (ICU) finds it: the TZ variable when set (an IANA name,
+// optionally ':'-prefixed; an empty TZ or one naming no zone is UTC), otherwise
+// std::chrono::current_zone(), which on libstdc++ reads /etc/localtime and ignores TZ.
 #include <optional>
 #include <string>
 #include <vector>

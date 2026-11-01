@@ -3,8 +3,11 @@
 #include "dip/jsonlite.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cstdint>
-#include <cstdlib>
+#include <limits>
+#include <system_error>
+#include <unordered_map>
 #include <utility>
 
 namespace dip::jsonlite {
@@ -36,24 +39,71 @@ void Object::set(std::string key, Value value) {
     values.push_back(std::move(value));
 }
 
-std::size_t decodeUtf8(std::string_view text, std::size_t position, char32_t& codePoint) noexcept {
+namespace {
+
+struct Sequence {
+    char32_t codePoint;  // U+FFFD when ill-formed
+    std::size_t length;  // the sequence, or its maximal ill-formed subpart (at least one byte)
+    bool wellFormed;
+};
+
+// WHATWG UTF-8 decoding (what TextDecoder and Response.text() do) of the sequence at
+// `position`: an ill-formed sequence is one U+FFFD over its maximal subpart, and the next
+// byte starts afresh. With `surrogates`, ED A0..BF xx decodes to the surrogate code point,
+// the WTF-8 form in which this reader stores lone surrogate escapes.
+Sequence decodeSequence(std::string_view text, std::size_t position, bool surrogates) noexcept {
     const unsigned char lead = static_cast<unsigned char>(text[position]);
-    codePoint = lead;
-    std::size_t length = 0;
-    if (lead < 0x80u) return 1;
-    if ((lead & 0xE0u) == 0xC0u) length = 2;
-    else if ((lead & 0xF0u) == 0xE0u) length = 3;
-    else if ((lead & 0xF8u) == 0xF0u) length = 4;
-    else return 1;
-    if (position + length > text.size()) return 1;
-    char32_t value = static_cast<char32_t>(lead & (0x7Fu >> length));
-    for (std::size_t index = 1; index < length; ++index) {
+    if (lead < 0x80u) return {lead, 1, true};
+    std::size_t needed = 0;
+    unsigned char lower = 0x80u;
+    unsigned char upper = 0xBFu;
+    char32_t value = 0;
+    if (lead >= 0xC2u && lead <= 0xDFu) {
+        needed = 1;
+        value = static_cast<char32_t>(lead & 0x1Fu);
+    } else if (lead >= 0xE0u && lead <= 0xEFu) {
+        needed = 2;
+        value = static_cast<char32_t>(lead & 0x0Fu);
+        if (lead == 0xE0u) lower = 0xA0u;                 // overlong
+        if (lead == 0xEDu && !surrogates) upper = 0x9Fu;  // encoded surrogate
+    } else if (lead >= 0xF0u && lead <= 0xF4u) {
+        needed = 3;
+        value = static_cast<char32_t>(lead & 0x07u);
+        if (lead == 0xF0u) lower = 0x90u;  // overlong
+        if (lead == 0xF4u) upper = 0x8Fu;  // above U+10FFFF
+    } else {
+        return {0xFFFDu, 1, false};  // C0, C1, F5..FF or a stray continuation byte
+    }
+    for (std::size_t index = 1; index <= needed; ++index) {
+        if (position + index >= text.size()) return {0xFFFDu, index, false};
         const unsigned char byte = static_cast<unsigned char>(text[position + index]);
-        if ((byte & 0xC0u) != 0x80u) return 1;
+        if (byte < lower || byte > upper) return {0xFFFDu, index, false};
+        lower = 0x80u;
+        upper = 0xBFu;
         value = static_cast<char32_t>((value << 6) | (byte & 0x3Fu));
     }
-    codePoint = value;
-    return length;
+    return {value, needed + 1, true};
+}
+
+}  // namespace
+
+std::size_t decodeUtf8(std::string_view text, std::size_t position, char32_t& codePoint) noexcept {
+    const Sequence sequence = decodeSequence(text, position, true);
+    codePoint = sequence.codePoint;
+    return sequence.length;
+}
+
+std::string decodeUtf8Lossy(std::string_view bytes) {
+    std::string out;
+    out.reserve(bytes.size());
+    std::size_t position = bytes.substr(0, 3) == "\xEF\xBB\xBF" ? 3 : 0;  // a leading BOM is dropped
+    while (position < bytes.size()) {
+        const Sequence sequence = decodeSequence(bytes, position, false);
+        if (sequence.wellFormed) out.append(bytes.substr(position, sequence.length));
+        else appendUtf8(out, 0xFFFDu);
+        position += sequence.length;
+    }
+    return out;
 }
 
 void appendUtf8(std::string& out, char32_t codePoint) {
@@ -89,15 +139,75 @@ int hexDigit(unsigned char byte) noexcept {
     return -1;
 }
 
-// Nearest double for a grammar-checked JSON number literal. strtod is correctly rounded
-// on the supported C libraries (UCRT, glibc) and yields the +-infinity / zero / subnormal
-// result that JavaScript's JSON.parse produces on overflow and underflow. The literal has
-// already been validated against the JSON grammar, so strtod never sees hex, "inf" or
-// "nan" spellings, and the only decimal separator is '.'; this library never changes the
-// C locale, which stays "C" unless the host program sets another one.
+// Object::set while an object is being parsed. Its linear duplicate search made an n-member
+// object cost O(n^2) (64,000 members took about 6 s), so beyond the size of an ordinary
+// record the member positions are indexed by key. Either way a repeated key keeps its first
+// position and takes the last value, as JSON.parse does.
+constexpr std::size_t kLinearMembers = 16;
+
+void setMember(Object& object, std::unordered_map<std::string, std::size_t>& positions, std::string key, Value value) {
+    if (object.size() < kLinearMembers) {
+        object.set(std::move(key), std::move(value));
+        return;
+    }
+    if (positions.empty()) {
+        for (std::size_t position = 0; position < object.size(); ++position) positions.emplace(object.keys[position], position);
+    }
+    const auto [found, inserted] = positions.try_emplace(key, object.size());
+    if (!inserted) {
+        object.values[found->second] = std::move(value);
+        return;
+    }
+    object.keys.push_back(std::move(key));
+    object.values.push_back(std::move(value));
+}
+
+// Decimal exponent of the first significant digit of a grammar-checked literal ("123.4" -> 2,
+// "0.00123" -> -3, "1e400" -> 400). Only its sign is used: a literal beyond the double range
+// overflows when it is >= 0 and underflows when it is < 0. The exponent part saturates
+// instead of overflowing.
+long long leadingExponent(std::string_view literal) noexcept {
+    std::size_t position = literal[0] == '-' ? 1 : 0;
+    long long digits = 0;
+    long long integerDigits = -1;
+    long long firstSignificant = -1;
+    for (; position < literal.size() && literal[position] != 'e' && literal[position] != 'E'; ++position) {
+        if (literal[position] == '.') {
+            integerDigits = digits;
+            continue;
+        }
+        if (firstSignificant < 0 && literal[position] != '0') firstSignificant = digits;
+        ++digits;
+    }
+    if (integerDigits < 0) integerDigits = digits;
+    if (firstSignificant < 0) return -1;  // zero: never out of range
+    long long exponent = 0;
+    if (position < literal.size()) {
+        ++position;  // 'e' or 'E'
+        const bool negative = literal[position] == '-';
+        if (literal[position] == '-' || literal[position] == '+') ++position;
+        for (; position < literal.size(); ++position) {
+            exponent = std::min(exponent * 10 + (literal[position] - '0'), 1'000'000'000'000LL);
+        }
+        if (negative) exponent = -exponent;
+    }
+    return integerDigits - 1 - firstSignificant + exponent;
+}
+
+// Nearest double for a grammar-checked JSON number literal, as JSON.parse computes it.
+// std::from_chars is correctly rounded and, unlike strtod, ignores the C locale: under a
+// comma-decimal LC_NUMERIC (de_DE, fr_FR; a host that calls setlocale(LC_ALL, "") gets one)
+// strtod read "6789.25" as 6789. from_chars reports a value beyond the double range as
+// out of range and leaves it unset, where JavaScript gives +-Infinity on overflow and +-0
+// on underflow. The grammar check rules out hex, "inf" and "nan" spellings.
 double toDouble(std::string_view literal) {
-    const std::string text(literal);
-    return std::strtod(text.c_str(), nullptr);
+    double value = 0.0;
+    const std::from_chars_result result = std::from_chars(literal.data(), literal.data() + literal.size(), value);
+    if (result.ec == std::errc::result_out_of_range) {
+        value = leadingExponent(literal) >= 0 ? std::numeric_limits<double>::infinity() : 0.0;
+        return literal[0] == '-' ? -value : value;
+    }
+    return value;
 }
 
 class Parser {
@@ -165,6 +275,7 @@ private:
         enter();
         ++position_;  // '{'
         Object object;
+        std::unordered_map<std::string, std::size_t> positions;  // filled only for large objects
         skipWhitespace();
         if (!atEnd() && peek() == '}') {
             ++position_;
@@ -179,7 +290,7 @@ private:
             expect(':', "expected ':' after key");
             skipWhitespace();
             Value member = parseValue();
-            object.set(std::move(key), std::move(member));
+            setMember(object, positions, std::move(key), std::move(member));
             skipWhitespace();
             if (atEnd()) fail("unterminated object");
             if (peek() == ',') { ++position_; continue; }

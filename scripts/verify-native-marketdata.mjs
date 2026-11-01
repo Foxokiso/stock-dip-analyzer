@@ -1,12 +1,15 @@
 // Market-data parity between native/modules/marketdata and src/utils/marketData.js.
-// Preservation of existing behavior only; this is not a trading backtest. Every number here is
-// a synthetic probe of the normalization rules: no quote, close or timestamp is presented as real.
+// Preservation of existing behavior only; this is not a trading backtest. Apart from the recorded
+// Yahoo responses replayed from tests/fixtures, every number here is a synthetic probe of the
+// normalization rules: no quote, close or timestamp is presented as real.
 //
 // The JavaScript reference is the real getYahooQuote / getYahooChartPoints / canRaiseTechnicalAlert
 // fed Yahoo-shaped objects. The only engine-level reference is Date.parse for the parser building
 // block the alert rule depends on (the format verifier does the same for toFixed).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { getYahooQuote, getYahooChartPoints, canRaiseTechnicalAlert } from '../src/utils/marketData.js';
 
 const executable = process.argv[2];
@@ -19,15 +22,16 @@ const cases = [];
 // Quote cases: { kind: 'quote', meta, timestamps, closes, omitNulls?, raw? }. `raw` replaces the
 // object handed to the JavaScript reference (shape probes); the driver always receives the tokens.
 const quote = (label, meta, timestamps, closes, extra = {}) => cases.push({ kind: 'quote', label, meta, timestamps, closes, ...extra });
+// Like Yahoo's chart meta, the default states no exchangeDataDelayedBy.
 const metaOf = (quoteTime, extra = {}) => ({
   regularMarketPrice: 105, regularMarketTime: typeof quoteTime === 'string' ? ts(quoteTime) : quoteTime,
-  exchangeTimezoneName: 'America/New_York', range: '1mo', exchangeDataDelayedBy: 15, currency: 'USD',
+  exchangeTimezoneName: 'America/New_York', range: '1mo', exchangeDataDelayedBy: null, currency: 'USD',
   chartPreviousClose: null, previousClose: null, ...extra,
 });
 const stamps = list => list.map(value => typeof value === 'string' ? ts(value) : value);
 
 // Every case in tests/marketData.test.js.
-quote('unit: preceding session', metaOf('2026-10-09T18:00:00Z'), stamps(['2026-10-08T13:30:00Z', '2026-10-09T13:30:00Z']), [100, 104]);
+quote('unit: preceding session', metaOf('2026-10-09T18:00:00Z', { exchangeDataDelayedBy: 15 }), stamps(['2026-10-08T13:30:00Z', '2026-10-09T13:30:00Z']), [100, 104]);
 quote('unit: own bar absent', metaOf('2026-10-09T18:00:00Z'), stamps(['2026-10-07T13:30:00Z', '2026-10-08T13:30:00Z']), [90, 100]);
 quote('unit: null prior session', metaOf('2026-10-09T18:00:00Z'), stamps(['2026-10-07T13:30:00Z', '2026-10-08T13:30:00Z', '2026-10-09T13:30:00Z']), [90, null, 104]);
 quote('unit: multi-day chartPreviousClose', metaOf('2026-10-09T18:00:00Z', { chartPreviousClose: 80 }), stamps(['2026-10-09T13:30:00Z']), [104]);
@@ -35,6 +39,15 @@ quote('unit: 1d chartPreviousClose', metaOf('2026-10-09T18:00:00Z', { range: '1d
 quote('unit: invalid metadata', metaOf('2026-10-09T18:00:00Z', { regularMarketPrice: null, regularMarketTime: null, exchangeDataDelayedBy: null }), stamps(['2026-10-08T13:30:00Z']), [100]);
 quote('unit: chart points drop Infinity', metaOf('2026-10-09T18:00:00Z'), stamps(['2026-10-08T00:30:00Z', '2026-10-09T13:30:00Z']), [100, Infinity]);
 quote('unit: explicit previousClose', metaOf('2026-10-09T18:00:00Z', { previousClose: 102 }), stamps(['2026-10-08T13:30:00Z', '2026-10-09T13:30:00Z']), [100, 104]);
+
+// Recorded Yahoo responses: the reference gets the whole result, the driver the fields it reads.
+const recorded = ['yahoo-chart-AAPL-1mo-2026-10-30.json', 'yahoo-chart-PLUG-1mo-2026-10-30.json']
+  .map(name => [name, JSON.parse(readFileSync(new URL(`../tests/fixtures/${name}`, import.meta.url), 'utf8')).chart.result[0]]);
+for (const [name, raw] of recorded) {
+  const { meta } = raw;
+  const fields = ['regularMarketPrice', 'regularMarketTime', 'exchangeTimezoneName', 'range', 'chartPreviousClose', 'previousClose', 'exchangeDataDelayedBy', 'currency'];
+  quote(`recorded ${name}`, Object.fromEntries(fields.map(key => [key, meta[key] ?? null])), raw.timestamp, raw.indicators.quote[0].close, { raw });
+}
 
 // Object-shape probes: the reference tolerates a missing result, meta or indicators.
 const empty = { regularMarketPrice: null, regularMarketTime: null, exchangeTimezoneName: null, range: null, chartPreviousClose: null, previousClose: null, exchangeDataDelayedBy: null, currency: null };
@@ -111,6 +124,7 @@ for (let i = 0; i < 300; i++) {
     }
   }
   if (random() < 0.1 && timestamps.length > 1) timestamps[timestamps.length - 1] = timestamps[0];
+  // eslint-disable-next-line no-dupe-else-if -- each random() is a new draw
   if (random() < 0.1) closes.pop(); else if (random() < 0.1) closes.push(price);
   const valid = timestamps.filter(value => Number.isFinite(value) && value > 0 && value < 8.64e12);
   const lastValid = valid.length ? Math.max(...valid) : base;
@@ -132,7 +146,9 @@ for (let i = 0; i < 300; i++) {
 // ---------------------------------------------------------------------------------------------
 // Exchange-day building block, checked through getYahooChartPoints (the exported path): every
 // zone × instants on each hour boundary (±1 ms) of dates around DST changes and the far future.
-const dayZones = ['America/New_York', 'Europe/London', 'Asia/Tokyo', 'UTC', 'Etc/UTC', 'GMT', 'utc', 'america/new_york', 'US/Eastern', 'Etc/GMT+5', 'Australia/Sydney', 'Asia/Kolkata', 'Asia/Kathmandu', 'Pacific/Chatham', 'Pacific/Kiritimati', 'Pacific/Pago_Pago', 'America/St_Johns', 'Mars/Olympus_Mons', 'Etc/Unknown', 'not a zone', '', null];
+// Matching these names folds an I against an i (see the Turkish run at the end).
+const foldZones = ['europe/istanbul', 'asia/irkutsk', 'AMERICA/NEW_YORK'];
+const dayZones = ['America/New_York', 'Europe/London', 'Asia/Tokyo', 'UTC', 'Etc/UTC', 'GMT', 'utc', 'america/new_york', 'US/Eastern', 'Etc/GMT+5', 'Australia/Sydney', 'Asia/Kolkata', 'Asia/Kathmandu', 'Pacific/Chatham', 'Pacific/Kiritimati', 'Pacific/Pago_Pago', 'America/St_Johns', 'Mars/Olympus_Mons', 'Etc/Unknown', 'not a zone', '', null, ...foldZones];
 const dayDates = ['2026-03-08', '2026-11-01', '2026-03-29', '2026-10-25', '2026-04-05', '2026-10-04', '2007-03-11', '2040-03-11', '1970-01-01', '2000-02-29', '9999-12-31', '2026-10-09'];
 // Only positive instants reach exchangeDay through the exported path (non-positive bars are dropped).
 const day = (seconds, zone) => { if (seconds > 0) cases.push({ kind: 'day', seconds, zone }); };
@@ -187,7 +203,21 @@ alert('unit: delayed', { ...live, delayMinutes: 1 }, 20, now);
 alert('unit: untimed', { ...live, quotedAt: null }, 20, now);
 alert('unit: stale', { ...live, quotedAt: '2026-10-09T17:30:00Z' }, 20, now);
 alert('unit: short history', live, 2, now);
-for (const age of [0, 1, 299999, 300000, 300001, -1, -1000, 86400000]) alert(`age ${age}`, { ...live, quotedAt: new Date(now - age).toISOString() }, 15, now);
+alert('unit: unstated delay', { ...live, delayMinutes: null }, 20, now);
+alert('unit: unstated delay, stale', { ...live, delayMinutes: null, quotedAt: '2026-10-09T17:30:00Z' }, 20, now);
+alert('unit: clock skew', { ...live, delayMinutes: null, quotedAt: '2026-10-09T18:01:00Z' }, 20, now);
+alert('unit: future quote', { ...live, delayMinutes: null, quotedAt: '2026-10-09T18:01:01Z' }, 20, now);
+// A stated delay must be 0; an unstated one (null: Yahoo's chart meta never states it) leaves the
+// decision to the quote's own age, which may run up to a minute ahead (clock skew).
+for (const delayMinutes of [null, 0, 15]) {
+  for (const age of [-61000, -60001, -60000, -59999, -1000, -1, 0, 1, 299999, 300000, 300001, 301000, 86400000]) {
+    alert(`delay ${delayMinutes}, age ${age}`, { ...live, delayMinutes, quotedAt: new Date(now - age).toISOString() }, 15, now);
+  }
+  for (const historyLength of [14, 15]) alert(`delay ${delayMinutes}, history ${historyLength}`, { ...live, delayMinutes }, historyLength, now);
+  for (const quotedAt of [null, '', 'garbage', '2026-10-09T17:59:60Z', '2026-13-09T17:59:00Z']) {
+    alert(`delay ${delayMinutes}, quotedAt ${JSON.stringify(quotedAt)}`, { ...live, delayMinutes, quotedAt }, 20, now);
+  }
+}
 for (const historyLength of [14, 15, 16, 14.999, 15.5, NaN, Infinity, -Infinity, 0]) alert(`history ${historyLength}`, live, historyLength, now);
 for (const delayMinutes of [0, -0, 0.0, 1, -1, NaN, Infinity, null, 15]) alert(`delay ${delayMinutes}`, { ...live, delayMinutes }, 20, now);
 for (const price of [100, 0, -1, NaN, Infinity, null, 1e-300]) alert(`price ${price}`, { ...live, price }, 20, now);
@@ -196,6 +226,10 @@ for (const quotedAt of ['2026-10-09T17:59:00Z', '2026-10-09T17:59:00.000Z', '202
 }
 alert('now NaN', live, 20, NaN);
 alert('now earlier than quote', live, 20, now - 120000);
+for (const [name, raw] of recorded) {
+  const { price, quotedAt, delayMinutes, closes } = getYahooQuote(raw, { fetchedAt: 'fixed' });
+  for (const age of [-60000, 60000, 300000, 301000]) alert(`recorded ${name}, age ${age}`, { price, quotedAt, delayMinutes }, closes.length, Date.parse(quotedAt) + age);
+}
 
 // ---------------------------------------------------------------------------------------------
 // Encoding (see native/modules/marketdata/tests/marketdata_driver.cpp).
@@ -219,17 +253,10 @@ const encodeCase = entry => {
     case 'iso': return `iso ${encNum(entry.seconds)}`;
     case 'day': case 'day-throws': return `day ${encNum(entry.seconds)} ${encStr(entry.zone)}`;
     case 'parse': return `parse ${encStr(entry.text)}`;
+    case 'ctype': return `ctype ${encStr(entry.name)}`;
     default: throw new Error(`unknown case kind ${entry.kind}`);
   }
 };
-const input = cases.map(encodeCase).join('\n') + '\n';
-const run = spawnSync(executable, [], { input, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-assert.equal(run.status, 0, run.error?.message || run.stderr);
-// Windows text-mode stdout ends lines with CRLF; compare line content, not line endings.
-const rows = run.stdout.replace(/\r?\n$/, '').split(/\r?\n/);
-assert.equal(rows.length, cases.length, 'one output line per case');
-assert.ok(!run.stdout.includes('Zombie Corp') && !run.stdout.includes('Mock News'));
-
 // ---------------------------------------------------------------------------------------------
 // Comparison: relative tolerance 1e-12 for doubles, exact equality for strings and booleans.
 const near = (actual, expected, label) => {
@@ -247,10 +274,7 @@ const toResult = entry => {
 };
 const pointsOf = (seconds, zone) => getYahooChartPoints({ meta: { exchangeTimezoneName: zone }, timestamp: [seconds], indicators: { quote: [{ close: [1] }] } });
 
-for (let i = 0; i < cases.length; i++) {
-  const entry = cases[i];
-  const row = rows[i];
-  const label = `case ${i} (${entry.kind}${entry.label ? `: ${entry.label}` : ''})`;
+const compare = (entry, row, label) => {
   assert.notEqual(row, 'error:malformed-line', `${label}: driver rejected the line`);
   switch (entry.kind) {
     case 'quote': {
@@ -306,7 +330,83 @@ for (let i = 0; i < cases.length; i++) {
       near(decNum(row), expected, `${label}: Date.parse(${JSON.stringify(entry.text)})`);
       break;
     }
+    case 'ctype': {
+      assert.notEqual(decStr(row), null, `${label}: the driver could not switch LC_CTYPE to ${entry.name}`);
+      break;
+    }
     default: throw new Error(`unknown case kind ${entry.kind}`);
   }
+};
+
+// Runs the driver over `list` in the environment `env` and compares every row with the reference.
+const verify = (list, env = process.env) => {
+  const input = list.map(encodeCase).join('\n') + '\n';
+  const run = spawnSync(executable, [], { input, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env });
+  assert.equal(run.status, 0, run.error?.message || run.stderr);
+  // Windows text-mode stdout ends lines with CRLF; compare line content, not line endings.
+  const rows = run.stdout.replace(/\r?\n$/, '').split(/\r?\n/);
+  assert.equal(rows.length, list.length, 'one output line per case');
+  assert.ok(!run.stdout.includes('Zombie Corp') && !run.stdout.includes('Mock News'));
+  list.forEach((entry, i) => compare(entry, rows[i], `case ${i} (${entry.kind}${entry.label ? `: ${entry.label}` : ''})`));
+};
+verify(cases);
+
+// ---------------------------------------------------------------------------------------------
+// Local-time forms follow the host zone on both sides (V8 and the port read TZ), so they are run
+// again under TZ zones with DST gaps and overlaps (New York, London, Sydney) and a half-hour
+// offset (Kolkata): on a UTC host the transition rule would otherwise never be exercised. London
+// is given in the ':'-prefixed form TZ also accepts.
+const pad = (value, width = 2) => String(value).padStart(width, '0');
+const localText = millis => {
+  const d = new Date(millis);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+};
+const transitions = ['2026-03-08', '2026-11-01', '2026-03-29', '2026-10-25', '2026-10-04', '2026-04-05']
+  .flatMap(date => ['00:59:59', '01:00:00', '01:30:00', '01:59:59', '02:00:00', '02:30:00', '02:59:59', '03:00:00', '03:30:00'].map(time => `${date}T${time}`));
+const hostZoneName = process.env.TZ;
+const localRuns = [];
+for (const zone of ['America/New_York', ':Europe/London', 'Australia/Sydney', 'Asia/Kolkata']) {
+  process.env.TZ = zone;
+  // Node applies a runtime TZ change on the platforms it supports; skip rather than misreport.
+  const zoneName = new Intl.DateTimeFormat([], { timeZone: zone.replace(/^:/, '') }).resolvedOptions().timeZone;
+  if (Intl.DateTimeFormat().resolvedOptions().timeZone !== zoneName) {
+    console.warn(`Skipping the ${zone} local-time run: this Node did not apply TZ=${zone}`);
+    continue;
+  }
+  const local = [...transitions, '2026-10-09T12:00:00', '2026-10-09T12:00', '2026-10-09 17:59', '2026-07-04T00:00:00', '2026-01-15T23:59:59.999',
+    '2026-10-09T24:00:00', '2026-02-30T12:00:00', '+010000-06-15T12:00:00', '2026-10-09'].map(text => ({ kind: 'parse', text }));
+  for (const age of [-61000, -60000, 0, 300000, 301000]) {
+    local.push({ kind: 'alert', label: `${zone} local quotedAt, age ${age}`, quote: { ...live, delayMinutes: null, quotedAt: localText(now - age) }, historyLength: 15, now });
+  }
+  verify(local, { ...process.env, TZ: zone });
+  localRuns.push(`${local.length} in ${zone}`);
 }
-console.log(`${cases.length} native/JavaScript marketdata parity cases passed`);
+if (hostZoneName === undefined) delete process.env.TZ;
+else process.env.TZ = hostZoneName;
+
+// ---------------------------------------------------------------------------------------------
+// Zone names match in any case by folding ASCII letters only. std::tolower would follow the C
+// locale, which a host may take from the environment (Qt does): under a Turkish LC_CTYPE it leaves
+// 'I' unfolded, so 'europe/istanbul' or 'AMERICA/NEW_YORK' fell back to the UTC day. Those cases
+// run again with the driver's LC_CTYPE switched to Turkish. On Linux with glibc's locale sources,
+// configuring native/ compiles tr_TR.UTF-8 into the build tree and CTest passes its directory as
+// DIP_LOCALE_DIR (LOCPATH for this run only); elsewhere an installed Turkish locale is used, or
+// the run is skipped. CTest sets DIP_LOCALE_DIR only once that locale compiled, so a driver that
+// cannot switch to it then fails the run: a broken locale setup must not turn this check off.
+const localeDir = process.env.DIP_LOCALE_DIR;
+const turkishEnv = localeDir && existsSync(join(localeDir, 'tr_TR.UTF-8', 'LC_CTYPE')) ? { ...process.env, LOCPATH: localeDir } : process.env;
+const ctypeOf = name => {
+  const run = spawnSync(executable, [], { input: `ctype ${encStr(name)}\n`, encoding: 'utf8', env: turkishEnv });
+  return run.status === 0 ? decStr(run.stdout.trim()) : null;
+};
+const turkish = ['tr_TR.UTF-8', 'tr_TR.utf8', 'tr_TR', 'Turkish_Turkey.1254', 'tr-TR'].find(name => ctypeOf(name) !== null);
+let turkishRun = 'skipped';
+if (turkish === undefined) {
+  assert.ok(!localeDir, `the driver could not switch LC_CTYPE to the Turkish locale in DIP_LOCALE_DIR=${localeDir}`);
+  console.warn('Skipping the Turkish LC_CTYPE run: the driver found no Turkish locale');
+} else {
+  const folded = cases.filter(entry => entry.kind === 'day' && foldZones.includes(entry.zone));
+  verify([{ kind: 'ctype', name: turkish }, ...folded], turkishEnv);
+  turkishRun = `${folded.length} under ${turkish}`;
+}
+console.log(`${cases.length} native/JavaScript marketdata parity cases passed; local-time cases under TZ: ${localRuns.join(', ') || 'none'}; zone-name cases under a Turkish LC_CTYPE: ${turkishRun}`);

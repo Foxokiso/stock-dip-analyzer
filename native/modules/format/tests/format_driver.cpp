@@ -4,25 +4,27 @@
 //   value  decimal literal as String(x) prints it, or null | nan | Infinity | -Infinity
 //   digits integer, used by formatPct (default 2) and toFixed (default 0)
 #include "dip/format.hpp"
+#include <charconv>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <system_error>
 
 namespace {
-// std::nullopt for "null"; NaN/±Infinity otherwise parsed explicitly because strtod's
-// spelling of them varies between C libraries. Numbers go through strtod, whose
-// correctly rounded conversion matches the JavaScript parser for String(x) output.
+// std::nullopt for "null"; NaN/±Infinity are spelled out explicitly. Numbers go through
+// std::from_chars, whose correctly rounded conversion matches the JavaScript parser for
+// String(x) output and, unlike strtod, ignores the C locale's decimal point.
 std::optional<double> parseValue(const std::string& token, bool& ok) {
     if (token == "null") return std::nullopt;
     if (token == "nan" || token == "NaN") return std::numeric_limits<double>::quiet_NaN();
     if (token == "inf" || token == "Infinity" || token == "+Infinity") return std::numeric_limits<double>::infinity();
     if (token == "-inf" || token == "-Infinity") return -std::numeric_limits<double>::infinity();
-    char* end = nullptr;
-    const double parsed = std::strtod(token.c_str(), &end);
-    if (end == token.c_str() || *end != '\0') ok = false;
+    double parsed = 0;
+    const auto [end, error] = std::from_chars(token.data(), token.data() + token.size(), parsed);
+    if (error != std::errc{} || end != token.data() + token.size()) ok = false;
     return parsed;
 }
 }  // namespace

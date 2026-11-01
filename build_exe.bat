@@ -8,6 +8,11 @@ setlocal enabledelayedexpansion
 :: ============================================================
 
 :: --- Self-elevate to Administrator if not already elevated ---
+:: Admin grants the symlink privilege 7-Zip needs to extract electron-builder's
+:: legacy winCodeSign archive, which contains macOS symlinks. electron-builder 26.18
+:: fetches that archive only to sign or to build AppX, and this script does neither,
+:: so elevation is probably no longer needed. It stays until a build as a standard
+:: user has been confirmed: CI runners are administrators, so CI cannot show it.
 net session >nul 2>&1
 if %errorlevel% neq 0 (
     echo [BUILD] Not elevated. Requesting admin privileges...
@@ -31,24 +36,11 @@ set CSC_LINK=
 set WIN_CSC_LINK=
 set WIN_CSC_KEY_PASSWORD=
 
-:: --- Enable symlink creation for current session (Developer Mode workaround) ---
-:: The winCodeSign 7z archive contains macOS symlinks; 7-zip needs symlink privilege.
-:: Running as admin grants SeCreateSymbolicLinkPrivilege.
-
-:: --- Clean stale winCodeSign cache to avoid partial extractions ---
-echo [BUILD] Cleaning stale electron-builder cache...
-if exist "%LOCALAPPDATA%\electron-builder\Cache\winCodeSign" (
-    rmdir /s /q "%LOCALAPPDATA%\electron-builder\Cache\winCodeSign"
-    echo [BUILD] Cleared winCodeSign cache.
-) else (
-    echo [BUILD] No stale cache found.
-)
-
 :: --- Run Vite build ---
 echo.
-echo [BUILD] Step 1/2 — Running Vite production build...
+echo [BUILD] Step 1/2 - Running Vite production build...
 echo ------------------------------------------------------------
-call npx vite build
+call npm run build:renderer
 if %errorlevel% neq 0 (
     echo.
     echo [ERROR] Vite build failed! Check output above.
@@ -59,9 +51,11 @@ echo [BUILD] Vite build succeeded.
 
 :: --- Run electron-builder ---
 echo.
-echo [BUILD] Step 2/2 — Running electron-builder (NSIS installer)...
+echo [BUILD] Step 2/2 - Running electron-builder (NSIS installer)...
 echo ------------------------------------------------------------
-call npx electron-builder --win nsis 2>&1
+:: Target, arch and --publish never match CI; --no refuses to download a missing
+:: package while elevated.
+call npm exec --no -- electron-builder --win nsis --x64 --publish never 2>&1
 if %errorlevel% neq 0 (
     echo.
     echo [ERROR] electron-builder failed! Check output above.
@@ -72,12 +66,12 @@ if %errorlevel% neq 0 (
 echo.
 echo ============================================================
 echo   BUILD COMPLETE
-echo   Output: dist\
+echo   Output: release\
 echo ============================================================
 echo.
 
 :: --- Show the output files ---
-dir /b dist\*.exe 2>nul || echo (No .exe found in dist\)
-dir /b "dist\win-unpacked\*.exe" 2>nul
+dir /b release\*.exe 2>nul || echo (No .exe found in release\)
+dir /b "release\win-unpacked\*.exe" 2>nul
 
 pause

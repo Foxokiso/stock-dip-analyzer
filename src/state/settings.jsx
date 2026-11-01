@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SettingsContext } from './settingsContext.js';
-import { getInvoke } from '../utils/bridge.js';
+import { configureNetwork } from './network.js';
 import { DEFAULT_SETTINGS, SETTINGS_KEY, isTransientTheme, loadSettings, mergeKnown, normalizeSettings, persistableSettings, setPath } from './settingsSchema.js';
 
 export function SettingsProvider({ children }) {
@@ -31,9 +31,10 @@ export function SettingsProvider({ children }) {
     root.style.setProperty('--glow-intensity', String(settings.appearance.glow));
   }, [settings.appearance]);
 
-  // The main process owns the network deadline; keep it in step with the setting.
+  // The main process owns the network deadline; keep it in step with the
+  // setting. main.jsx already sent the saved value before the first render.
   useEffect(() => {
-    getInvoke()?.('configure-network', { requestTimeoutSeconds: settings.data.requestTimeoutSeconds }).catch(() => {});
+    configureNetwork(settings.data.requestTimeoutSeconds);
   }, [settings.data.requestTimeoutSeconds]);
 
   const update = useCallback((path, value) => {

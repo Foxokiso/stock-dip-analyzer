@@ -3,6 +3,7 @@ import { Radio, AlertTriangle } from 'lucide-react';
 import { formatPrice, formatPct, formatQuoteTime } from '../utils/format';
 import { getYahooQuote } from '../utils/marketData';
 import { getInvoke } from '../utils/bridge.js';
+import { startVisibleInterval } from '../utils/useVisibleInterval.js';
 import '../styles/components.css';
 
 // Desktop bridge in the { ipcRenderer.invoke } shape this component uses.
@@ -15,8 +16,9 @@ const TRACKED = [
     { sym: '^VIX', label: 'Volatility index', unit: 'points' },
 ];
 
-// '' when there is no verified change; the semantic colour lives in components.css.
-const directionOf = (changePct) => (changePct == null ? '' : changePct >= 0 ? 'up' : 'down');
+// '' when there is no verified change, or none at all (flat, as on the other desks);
+// the semantic colour lives in components.css.
+const directionOf = (changePct) => (changePct > 0 ? 'up' : changePct < 0 ? 'down' : '');
 
 const Sparkline = memo(({ closes, direction }) => {
     const width = 120, height = 26, pad = 2;
@@ -67,8 +69,8 @@ const MarketPulse = ({ autoRefreshInterval = 0, title = 'Market Pulse', tickers 
             setLoading(false);
         };
         fetchQuotes();
-        const timer = autoRefreshInterval > 0 ? setInterval(fetchQuotes, autoRefreshInterval * 60 * 1000) : null;
-        return () => { cancelled = true; if (timer) clearInterval(timer); };
+        const stopTimer = startVisibleInterval(fetchQuotes, autoRefreshInterval);
+        return () => { cancelled = true; stopTimer(); };
     }, [autoRefreshInterval, tickers]);
 
     // Live dot: breathes while fetching and while verified quotes are on screen;

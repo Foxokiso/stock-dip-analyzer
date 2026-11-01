@@ -7,9 +7,10 @@ import { formatCompact, formatPct, formatPrice } from '../src/utils/format.js';
 const executable = process.argv[2];
 assert.ok(executable, 'Pass the compiled native format test driver');
 
-// formatCompact's sub-1000 branch calls Number.prototype.toLocaleString() with the host's
-// default locale, and the native port reproduces en-US. Fail early with an explanation when
-// this host's default Intl locale would make the JavaScript reference itself diverge.
+// formatCompact's sub-1000 branch (Intl.NumberFormat, signDisplay 'negative') and the
+// toLocaleString cases use the host's default locale, and the native port reproduces en-US.
+// Fail early with an explanation when this host's default Intl locale would make the
+// JavaScript reference itself diverge.
 const localeProbe = [1234.5678, -0.0001, 999.9995, 0.5, 1e21];
 assert.deepEqual(
   localeProbe.map(v => v.toLocaleString()),
@@ -49,6 +50,13 @@ for (let exponent = 3; exponent <= 15; exponent++) {
   for (const value of [boundary, -boundary, nextAfter(boundary, -1), nextAfter(boundary, 1), boundary - 1, boundary + 1, boundary * 9.9994, boundary * 9.9995, boundary * 9.9996, boundary * 0.99995, boundary * 0.999949]) everyFormatter(value);
 }
 for (const value of [1500, 1250, 1350, 1450, 1050, 9950, 9949, 99950, 999950, 999949, 999999.5, 1125000, 1135000, 2.5e9, 2.505e9, 1.005e12, 1.125e12, 4500000, 1234567890, 1234567890123, 1e16, 1e18, 1e20, 123456789012345680000, 1e21, -1e21, 1.5e22, 1.2345e25, 1e33, 1.5e34, 1e300, 1.7976931348623157e308, -1.7976931348623157e308]) everyFormatter(value);
+// The unit is chosen after rounding (999,950 is "1.00M", never "1000.0K"; T has no next unit),
+// and a value that rounds to zero prints unsigned ("0.00%", "$0.00", "0").
+for (const value of [999950, 999949.99, -999950, 999995000, 999994999.99, -999995000, 999995000000, 999994999999, 999995e12, 999.9995, -999.9995]) everyFormatter(value);
+for (const value of [-0.004, 0.004, -0.0049999, -0.005, 0.005, -0.0004, -0.0005, -1e-7, 1e-7, -0.4, 0.4, -0.5]) {
+  everyFormatter(value);
+  for (const digits of [0, 1, 2, 3, 8]) add('formatPct', value, digits);
+}
 
 // Rounding at .5: exact binary ties (JS toFixed rounds them up, printf rounds half-even) and
 // decimal literals that are not actually ties (1.005 is below 1.005 in binary).

@@ -14,6 +14,13 @@
   --dash-gutter: 23px;
   --dash-row-pad: calc(11px * var(--density));
   --dash-warning-46: oklch(from var(--warning) calc(l * var(--m2)) calc(c * var(--m2)) h);
+  --dash-wash-ok-07: color-mix(in oklch, var(--success) 7%, transparent);
+  --dash-wash-bad-07: color-mix(in oklch, var(--danger) 7%, transparent);
+  /* Danger lifted 27 % toward white (the link-hover derivation in index.css):
+     the darkest role, so its chip text needs the lift to stay above 4.5:1. */
+  --dash-danger-lift: oklch(from var(--danger) calc(l + (1 - l) * var(--m3)) c h);
+  /* Muted ink lifted the same way (the Futures recipe), for the expanded row. */
+  --dash-muted-lift: oklch(from var(--text-muted) calc(l + (1 - l) * var(--m3)) c h);
 }
 
 /* ── Market pulse strip ───────────────────────────────────────────────── */
@@ -21,7 +28,7 @@
 
 /* ── Heading row: title, reference link, search + filter fields ───────── */
 .dashboard .flex-between.dash-head { margin-bottom: var(--gap); gap: var(--gap-sm); }
-.dashboard .dash-head h2 {
+.dashboard .dash-head h1 {
   display: flex;
   align-items: center;
   gap: var(--gap-xs);
@@ -92,10 +99,13 @@
 .dashboard .dash-reference { color: var(--primary); }
 
 /* ── Search and filter fields ─────────────────────────────────────────── */
-.dashboard .flex-center.dash-controls { gap: var(--gap-sm); }
+/* The row wraps, and min-width: 0 lets a field (and its selects) narrow below
+   its longest option, so a 320 px window does not scroll sideways. */
+.dashboard .flex-center.dash-controls { gap: var(--gap-sm); min-width: 0; }
 .dashboard .dash-field {
   display: flex;
   align-items: center;
+  min-width: 0;
   gap: var(--gap-xs);
   padding: 8px 13px;
   border-radius: var(--radius);
@@ -206,7 +216,6 @@
 }
 .dashboard .dash-stat--up .dash-stat-value { color: var(--success); }
 .dashboard .dash-stat--down .dash-stat-value { color: var(--danger); }
-.dashboard .dash-stat--muted .dash-stat-value { color: var(--text-muted); }
 
 /* ── Table panel ──────────────────────────────────────────────────────── */
 .dashboard .dash-table-panel {
@@ -217,15 +226,19 @@
   border-radius: var(--radius-lg);
   box-shadow: var(--glass-shadow);
 }
+/* Fixed layout: column widths come from the <colgroup> in Dashboard.jsx, so
+   a cell update never re-measures the whole table. */
 .dashboard .dash-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   text-align: left;
   font-size: 12px;
 }
 
 /* Sticky header: an opaque card-hover strip (no backdrop-filter) with a
-   hairline drawn as an inset shadow so it survives border-collapse. */
+   hairline drawn as an inset shadow so it survives border-collapse. Labels
+   wrap inside their fixed column instead of spilling into the next one. */
 .dashboard .dash-table th {
   position: sticky;
   top: 0;
@@ -238,7 +251,6 @@
   font-weight: 500;
   letter-spacing: 0.7px;
   text-transform: uppercase;
-  white-space: nowrap;
   user-select: none;
   transition: color var(--transition-fast);
 }
@@ -286,8 +298,12 @@
 .dashboard .dash-table .centered { text-align: center; }
 .dashboard .is-up { color: var(--success); }
 .dashboard .is-down { color: var(--danger); }
-.dashboard .is-warn { color: var(--warning); }
 .dashboard .is-muted { color: var(--text-muted); }
+/* The selected row's primary wash is the lightest row ground: there, down text
+   takes the lifted danger and the muted and faint text the lifted muted ink, to
+   keep 4.5:1 (plain muted ink fell short in Alien Fractal). */
+.dashboard .dash-row.is-expanded .is-down { color: var(--dash-danger-lift); }
+.dashboard .dash-row.is-expanded :is(.dash-company, .dash-meta:not(.dash-meta--stale), .is-muted, .text-muted) { color: var(--dash-muted-lift); }
 
 .dashboard .dash-symbol {
   font-family: var(--font-mono);
@@ -295,18 +311,27 @@
   letter-spacing: 0.02em;
   color: var(--text-main);
 }
-.dashboard .dash-company {
-  max-width: 28ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 11px;
-  color: var(--text-muted);
+/* The symbol link opens the stock page by keyboard; same recipe as Oil Watch. */
+.dashboard .dash-symbol-link {
+  border-radius: var(--radius-sm);
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+  transition: color var(--transition-fast), text-decoration-color var(--transition-fast);
 }
-.dashboard .dash-meta { font-size: 10px; line-height: 1.5; color: var(--text-faint); }
+.dashboard .dash-symbol-link:hover { color: var(--primary); text-decoration-color: var(--primary); }
+.dashboard .dash-symbol-link:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.dashboard .dash-company { font-size: 11px; color: var(--text-muted); }
+/* A long name ends in an ellipsis (the full name is its title). The source
+   lines wrap instead, so quote and retrieval times always keep their zone. */
+.dashboard .dash-company-name { overflow: hidden; text-overflow: ellipsis; }
+.dashboard .dash-meta { font-size: 10px; line-height: 1.5; color: var(--text-faint); white-space: normal; }
 .dashboard .dash-meta--stale { color: var(--warning); }
 .dashboard .dash-price { font-weight: 600; color: var(--text-main); }
 
-/* Up / down badges: role text on the matching 14 % wash. */
+/* Up / down badges: role text on the matching 14 % wash. Down takes the lifted
+   danger of the Sell chips; plain danger on its wash is below 4.5:1 here. */
 .dashboard .dash-delta,
 .dashboard .dash-trend {
   display: inline-block;
@@ -318,7 +343,10 @@
 .dashboard .dash-delta--up,
 .dashboard .dash-trend--up { color: var(--success); background: var(--wash-ok-14); }
 .dashboard .dash-delta--down,
-.dashboard .dash-trend--down { color: var(--danger); background: var(--wash-bad-14); }
+.dashboard .dash-trend--down { color: var(--dash-danger-lift); background: var(--wash-bad-14); }
+/* The expanded row's wash under that wash took it just below 4.5:1, so there the
+   down badges sit on the darkest opaque surface, as the verdict chips always do. */
+.dashboard .dash-row.is-expanded :is(.dash-delta--down, .dash-trend--down) { background: linear-gradient(var(--wash-bad-14), var(--wash-bad-14)) var(--bg-dark); }
 .dashboard .dash-trend { min-width: 22px; font-size: 10px; text-align: center; }
 
 /* 52-week position bar: the fill width is data and stays inline. */
@@ -336,6 +364,11 @@
 .dashboard .dash-range-fill--ok { background: var(--success); }
 .dashboard .dash-range-fill--warn { background: var(--warning); }
 .dashboard .dash-range-fill--bad { background: var(--danger); }
+/* Forced colours paint track and fill in the page colour; system colours keep the bar. */
+@media (forced-colors: active) {
+  .dashboard .dash-range { border: 1px solid CanvasText; }
+  .dashboard .dash-range-fill { background: CanvasText; }
+}
 
 /* Sparkline: stroke follows the bar direction. */
 .dashboard .dash-spark { display: inline-block; vertical-align: middle; }
@@ -344,15 +377,19 @@
 .dashboard .dash-spark--down polyline { stroke: var(--danger); }
 
 /* Verdict chip: tone follows the verdict label, never a colour string from
-   the scorer. Buy sits on the primary complement so it reads as the lighter
-   sibling of Strong Buy in every theme. */
+   the scorer, and matches every other desk: Buy side success, Hold warning,
+   Sell side danger. Text never uses the × 0.46 shades (borders only); the
+   strong verdicts carry the 14 % wash and a stronger border, Buy and Sell the
+   7 % wash. The wash sits on the darkest opaque surface, so a hovered or
+   expanded row never shows through: every chip keeps 4.5:1 in every theme. */
 .dashboard .dash-verdict {
+  --verdict-wash: transparent;
   display: inline-block;
   min-width: 100px;
   padding: 3px 9px;
   border-radius: var(--radius);
   border: 1px solid var(--line-strong);
-  background: var(--bg-raised);
+  background: linear-gradient(var(--verdict-wash), var(--verdict-wash)) var(--bg-dark);
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 600;
@@ -361,11 +398,11 @@
   text-align: center;
   white-space: nowrap;
 }
-.dashboard .dash-verdict--strong-buy { color: var(--success); background: var(--wash-ok-14); border-color: var(--success-46); }
-.dashboard .dash-verdict--buy { color: var(--primary-x-73); background: var(--wash-px-07); border-color: var(--primary-x-46); }
-.dashboard .dash-verdict--hold { color: var(--warning); background: var(--wash-warn-14); border-color: var(--dash-warning-46); }
-.dashboard .dash-verdict--sell { color: var(--danger-46); background: var(--wash-bad-14); border-color: var(--danger-46); }
-.dashboard .dash-verdict--strong-sell { color: var(--danger); background: var(--wash-bad-14); border-color: var(--danger); }
+.dashboard .dash-verdict--strong-buy { --verdict-wash: var(--wash-ok-14); color: var(--success); border-color: var(--success-46); }
+.dashboard .dash-verdict--buy { --verdict-wash: var(--dash-wash-ok-07); color: var(--success); border-color: var(--success-46); }
+.dashboard .dash-verdict--hold { --verdict-wash: var(--wash-warn-14); color: var(--warning); border-color: var(--dash-warning-46); }
+.dashboard .dash-verdict--sell { --verdict-wash: var(--dash-wash-bad-07); color: var(--dash-danger-lift); border-color: var(--danger-46); }
+.dashboard .dash-verdict--strong-sell { --verdict-wash: var(--wash-bad-14); color: var(--dash-danger-lift); border-color: var(--danger); }
 
 /* Expand toggle for the score breakdown. */
 .dashboard .dash-expand {
@@ -422,6 +459,19 @@
   color: var(--text-faint);
 }
 .dashboard .dash-empty { padding: var(--gap) var(--dash-gutter); text-align: center; font-size: 12px; color: var(--text-muted); }
+
+/* Under the panel: how many rows are rendered, and the controls for the rest. */
+.dashboard .dash-table-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-xs) var(--gap-sm);
+  padding: var(--gap-sm) 0 0 var(--dash-gutter);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.dashboard .dash-table-more { display: flex; flex-wrap: wrap; gap: var(--gap-xs); }
 
 @media (max-width: 600px) {
   .dashboard { --dash-gutter: 15px; }

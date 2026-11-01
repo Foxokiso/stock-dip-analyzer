@@ -17,6 +17,9 @@
   --futures-wash-warn-07: color-mix(in oklch, var(--warning) 7%, transparent);
   --futures-line-p: color-mix(in oklch, var(--primary) 27%, var(--line));
   --futures-line-s: color-mix(in oklch, var(--secondary) 27%, var(--line));
+  /* Lifted 27 % toward white (the Overview's chip recipe), for text on the selected row's wash. */
+  --futures-danger-lift: oklch(from var(--danger) calc(l + (1 - l) * var(--m3)) c h);
+  --futures-muted-lift: oklch(from var(--text-muted) calc(l + (1 - l) * var(--m3)) c h);
 }
 
 /* ── Focus: the shared ring, never removed (brief rule 4) ── */
@@ -174,12 +177,25 @@
 .futures-page .futures-chart-area { fill: currentColor; opacity: 0.14; }
 .futures-page .futures-chart-line { fill: none; stroke: currentColor; }
 .futures-page .spark-empty { color: var(--text-faint); }
+/* A sentence, not a placeholder dash: muted text keeps 4.5:1 on the wash in every theme. */
 .futures-page .chart-empty {
-  color: var(--text-faint);
+  color: var(--text-muted);
   border: 1px dashed var(--line-strong);
   border-radius: var(--radius);
   background: var(--wash-p-07);
 }
+/* Finviz's time labels under the focus chart, each at the sample it marks (left set inline). */
+.futures-page .futures-chart-axis {
+  position: relative;
+  height: 13px;
+  margin-top: 6px;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.futures-page .futures-chart-axis > span { position: absolute; top: 0; white-space: nowrap; }
 
 /* ── Status chips: delayed = warning on its 14 % wash, cached = warning with a dashed hairline, unavailable = faint. ── */
 .futures-page .quote-status {
@@ -304,6 +320,9 @@
 /* Selected row: 14 % primary wash with a 2 px inset primary edge (brief semantics). */
 .futures-workspace .futures-table .selected-row { background: var(--wash-p-14); }
 .futures-workspace .futures-table .selected-row td:first-child { box-shadow: inset 2px 0 var(--primary); }
+/* The wash is the lightest row ground: down text and the 10 px name take the lift to keep 4.5:1. */
+.futures-workspace .futures-table .selected-row .futures-change.is-down { color: var(--futures-danger-lift); }
+.futures-workspace .futures-table .selected-row .instrument-name { color: var(--futures-muted-lift); }
 
 .futures-workspace .instrument-button { color: var(--text-main); border-radius: var(--radius-sm); }
 .futures-workspace .instrument-symbol {

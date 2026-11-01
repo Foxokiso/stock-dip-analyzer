@@ -99,18 +99,6 @@
 }
 @keyframes sd-spin { to { transform: rotate(360deg); } }
 
-.stock-details .sd-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--gap-sm);
-  height: 50vh;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-.stock-details .sd-loading p { margin: 0; }
-
 /* ── Header: symbol, condition pills, quote line, refresh ── */
 .stock-details .sd-header {
   display: flex;
@@ -153,8 +141,11 @@
   transition: border-color var(--transition-fast), background var(--transition-fast);
 }
 .stock-details .sd-pill svg { flex-shrink: 0; }
-.stock-details .sd-pill--danger { color: var(--danger); background: var(--wash-bad-14); border-color: var(--danger-46); }
-.stock-details .sd-pill--success { color: var(--success); background: var(--wash-ok-14); border-color: var(--success-46); }
+/* Tone text on this page sits on 7 % washes: on 14 % washes, danger text measured
+   4.2-4.5:1 in Pierce/27 and Alien Fractal, under the 4.5:1 floor for chips. */
+.stock-details .sd-pill--danger { color: var(--danger); background: var(--sd-wash-bad-07); border-color: var(--danger-46); }
+.stock-details .sd-pill--warning { color: var(--warning); background: var(--sd-wash-warn-07); border-color: var(--sd-warning-46); }
+.stock-details .sd-pill--success { color: var(--success); background: var(--sd-wash-ok-07); border-color: var(--success-46); }
 .stock-details .sd-quote-line {
   display: flex;
   flex-wrap: wrap;
@@ -172,6 +163,10 @@
   color: var(--text-main);
 }
 .stock-details .sd-quote-sep { color: var(--text-faint); }
+/* Until the Yahoo quote arrives the line holds a spinner and a status message
+   that wraps beside it. */
+.stock-details .sd-quote-line--pending { flex-wrap: nowrap; align-items: center; }
+.stock-details .sd-quote-line--pending svg { flex-shrink: 0; }
 .stock-details .sd-refresh { flex-shrink: 0; }
 
 /* ── Source line: retrieval time and quote time stay separate ── */
@@ -232,7 +227,7 @@
   gap: var(--gap-xs) var(--gap-sm);
   margin-bottom: var(--gap-sm);
 }
-.stock-details .sd-panel h3 {
+.stock-details .sd-panel h2 {
   display: flex;
   align-items: center;
   gap: var(--gap-xs);
@@ -243,7 +238,7 @@
   letter-spacing: -0.01em;
   color: var(--text-main);
 }
-.stock-details .sd-panel h3 svg { flex-shrink: 0; }
+.stock-details .sd-panel h2 svg { flex-shrink: 0; }
 .stock-details .sd-icon--primary { color: var(--primary); }
 .stock-details .sd-icon--secondary { color: var(--secondary); }
 .stock-details .sd-icon--warning { color: var(--warning); }
@@ -400,6 +395,13 @@
   color: var(--text-main);
   overflow-wrap: anywhere;
 }
+/* 52W High / Low: the price's distance from the bound, muted beside it. */
+.stock-details .sd-stat-sub {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
 
 /* 52-week position: the track runs down (danger) → caution → up (success); the
    marker is the quote's cyan, glowing at the user's glow intensity. */
@@ -428,6 +430,10 @@
   border-radius: 3px;
   background: linear-gradient(90deg, var(--sd-wash-bad-46), var(--sd-wash-warn-46), var(--sd-wash-ok-46));
   box-shadow: inset 0 0 0 1px var(--line);
+}
+/* Forced colours drop the gradient and the inset hairline; a system-colour border keeps the track. */
+@media (forced-colors: active) {
+  .stock-details .sd-range-track { border: 1px solid CanvasText; }
 }
 .stock-details .sd-range-marker {
   position: absolute;
@@ -501,16 +507,17 @@
   font-weight: 600;
   text-align: center;
 }
-.stock-details .sd-factor-points--up { color: var(--success); background: var(--wash-ok-14); border-color: var(--success-46); }
-.stock-details .sd-factor-points--down { color: var(--danger); background: var(--wash-bad-14); border-color: var(--danger-46); }
+/* The factor row is lighter than the card, so the badges mix their 7 % into the card ground. */
+.stock-details .sd-factor-points--up { color: var(--success); background: color-mix(in oklch, var(--success) 7%, var(--bg-card)); border-color: var(--success-46); }
+.stock-details .sd-factor-points--down { color: var(--danger); background: color-mix(in oklch, var(--danger) 7%, var(--bg-card)); border-color: var(--danger-46); }
 .stock-details .sd-factor-body { min-width: 0; }
 .stock-details .sd-factor-label { font-size: 12px; font-weight: 600; color: var(--text-main); }
 .stock-details .sd-factor-detail { font-size: 11px; line-height: 1.5; color: var(--text-muted); }
 .stock-details .sd-factor-note { margin: 2px 0 0; font-size: 10px; font-style: italic; color: var(--text-faint); }
 
-/* Verdict: the box tone follows the score band and the chip tone the verdict
-   label (never a colour string from the scorer). The callout carries the brand
-   glow at the user's glow intensity; only live indicators breathe. */
+/* Verdict: the box and the chip both take their tone from the verdict label
+   (never a colour string from the scorer). The callout carries the brand glow
+   at the user's glow intensity; only live indicators breathe. */
 .stock-details .sd-score {
   position: relative;
   display: flex;
@@ -538,10 +545,9 @@
   opacity: var(--glow-intensity);
   pointer-events: none;
 }
-.stock-details .sd-score--muted::after { content: none; }
-.stock-details .sd-score--success { color: var(--success); border-color: var(--success-46); background: var(--wash-ok-14); }
-.stock-details .sd-score--warning { color: var(--warning); border-color: var(--sd-warning-46); background: var(--wash-warn-14); }
-.stock-details .sd-score--danger { color: var(--danger); border-color: var(--danger-46); background: var(--wash-bad-14); }
+.stock-details .sd-score--success { color: var(--success); border-color: var(--success-46); background: var(--sd-wash-ok-07); }
+.stock-details .sd-score--warning { color: var(--warning); border-color: var(--sd-warning-46); background: var(--sd-wash-warn-07); }
+.stock-details .sd-score--danger { color: var(--danger); border-color: var(--danger-46); background: var(--sd-wash-bad-07); }
 .stock-details .sd-score-value {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -561,9 +567,10 @@
   text-transform: uppercase;
   white-space: nowrap;
 }
-.stock-details .sd-verdict--success { color: var(--success); border-color: var(--success-46); background: var(--sd-wash-ok-07); }
-.stock-details .sd-verdict--warning { color: var(--warning); border-color: var(--sd-warning-46); background: var(--sd-wash-warn-07); }
-.stock-details .sd-verdict--danger { color: var(--danger); border-color: var(--danger-46); background: var(--sd-wash-bad-07); }
+/* The chip keeps the card ground: a second wash over the toned box would tint it twice. */
+.stock-details .sd-verdict--success { color: var(--success); border-color: var(--success-46); }
+.stock-details .sd-verdict--warning { color: var(--warning); border-color: var(--sd-warning-46); }
+.stock-details .sd-verdict--danger { color: var(--danger); border-color: var(--danger-46); }
 
 .stock-details .sd-news-list {
   display: flex;
@@ -600,13 +607,17 @@
   letter-spacing: 0.02em;
   color: var(--text-faint);
 }
+/* A headline, not a section title: Seizure Mode's rule for h1-h3 stays off it. */
 .stock-details .sd-news-title {
   margin: 0;
+  padding: 0;
+  border: 0;
   font-family: var(--font-body);
   font-size: 13px;
   font-weight: 500;
   line-height: 1.45;
   letter-spacing: 0;
+  text-transform: none;
 }
 .stock-details .sd-news-title a {
   border-radius: var(--radius-sm);

@@ -2,6 +2,7 @@
 // reference application's parsing and validation behavior; not a trading backtest.
 #include "dip/futures.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 
@@ -215,10 +216,23 @@ bool isIndexBelow(std::string_view key, std::size_t length) noexcept {
     return value < static_cast<std::uint64_t>(length);
 }
 
+// The reference's endsAtQuote: a thin market's 5-minute series can be a months-old history
+// that ends far from the quote, so a series counts as the quote's chart only when its last
+// sample lies within the session range, or within 0.5 % when that range is narrower or
+// missing. Every operand is finite, so the comparison never sees NaN.
+bool endsAtQuote(double sample, double last, std::optional<double> high, std::optional<double> low) noexcept {
+    const double range = high.has_value() && low.has_value() ? *high - *low : 0.0;
+    return std::abs(sample - last) <= std::max(0.005 * std::abs(last), range);
+}
+
 }  // namespace
 
 Payload readPayload(std::string_view input) {
-    const std::string_view text = jsTrim(input);
+    // The reference only ever sees text that Response.text() decoded: ill-formed bytes are
+    // U+FFFD by then (a bad byte in a label keeps the payload; one outside a string is a JSON
+    // error) and a leading BOM is gone.
+    const std::string decoded = jsonlite::decodeUtf8Lossy(input);
+    const std::string_view text = jsTrim(decoded);
     if (text.empty() || text[0] != '<') return Payload{jsonlite::parse(text), false};
 
     // Never evaluate page JavaScript. This walks the matches of
@@ -295,9 +309,13 @@ Quote sourceQuote(std::string_view symbol, const jsonlite::Value& data,
             for (const jsonlite::Value& point : points) {
                 if (!numeric(&point).has_value()) { everyNumeric = false; break; }
             }
-            if (everyNumeric) {
-                quote.sparkline.reserve(points.size());
-                for (const jsonlite::Value& point : points) quote.sparkline.push_back(point.asNumber());
+            if (everyNumeric && !points.empty()) {
+                if (endsAtQuote(points.back().asNumber(), *last, quote.high, quote.low)) {
+                    quote.sparkline.reserve(points.size());
+                    for (const jsonlite::Value& point : points) quote.sparkline.push_back(point.asNumber());
+                } else {
+                    quote.chartNote = std::string(kChartMismatchNote);
+                }
             }
         }
     }

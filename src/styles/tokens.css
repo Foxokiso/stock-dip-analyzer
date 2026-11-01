@@ -48,7 +48,7 @@
   --line-strong:   oklch(0.40 0.05 var(--h-t));
   --text-main:     oklch(0.965 0.012 var(--h-tx));
   --text-muted:    oklch(0.70 0.03 var(--h-t));
-  --text-faint:    oklch(0.52 0.03 var(--h-t));
+  --text-faint:    oklch(0.64 0.03 var(--h-t)); /* not muted ×0.73: captions keep 4.5:1 on every surface, glows included */
   --ink:           oklch(0.10 0.015 var(--h-t)); /* text on pierce fills */
 
   /* ── semantic roles consumed by every component ── */
@@ -150,17 +150,23 @@ html[data-density='compact'] { --density: 0.73; --gap: 19px; --gap-sm: 9px; --ga
   50% { opacity: 1; }
 }
 
-/* Alternate themes keep the same role names so every component still works. */
+/* Alternate themes keep the same role names so every component still works.
+   Modern: solid, quiet surfaces keep large market boards fast. Its roles are
+   restated because :root derives them on <html> only, and the Settings swatch
+   wears this class lower down; success stays mint, not the pink complement. */
 .theme-majestic {
   --h-p: 162; --h-px: 342; --h-s: 243; --h-sx: 63; --h-t: 243; --h-tx: 63; --h-a: 81; --h-ax: 261;
   --pierce-magenta: #a8ddcb; --pierce-green: #d9a8ba; --pierce-cyan: #a6b6cc; --pierce-red: #ed979a;
   --pierce-violet: #a6b6cc; --pierce-yellow: #d7b56f; --pierce-amber: #d7b56f; --pierce-blue: #8fa8d8;
   --bg-dark: #101419; --bg-card: #171d24; --bg-card-hover: #1c242d; --bg-raised: #222b35;
-  --line: #2a333d; --line-strong: #3a4652; --text-main: #edf0e9; --text-muted: #96a1ad; --text-faint: #6b7680; --ink: #030409;
+  --line: #2a333d; --line-strong: #3a4652; --text-main: #edf0e9; --text-muted: #96a1ad; --text-faint: #848e98; --ink: #030409;
   --primary-gradient: linear-gradient(120deg, #bce6d8, #a8ddcb);
   --secondary-gradient: linear-gradient(120deg, #bdc9d9, #a6b6cc);
   --pierce-gradient: linear-gradient(90deg, #a8ddcb, #a6b6cc);
+  --primary: #a8ddcb; --secondary: #a6b6cc; --success: #9cdbc1; --danger: #ed979a; --warning: #d7b56f;
   --sheen: var(--bg-card);
   --glass-border: 1px solid #2a333d; --glass-shadow: none; --glow-p: none; --glow-px: none; --glow-s: none;
   --bg-image: none;
+  --font-heading: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Inter', 'Segoe UI', system-ui, sans-serif;
 }
