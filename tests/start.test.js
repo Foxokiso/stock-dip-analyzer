@@ -6,10 +6,11 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { launch } from '../scripts/start.mjs';
+import { launch, stoppedExit } from '../scripts/launcher.mjs';
 
 // npm start: the launcher that runs Vite and Electron and stops them together.
 // Stand-ins replace both: node itself, as a server answering 200 and as an app.
+// Their output is not echoed (echo: false), so CI logs stay clean.
 
 const freePort = () => new Promise((resolve, reject) => {
     const probe = createServer().listen(0, '127.0.0.1', () => {
@@ -31,7 +32,7 @@ const limit = { timeout: 15000 };
 async function devServer() {
     const port = await freePort();
     const url = `http://127.0.0.1:${port}/`;
-    return { url, command: serverCommand(port) };
+    return { url, command: serverCommand(port), echo: false };
 }
 
 test('closing the app (exit code 0) stops the dev server and ends the run with code 0', limit, async () => {
@@ -66,7 +67,8 @@ test('stop() before the dev server answers still stops it once it has started, a
         run.stop('test');
         assert.equal(await run.started, null);
         assert.equal(await run.done, 0);
-        assert.ok(performance.now() - startedAt < 5000, 'the dev server was not stopped once it had started');
+        // Well under the 20 s grace period; loose enough for Windows, where a refused loopback connection takes 1–2 s.
+        assert.ok(performance.now() - startedAt < 12000, 'the dev server was not stopped once it had started');
         assert.equal(await answers(server.url), false, 'the dev server still answers');
         assert.equal(existsSync(marker), false, 'the app was started');
     } finally {
@@ -85,6 +87,63 @@ test('an app stopped by a signal the launcher did not send (Ctrl+C reaches it fi
     assert.deepEqual(messages, []);
 });
 
+test('exit codes of a stop request count as a stop: Vite exits 143 on SIGTERM, Windows Ctrl+C gives STATUS_CONTROL_C_EXIT', () => {
+    for (const [code, signal] of [[0, null], [129, null], [130, null], [143, null], [0xC000013A, null], [null, 'SIGINT'], [null, 'SIGTERM'], [null, 'SIGHUP']]) {
+        assert.equal(stoppedExit(code, signal), true, `${code} ${signal}`);
+    }
+    for (const [code, signal] of [[1, null], [3, null], [137, null], [null, 'SIGKILL'], [null, 'SIGSEGV']]) {
+        assert.equal(stoppedExit(code, signal), false, `${code} ${signal}`);
+    }
+});
+
+test('a dev server that exits 143 after a SIGTERM the launcher did not send is a stop: the app is stopped, code 0', limit, async () => {
+    const port = await freePort();
+    const messages = [];
+    const run = launch({
+        devServer: { url: `http://127.0.0.1:${port}/`, echo: false, command: [process.execPath, '-e',
+            `require('node:http').createServer((q, r) => r.end()).listen(${port}, '127.0.0.1'); process.on('SIGTERM', () => process.exit(143)); setTimeout(() => process.exit(), 30000);`] },
+        app: appStandIn('setTimeout(() => {}, 30000)'), log: m => messages.push(m),
+    });
+    const { server: vite, app } = await run.started;
+    await new Promise(resolve => setTimeout(resolve, 300)); // let the stand-in install its handler
+    vite.kill('SIGTERM');
+    assert.equal(await run.done, 0);
+    assert.equal(alive(app.pid), false, 'the app is still running');
+    assert.deepEqual(messages, ['the dev server stopped; stopping the app']);
+});
+
+test('stop() while the dev server is still starting stops it at once, without waiting for it to answer', limit, async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'start-'));
+    const pidFile = path.join(dir, 'server-pid');
+    try {
+        const port = await freePort();
+        // Starts listening only after 8 s, like a Vite that is slow to come up.
+        const slow = [process.execPath, '-e', `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+            setTimeout(() => require('node:http').createServer((q, r) => r.end()).listen(${port}, '127.0.0.1'), 8000); setTimeout(() => process.exit(), 30000);`];
+        const run = launch({ devServer: { url: `http://127.0.0.1:${port}/`, command: slow, echo: false }, app: appStandIn('setTimeout(() => {}, 30000)'), grace: 20000, log: quiet });
+        for (let i = 0; i < 100 && !existsSync(pidFile); i++) await new Promise(resolve => setTimeout(resolve, 50));
+        const pid = Number(readFileSync(pidFile, 'utf8'));
+        const startedAt = performance.now();
+        run.stop('test');
+        assert.equal(await run.started, null);
+        assert.equal(await run.done, 0);
+        assert.ok(performance.now() - startedAt < 6000, 'the stop waited for the server to answer');
+        assert.equal(alive(pid), false, 'the dev server is still running');
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('an app spawn that throws at once (an invalid argument) stops the dev server, with code 1', limit, async () => {
+    const server = await devServer();
+    const messages = [];
+    const run = launch({ devServer: server, app: { command: process.execPath, args: ['-e', 'x\u0000y'] }, log: m => messages.push(m) });
+    assert.equal(await run.started, null);
+    assert.equal(await run.done, 1);
+    assert.equal(await answers(server.url), false, 'the dev server still answers');
+    assert.match(messages[0], /^the app did not start: /);
+});
+
 test('the app failing (exit code 3) stops the dev server and passes its code on', limit, async () => {
     const server = await devServer();
     const messages = [];
@@ -98,7 +157,7 @@ test('the dev server failing stops the app, with code 1', limit, async () => {
     const port = await freePort();
     const messages = [];
     const run = launch({
-        devServer: { url: `http://127.0.0.1:${port}/`, command: serverCommand(port) },
+        devServer: { url: `http://127.0.0.1:${port}/`, command: serverCommand(port), echo: false },
         app: appStandIn('setTimeout(() => {}, 30000)'), log: m => messages.push(m),
     });
     const { server: vite, app } = await run.started;
@@ -115,7 +174,7 @@ test('a dev server that cannot start never starts the app; the run ends with cod
         const port = await freePort();
         const messages = [];
         const run = launch({
-            devServer: { url: `http://127.0.0.1:${port}/`, command: [process.execPath, '-e', "console.error('Error: Port 5174 is already in use'); process.exit(1)"] },
+            devServer: { url: `http://127.0.0.1:${port}/`, command: [process.execPath, '-e', "console.error('Error: Port 5174 is already in use'); process.exit(1)"], echo: false },
             app: appStandIn(`require('node:fs').writeFileSync(${JSON.stringify(marker)}, '')`), log: m => messages.push(m),
         });
         assert.equal(await run.done, 1);
@@ -156,10 +215,10 @@ test('the launcher stops everything when the process that started it exits (npm 
     try {
         const port = await freePort();
         const url = `http://127.0.0.1:${port}/`;
-        const startUrl = new URL('../scripts/start.mjs', import.meta.url).href;
+        const startUrl = new URL('../scripts/launcher.mjs', import.meta.url).href;
         const launcher = `
             const { launch, watchParent } = await import(${JSON.stringify(startUrl)});
-            const run = launch({ devServer: { url: ${JSON.stringify(url)}, command: ${JSON.stringify(serverCommand(port))} },
+            const run = launch({ devServer: { url: ${JSON.stringify(url)}, command: ${JSON.stringify(serverCommand(port))}, echo: false },
                 app: { command: process.execPath, args: ['-e', 'setTimeout(() => {}, 30000)'] }, log: () => {} });
             // Watching starts at once, as in the real launcher: the parent may exit as soon as the report exists.
             watchParent(() => run.stop('parent gone'), 100);
@@ -169,7 +228,8 @@ test('the launcher stops everything when the process that started it exits (npm 
         const parent = `
             const child = require('node:child_process').spawn(process.execPath, ['--input-type=module', '-e', ${JSON.stringify(`import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\n${launcher}`)}], { stdio: 'ignore' });
             const fs = require('node:fs');
-            const wait = setInterval(() => { if (fs.existsSync(${JSON.stringify(report)})) { clearInterval(wait); process.exit(0); } }, 50);`;
+            const wait = setInterval(() => { if (fs.existsSync(${JSON.stringify(report)})) { clearInterval(wait); process.exit(0); } }, 50);
+            setTimeout(() => process.exit(1), 10000); // the launcher never reported: give up rather than hang`;
         const parentProcess = spawn(process.execPath, ['-e', parent], { stdio: 'ignore' });
         await new Promise(resolve => parentProcess.once('exit', resolve));
         const pids = JSON.parse(readFileSync(report, 'utf8'));
@@ -191,7 +251,11 @@ test('npm start runs the launcher, with no shell or concurrently between npm and
     assert.equal(pkg.scripts.start, 'node scripts/start.mjs');
     assert.equal(pkg.devDependencies.concurrently, undefined);
     const source = readFileSync(new URL('../scripts/start.mjs', import.meta.url), 'utf8');
-    assert.doesNotMatch(source, /shell:/);
-    assert.match(source, /'--host', '127\.0\.0\.1', '--port', '5174', '--strictPort'/);
+    const launcher = readFileSync(new URL('../scripts/launcher.mjs', import.meta.url), 'utf8');
+    assert.doesNotMatch(source + launcher, /shell:/);
+    assert.match(source, /'--host', '127\.0\.0\.1', '--port', '5174', '--strictPort', '--clearScreen', 'false'/);
     assert.match(source, /NODE_ENV: 'development'/);
+    // An entry point, not a module that checks whether it was run directly: that check
+    // fails silently when the checkout is reached through a symlink or a Windows junction.
+    assert.doesNotMatch(source, /process\.argv\[1\]/);
 });

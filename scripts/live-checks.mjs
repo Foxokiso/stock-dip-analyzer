@@ -110,15 +110,20 @@ export function liveFailures(report, { packaged = false, dataOptional = false } 
  * the process stops the server itself. Whatever already answers at the URL is
  * refused rather than measured, as it may serve another checkout. A server that
  * exits before it answers fails the start at once, with its own reason, and one
- * that never answers is killed: a failed start leaves nothing running.
- * @param {{ url: string, command: string[], cwd?: string, attempts?: number, interval?: number, echo?: boolean }} options  command: the executable, then its arguments; attempts: polls of the URL, interval ms apart; echo: also show the server's output in this terminal (npm start)
+ * that never answers is killed: a failed start leaves nothing running. Aborting
+ * `signal` (npm start being stopped) stops the server and rejects, asking it to
+ * stop first and killing it after `grace` ms.
+ * @param {{ url: string, command: string[], cwd?: string, attempts?: number, interval?: number, echo?: boolean, signal?: AbortSignal, grace?: number }} options  command: the executable, then its arguments; attempts: polls of the URL, interval ms apart; echo: also show the server's output in this terminal (npm start)
  * @returns {Promise<import('node:child_process').ChildProcess>}
  */
-export async function startDevServer({ url, command, cwd, attempts = 60, interval = 500, echo = false }) {
-  const answers = () => fetch(url, { signal: AbortSignal.timeout(2000) }).catch(() => null);
+export async function startDevServer({ url, command, cwd, attempts = 60, interval = 500, echo = false, signal, grace = 5000 }) {
+  const answers = () => fetch(url, { signal: signal ? AbortSignal.any([AbortSignal.timeout(2000), signal]) : AbortSignal.timeout(2000) }).catch(() => null);
   if (await answers()) throw new Error(`something already answers on ${url} (npm run dev, or a server an earlier run left behind); stop it and run again`);
+  if (signal?.aborted) throw new Error('the start was cancelled');
   const [executable, ...args] = command;
-  const server = spawn(executable, args, { cwd, stdio: ['ignore', echo ? 'inherit' : 'ignore', 'pipe'], env: { ...process.env, NO_COLOR: '1' } });
+  // Colour is turned off only for output that is captured, not shown.
+  const server = spawn(executable, args, { cwd, stdio: ['ignore', echo ? 'inherit' : 'ignore', 'pipe'], env: echo ? process.env : { ...process.env, NO_COLOR: '1' } });
+  const gone = new Promise(resolve => { server.once('exit', resolve); server.once('error', resolve); });
   let exited = null;
   let stderr = '';
   server.stderr.on('data', chunk => {
@@ -127,12 +132,23 @@ export async function startDevServer({ url, command, cwd, attempts = 60, interva
   });
   server.once('error', error => { exited ??= error.message; });
   // 'close', not 'exit': only then has everything it wrote to stderr been read.
-  server.once('close', (code, signal) => { exited ??= signal ?? `exit code ${code}`; });
-  for (let i = 0; i < attempts && exited === null; i++) {
-    if ((await answers())?.ok && exited === null) return server;
-    await new Promise(resolve => setTimeout(resolve, interval));
+  server.once('close', (code, sig) => { exited ??= sig ?? `exit code ${code}`; });
+  const cancelled = new Promise(resolve => signal?.addEventListener('abort', resolve, { once: true }));
+  for (let i = 0; i < attempts && exited === null && !signal?.aborted; i++) {
+    if ((await answers())?.ok && exited === null && !signal?.aborted) return server;
+    await Promise.race([new Promise(resolve => setTimeout(resolve, interval)), cancelled]);
   }
-  if (exited !== null) throw new Error(`the dev server exited (${exited}) before it answered: ${stderr.trim() || 'no output'}`);
+  if (signal?.aborted) {
+    if (server.exitCode === null && server.signalCode === null) {
+      server.kill('SIGTERM');
+      const kill = setTimeout(() => server.kill('SIGKILL'), grace);
+      await gone;
+      clearTimeout(kill);
+    }
+    throw new Error('the start was cancelled');
+  }
+  const ansi = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
+  if (exited !== null) throw new Error(`the dev server exited (${exited}) before it answered: ${stderr.replace(ansi, '').trim() || 'no output'}`);
   // Not asked to stop: a server that never answered may not handle that either.
   server.kill('SIGKILL');
   throw new Error('dev server did not start');
