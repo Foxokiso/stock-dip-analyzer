@@ -108,7 +108,7 @@ Settings are kept per install (a packaged app and `npm start` keep separate ones
 
 ## Run locally
 
-Requires Node.js 22.12 or later (supported by this Vite version).
+Requires Node.js 22.12 or later (supported by this Vite version); `.nvmrc` names 24, the version CI uses, and `package.json` declares the minimum in `engines`. `npm run doctor` checks this machine for everything below that can stop `npm start` or `npm run verify` (the Node.js version, the installed dependencies, the Electron binary and its sandbox, ports 5174 and 4174, a display, Playwright's Chromium) and prints the fix for each problem; it changes nothing.
 
 ```bash
 npm ci
@@ -117,7 +117,7 @@ npm start
 
 `npm start` runs Vite, starts Electron once Vite answers on `127.0.0.1:5174`, and stops the two together. Quitting the app stops Vite. Ctrl+C, closing the terminal, or SIGTERM to `npm start` (what an editor's Stop button or `kill` sends) stops both. If either one exits on its own, the other is stopped too. Force-killing npm's own process alone (`kill -9`, or ending only that process in Task Manager) can still leave them running. Arguments after `npm start --` go to Electron. `npm ci` does not download Electron itself: the first `npm start` (or `npm run electron`, or `npm run test:live` without `ELECTRON_EXE`) downloads the Electron binary matching the installed `electron` package from Electron's GitHub releases and checks it against the SHA-256 sums that package ships; set `ELECTRON_MIRROR` to download from a mirror instead. `npm run dev` provides a browser layout preview; market data requires Electron. Both serve the renderer on `127.0.0.1:5174` with `--strictPort`: if that port is taken, Vite exits instead of moving to another port, because `npm run electron` waits on 5174 and the main process trusts only that address in development. `npm start` refuses to start at all while something already answers there, such as an earlier `npm run dev`, and says so. Existing refresh settings and alternate themes are retained.
 
-On Ubuntu 23.10 and later, AppArmor blocks the user namespaces Chromium's sandbox uses, and the Electron binary that `npm start` downloads is not set up to sandbox without them, so it stops with "The SUID sandbox helper binary was found, but is not configured correctly". Install the `.deb` instead, or make the downloaded helper setuid root (again after every fresh `npm ci`):
+On Ubuntu 23.10 and later, AppArmor blocks the user namespaces Chromium's sandbox uses, and the Electron binary that `npm start` downloads is not set up to sandbox without them, so it stops with "The SUID sandbox helper binary was found, but is not configured correctly". `npm start` says so, with the fix, before it starts Electron. Install the `.deb` instead, or make the downloaded helper setuid root (again after every fresh `npm ci`):
 
 ```bash
 sudo chown root:root node_modules/electron/dist/chrome-sandbox

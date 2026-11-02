@@ -17,7 +17,13 @@ node --version
 npm ci
 ```
 
-3. **Start the app.** `npm start` keeps running until the app quits, so start it in the background or a separate terminal and do not wait for it to finish:
+3. **Check this machine.** It changes nothing; fix every `FAIL` line with the `Fix:` printed under it, then run it again:
+
+```bash
+npm run doctor
+```
+
+4. **Start the app.** `npm start` keeps running until the app quits, so start it in the background or a separate terminal and do not wait for it to finish:
 
 ```bash
 npm start
@@ -25,11 +31,13 @@ npm start
 
 It is up when Vite prints `Local: http://127.0.0.1:5174/` and the **DDS response** window opens on the Overview desk. The first run prints `Downloading Electron binary...` and needs the network.
 
-4. **Stop it** by quitting the app window or pressing Ctrl+C in its terminal; either stops Vite and Electron together.
+5. **Stop it** by quitting the app window or pressing Ctrl+C in its terminal; either stops Vite and Electron together.
 
 If the `.deb` is installed, the installed app starts with `stock-dip-analyzer` (or **DDS response** in the app menu); its settings are kept apart from those of `npm start`.
 
 ## When it does not start
+
+Run `npm run doctor` first: it detects the problems below and prints their fixes. `npm start` also prints the sandbox problem and its fix before it starts Electron.
 
 | What you see | Why | Fix |
 |---|---|---|

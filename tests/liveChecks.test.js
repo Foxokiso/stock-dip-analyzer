@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { errorSource, liveFailures, startDevServer } from '../scripts/live-checks.mjs';
+import { errorSource, liveFailures, serverReason, startDevServer } from '../scripts/live-checks.mjs';
 
 // The shape scripts/verify-live-electron.mjs writes to artifacts/live/report.json
 // after a clean dev-mode run (no CSP meta outside a packaged build).
@@ -111,6 +111,26 @@ test('a dev server that exits before it answers fails the start at once, with it
     await assert.rejects(startDevServer({ url, command: [process.execPath, '-e', "console.error('Error: Port 5174 is already in use'); process.exitCode = 3"] }),
         { message: 'the dev server exited (exit code 3) before it answered: Error: Port 5174 is already in use' });
     assert.ok(performance.now() - startedAt < 5000, 'the start did not wait out the 30 s it allows');
+});
+
+test("a dev server's reason leaves out Node's own warnings, such as the one NODE_USE_ENV_PROXY causes", async () => {
+    const url = `http://127.0.0.1:${await freePort()}/`;
+    const warning = '(node:5529) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.';
+    const hint = '(Use `node --trace-warnings ...` to show where the warning was created)';
+    const script = `console.error(${JSON.stringify(warning)}); console.error(${JSON.stringify(hint)}); console.error('Error: Port 5174 is already in use'); console.error(${JSON.stringify(warning)}); process.exitCode = 3`;
+    await assert.rejects(startDevServer({ url, command: [process.execPath, '-e', script] }),
+        { message: 'the dev server exited (exit code 3) before it answered: Error: Port 5174 is already in use' });
+});
+
+test('serverReason: colour codes and Node warnings removed, at most 400 characters, "no output" when nothing is left', () => {
+    const esc = String.fromCharCode(27);
+    assert.equal(serverReason(`${esc}[31mError:${esc}[39m Port 5174 is already in use\n`), 'Error: Port 5174 is already in use');
+    assert.equal(serverReason('(node:7) [DEP0040] DeprecationWarning: The `punycode` module is deprecated.\r\n(Use `node --trace-deprecation ...` to show where the warning was created)\r\nfailed to load config\r\n'), 'failed to load config');
+    assert.equal(serverReason('(node:7) Warning: something\n'), 'no output');
+    assert.equal(serverReason(''), 'no output');
+    assert.equal(serverReason(`${'x'.repeat(500)}\n`).length, 400);
+    // A line that merely mentions node is the server's own.
+    assert.equal(serverReason('node: bad option: --frobnicate\n'), 'node: bad option: --frobnicate');
 });
 
 test('the process a live run stops is the server itself: killing it frees the port', async () => {
