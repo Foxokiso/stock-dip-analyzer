@@ -1,6 +1,6 @@
 ---
 trigger: glob
-globs: ".github/workflows/*.yml, .github/dependabot.yml"
+globs: "**/.github/workflows/*.yml, **/.github/dependabot.yml"
 description: "Conventions for the GitHub Actions workflows: pinned actions, read-only tokens, how a release is published."
 ---
 

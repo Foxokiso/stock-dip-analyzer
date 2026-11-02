@@ -1,6 +1,6 @@
 ---
 trigger: glob
-globs: "native/**, src/utils/scoring.js, src/utils/format.js, src/utils/marketData.js, src/utils/oilNews.js, src/services/futures.js, src/styles/tokens.css, scripts/verify-native-*.mjs, scripts/gen-native-palette.mjs"
+globs: "**/native/**, **/src/utils/scoring.js, **/src/utils/format.js, **/src/utils/marketData.js, **/src/utils/oilNews.js, **/src/services/futures.js, **/src/styles/tokens.css, **/scripts/verify-native-*.mjs, **/scripts/gen-native-palette.mjs"
 description: "Keep the C++ core in native/ in step with the JavaScript modules it mirrors, and run its parity suites."
 ---
 

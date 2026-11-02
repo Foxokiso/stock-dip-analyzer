@@ -1,6 +1,6 @@
 ---
 trigger: glob
-globs: "main.cjs, preload.cjs, vite.config.js, src/utils/bridge.js, src/utils/inertHtml.js, src/utils/tradingView.js, tests/mainPolicy.test.js, tests/preload.test.js"
+globs: "**/main.cjs, **/preload.cjs, **/vite.config.js, **/src/utils/bridge.js, **/src/utils/inertHtml.js, **/src/utils/tradingView.js, **/tests/mainPolicy.test.js, **/tests/preload.test.js"
 description: "Security rules for the Electron main process, the preload bridge, the Content Security Policy and third-party HTML."
 ---
 
