@@ -14,10 +14,11 @@ Stock Dip Analyzer Pro, installed as **DDS response**: an Electron 45 desktop ap
 
 ## Commands
 
-Run every command from the repository root, the folder that holds `package.json`. Node.js 22.12 or later (CI uses 24).
+Run every command from the repository root, the folder that holds `package.json`. Node.js 22.12 or later (`.nvmrc` names 24, as CI uses). **When a command fails, run `npm run doctor` first**: it checks this machine and prints the fix for each problem.
 
 | Task | Command | Notes |
 |---|---|---|
+| Diagnose this machine | `npm run doctor` | Node.js version, installed dependencies, the Electron binary and its sandbox (root, Ubuntu 24.04), ports 5174 and 4174, a display, Playwright's Chromium. Changes nothing; prints a fix under every problem; exit code 1 when something blocks `npm start` or `npm run verify`. |
 | Install dependencies | `npm ci` | Uses the lockfile exactly. Use `npm install <pkg>` only to change dependencies. |
 | Run the app | `npm start` | Not `npx start`, which looks for an unrelated package. It keeps running until the app quits: start it in the background or a separate terminal and do not wait for it to exit. Ctrl+C or quitting the app stops Vite and Electron together. |
 | Layout preview in a browser | `npm run dev`, then open http://127.0.0.1:5174 | Long-running too. Shows layouts and "unavailable" notices only: market data needs the desktop bridge, which exists only in Electron. |
@@ -53,7 +54,8 @@ Run every command from the repository root, the folder that holds `package.json`
 
 ## Environment pitfalls
 
-- **Ubuntu 23.10 and later (24.04):** `npm start` can stop with "The SUID sandbox helper binary was found, but is not configured correctly". Run `sudo chown root:root node_modules/electron/dist/chrome-sandbox` and `sudo chmod 4755 node_modules/electron/dist/chrome-sandbox` (again after every fresh `npm ci`), or use the installed `.deb`. Never work around it with `--no-sandbox`.
+- `npm run doctor` detects each of the problems below.
+- **Ubuntu 23.10 and later (24.04):** `npm start` can stop with "The SUID sandbox helper binary was found, but is not configured correctly" (it now says so, with the fix, before starting Electron). Run `sudo chown root:root node_modules/electron/dist/chrome-sandbox` and `sudo chmod 4755 node_modules/electron/dist/chrome-sandbox` (again after every fresh `npm ci`), or use the installed `.deb`. Never work around it with `--no-sandbox`.
 - Chromium will not run as root with its sandbox on: run Electron as a normal user.
 - Port 5174 is strict. If something already answers there (an earlier `npm run dev` or `npm start`), `npm start`, `npm run verify` and `npm run test:live` refuse to start and say so: stop that process. `npm run verify` also needs port 4174.
 - The first `npm start` downloads the Electron binary (network needed); `npm ci` does not.

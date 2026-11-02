@@ -127,7 +127,7 @@ export async function startDevServer({ url, command, cwd, attempts = 60, interva
   let exited = null;
   let stderr = '';
   server.stderr.on('data', chunk => {
-    if (stderr.length < 400) stderr = (stderr + chunk).slice(0, 400);
+    if (stderr.length < 4000) stderr = (stderr + chunk).slice(0, 4000);
     if (echo) process.stderr.write(chunk);
   });
   server.once('error', error => { exited ??= error.message; });
@@ -147,9 +147,23 @@ export async function startDevServer({ url, command, cwd, attempts = 60, interva
     }
     throw new Error('the start was cancelled');
   }
-  const ansi = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
-  if (exited !== null) throw new Error(`the dev server exited (${exited}) before it answered: ${stderr.replace(ansi, '').trim() || 'no output'}`);
+  if (exited !== null) throw new Error(`the dev server exited (${exited}) before it answered: ${serverReason(stderr)}`);
   // Not asked to stop: a server that never answered may not handle that either.
   server.kill('SIGKILL');
   throw new Error('dev server did not start');
+}
+
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
+// Node's own warnings, such as "(node:1234) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, ..."
+// when NODE_USE_ENV_PROXY is set, and the hint printed after them.
+const NODE_WARNING = /^\(node:\d+\) |^\(Use `node --trace-[a-z-]+ \.\.\.` to show where the warning was created\)$/;
+
+/**
+ * Why a dev server exited, from what it wrote to stderr: colour codes and Node's
+ * own warnings removed, so the reason is the server's, at most 400 characters.
+ * @param {string} stderr
+ */
+export function serverReason(stderr) {
+  const lines = stderr.replace(ANSI, '').split(/\r?\n/).filter(line => !NODE_WARNING.test(line));
+  return lines.join('\n').trim().slice(0, 400) || 'no output';
 }

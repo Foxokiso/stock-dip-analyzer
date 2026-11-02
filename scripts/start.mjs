@@ -8,10 +8,16 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { launch, watchParent } from './launcher.mjs';
+import { checkSandbox } from './doctor.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Resolving the electron package downloads its binary on first use (see README).
 const electron = createRequire(import.meta.url)('electron');
+// Chromium's own message for an unusable sandbox is a cryptic FATAL line; say what is wrong and
+// how to fix it first (the same check as `npm run doctor`), then start anyway: if the check is
+// wrong about this machine, nothing is lost.
+const sandbox = checkSandbox({ cwd: root });
+if (sandbox?.status === 'fail') console.error(`npm start: ${sandbox.detail}.\nnpm start: Fix: ${sandbox.fix}`);
 const run = launch({
   devServer: {
     url: 'http://127.0.0.1:5174/', cwd: root,

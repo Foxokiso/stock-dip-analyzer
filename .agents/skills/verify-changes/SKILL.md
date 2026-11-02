@@ -21,6 +21,8 @@ npm run verify
 
 It runs the unit tests, lint (warnings fail too), the production renderer build, then the browser regressions against a dev server on port 5174 and against `vite preview` of the build on port 4174. It starts and stops both servers itself, stops at the first failure and ends with one line per check. It takes about 2–3 minutes. The browser part needs Playwright's Chromium (`npx playwright install chromium`, with `--with-deps` on a fresh Linux box) and both ports free. `npm run verify -- --quick` runs the tests, lint and build only.
 
+If it cannot start a server or the browser, `npm run doctor` says why (a port in use, Playwright's Chromium missing) and how to fix it.
+
 3. **If a check fails**, rerun only that one while you fix it:
 
 | Failing check | Rerun it with |

@@ -7,6 +7,9 @@
   "author": "Foxokiso <119351547+Foxokiso@users.noreply.github.com>",
   "desktopName": "stock-dip-analyzer.desktop",
   "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
   "main": "main.cjs",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5174 --strictPort",
@@ -21,7 +24,8 @@
     "test:ui": "node scripts/verify-ui.mjs && node scripts/verify-alerts.mjs",
     "test:live": "node scripts/verify-live-electron.mjs",
     "test:finviz": "node scripts/verify-finviz-live.mjs",
-    "verify": "node scripts/verify.mjs"
+    "verify": "node scripts/verify.mjs",
+    "doctor": "node scripts/doctor.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
