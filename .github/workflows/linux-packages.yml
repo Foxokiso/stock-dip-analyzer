@@ -1,0 +1,119 @@
+name: Linux packages
+
+# Builds the Linux x64 packages, a .deb and an AppImage, for every pull request
+# and every push to master, checks what is inside them, installs the .deb on
+# Ubuntu 24.04 (the release whose AppArmor rules block Chromium's sandbox unless
+# the package installs a profile for the app) and opens the installed app once.
+# release.yml calls this workflow with keep-packages, then attaches the packages
+# to the GitHub Release; other runs keep nothing, to stay within artifact storage.
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_call:
+    inputs:
+      keep-packages:
+        description: Upload the .deb and the AppImage as the linux-x64-packages artifact
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-packages-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  linux:
+    name: Linux x64 packages (.deb and AppImage)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          # Release packages are built from the registry, not from a cache.
+          package-manager-cache: false
+
+      # electron-builder downloads the Electron it packages; the dev binary is not needed.
+      - name: Install locked dependencies
+        run: ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci --no-audit --no-fund
+
+      - name: Build production renderer
+        run: npm run build:renderer
+
+      - name: Build the .deb and the AppImage without publishing
+        run: npx electron-builder --linux deb AppImage --x64 --publish never -c.directories.output=release
+
+      - name: Check what the packages contain
+        run: |
+          version=$(node -p "require('./package.json').version")
+          deb="release/stock-dip-analyzer-${version}-amd64.deb"
+          appimage="release/stock-dip-analyzer-${version}-x86_64.AppImage"
+          test -s "$deb" || { echo "missing: $deb"; exit 1; }
+          test -s "$appimage" || { echo "missing: $appimage"; exit 1; }
+          [ "$(dpkg-deb --field "$deb" Package)" = stock-dip-analyzer ]
+          [ "$(dpkg-deb --field "$deb" Version)" = "$version" ]
+          # dpkg-deb lists: mode, owner/group, size, date, time, then the path (which may hold spaces).
+          paths=$(dpkg-deb --contents "$deb" | sed -E 's/^([^ ]+ +){5}//')
+          for path in './opt/DDS response/stock-dip-analyzer' './opt/DDS response/chrome-sandbox' \
+                      './opt/DDS response/resources/app.asar' './opt/DDS response/resources/apparmor-profile' \
+                      './usr/share/applications/stock-dip-analyzer.desktop'; do
+            grep -qxF "$path" <<<"$paths" || { echo "missing from the .deb: $path"; exit 1; }
+          done
+          chmod +x "$appimage"
+          (cd release && "./$(basename "$appimage")" --appimage-extract >/dev/null)
+          for path in AppRun stock-dip-analyzer resources/app.asar stock-dip-analyzer.desktop; do
+            test -e "release/squashfs-root/$path" || { echo "missing from the AppImage: $path"; exit 1; }
+          done
+          rm -rf release/squashfs-root
+          {
+            echo "Built $deb and $appimage"
+            sha256sum "$deb" "$appimage"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # The path a user takes: apt installs the .deb (its post-install script installs
+      # the AppArmor profile), then the installed app is started with Chromium's sandbox
+      # on and must open its window. Market data is not checked here.
+      - name: Install the .deb and open the installed app
+        run: |
+          version=$(node -p "require('./package.json').version")
+          sudo apt-get update -q
+          sudo apt-get install -y -q "./release/stock-dip-analyzer-${version}-amd64.deb"
+          echo "kernel.apparmor_restrict_unprivileged_userns=$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo n/a)"
+          ls -l /etc/apparmor.d/stock-dip-analyzer || echo "No AppArmor profile was installed."
+          app='/opt/DDS response/stock-dip-analyzer'
+          command -v stock-dip-analyzer
+          xvfb-run -a "$app" --remote-debugging-port=9222 > release/first-start.log 2>&1 &
+          trap 'pkill -f "$app" || true' EXIT
+          # index.html is titled "Dip Analyzer PRO" before React runs; only the mounted app
+          # names the desk, so "Overview — Dip Analyzer PRO" means the UI is up.
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:9222/json/list 2>/dev/null | grep -q '"title": *"Overview [^"]*Dip Analyzer PRO"'; then
+              echo "The installed app opened its window." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat release/first-start.log
+          echo "The installed app did not open its window within 60 s."
+          exit 1
+
+      - name: Keep the packages for the release
+        if: inputs.keep-packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-x64-packages
+          path: |
+            release/stock-dip-analyzer-*-amd64.deb
+            release/stock-dip-analyzer-*-x86_64.AppImage
+          if-no-files-found: error
+          retention-days: 3
+          overwrite: true

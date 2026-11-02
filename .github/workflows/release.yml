@@ -1,8 +1,12 @@
 name: Release
 
-# Pushing a tag such as v2.1.0 builds the Windows installer from that commit,
-# once the checks every pull request runs have passed on it, and publishes a
-# GitHub Release with the installer, its block map and SHA-256 sums attached.
+# Pushing a tag such as v2.2.0 builds, from that commit and once the checks
+# every pull request runs have passed on it, the Windows installer and the
+# Linux packages (a .deb and an AppImage, through linux-packages.yml), then
+# publishes a GitHub Release with all of them and their SHA-256 sums attached.
+# Only the publish job holds a write token: the build jobs run npm and
+# electron-builder with read-only tokens and hand their files over as
+# artifacts, and nothing is published unless every build succeeded.
 # Code signing happens automatically once the CSC_LINK / CSC_KEY_PASSWORD
 # secrets exist; until then the installer is unsigned and the release notes
 # say so.
@@ -49,13 +53,12 @@ jobs:
     uses: ./.github/workflows/native-core.yml
 
   windows:
-    name: Build and publish Windows x64 installer
+    name: Build Windows x64 installer
     needs: [version, checks, native]
     runs-on: windows-2022
     timeout-minutes: 40
-    # Write access is needed only to create the release.
-    permissions:
-      contents: write
+    outputs:
+      signature-status: ${{ steps.checksums.outputs.signature-status }}
     defaults:
       run:
         shell: pwsh
@@ -87,8 +90,8 @@ jobs:
       - name: Build installer
         # The signing secrets are set in this step's environment only. That is not
         # isolation: the job's earlier steps (npm install scripts, tests, lint, build)
-        # share the runner and the write token, and electron-builder and every package
-        # it loads from node_modules can read them.
+        # share the runner, and electron-builder and every package it loads from
+        # node_modules can read them. The job's token is read-only.
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -97,29 +100,90 @@ jobs:
           '-c.directories.output=release'
           '-c.nsis.artifactName=stock-dip-analyzer-${version}-${arch}-setup.${ext}'
 
-      - name: Checksums and signing status
+      - name: Checksum and signing status
+        id: checksums
         run: |
           $package = Get-Content package.json -Raw | ConvertFrom-Json
           $installer = "release/stock-dip-analyzer-$($package.version)-x64-setup.exe"
           if (-not (Test-Path $installer)) { throw "installer missing: $installer" }
           $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
-          "$hash  $(Split-Path $installer -Leaf)" | Out-File -Encoding ascii release/SHA256SUMS.txt
           $signature = (Get-AuthenticodeSignature -LiteralPath $installer).Status
-          "SIGNATURE_STATUS=$signature" >> $env:GITHUB_ENV
+          "signature-status=$signature" >> $env:GITHUB_OUTPUT
           "Installer $installer`nSHA-256 $hash`nAuthenticode: $signature" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Hand the installer to the publish job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-x64-installer
+          path: |
+            release/stock-dip-analyzer-*-x64-setup.exe
+            release/stock-dip-analyzer-*-x64-setup.exe.blockmap
+          if-no-files-found: error
+          retention-days: 3
+          overwrite: true
+
+  # Builds, checks and installs the .deb on Ubuntu 24.04, opens the installed app,
+  # and hands the .deb and the AppImage over as the linux-x64-packages artifact.
+  linux:
+    name: Build Linux x64 packages
+    needs: [version, checks, native]
+    uses: ./.github/workflows/linux-packages.yml
+    with:
+      keep-packages: true
+
+  publish:
+    name: Publish GitHub Release
+    needs: [windows, linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # The only job with write access, needed to create the release. It runs no npm
+    # and no build tool: it downloads the built files, sums them and uploads them.
+    permissions:
+      contents: write
+    steps:
+      - name: Download the built installers and packages
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: '*-x64-*'
+          path: release
+          merge-multiple: true
 
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
+          SIGNATURE_STATUS: ${{ needs.windows.outputs.signature-status }}
         run: |
-          $package = Get-Content package.json -Raw | ConvertFrom-Json
-          $notes = "Windows x64 installer built from $env:COMMIT_SHA.`n`nAuthenticode status: $env:SIGNATURE_STATUS" + $(if ($env:SIGNATURE_STATUS -ne 'Valid') { " (unsigned: Windows SmartScreen will warn on first run; verify the SHA-256 in SHA256SUMS.txt)." } else { "." }) + "`n`nSee CHANGELOG.md for what changed."
-          gh release create "$env:TAG" `
-            "release/stock-dip-analyzer-$($package.version)-x64-setup.exe" `
-            "release/stock-dip-analyzer-$($package.version)-x64-setup.exe.blockmap" `
-            release/SHA256SUMS.txt `
-            --title "Stock Dip Analyzer $($package.version)" `
-            --notes "$notes" `
+          version="${TAG#v}"
+          cd release
+          files=(
+            "stock-dip-analyzer-${version}-x64-setup.exe"
+            "stock-dip-analyzer-${version}-x64-setup.exe.blockmap"
+            "stock-dip-analyzer-${version}-amd64.deb"
+            "stock-dip-analyzer-${version}-x86_64.AppImage"
+          )
+          for file in "${files[@]}"; do test -s "$file" || { echo "missing: $file"; exit 1; }; done
+          sha256sum "${files[@]}" > SHA256SUMS.txt
+          cat SHA256SUMS.txt >> "$GITHUB_STEP_SUMMARY"
+          if [ "$SIGNATURE_STATUS" = Valid ]; then
+            signing="Authenticode status: Valid."
+          else
+            signing="Authenticode status: ${SIGNATURE_STATUS:-unknown} (unsigned: Windows SmartScreen will warn on first run; verify the SHA-256 in SHA256SUMS.txt)."
+          fi
+          cat > ../release-notes.md <<NOTES
+          Built from ${COMMIT_SHA}. See CHANGELOG.md for what changed.
+
+          **Windows x64:** run \`stock-dip-analyzer-${version}-x64-setup.exe\`. ${signing}
+
+          **Ubuntu and Debian (x64):** download \`stock-dip-analyzer-${version}-amd64.deb\`, then run \`sudo apt install ./stock-dip-analyzer-${version}-amd64.deb\` in the folder you saved it to. Open **DDS response** from the app menu, or run \`stock-dip-analyzer\`. The package installs the AppArmor profile Ubuntu 24.04 needs for Chromium's sandbox.
+
+          **Other Linux (x64):** \`stock-dip-analyzer-${version}-x86_64.AppImage\`: run \`chmod +x\` on it, then start it. It needs FUSE 2 (\`libfuse2\`, on Ubuntu 24.04 \`libfuse2t64\`), or run it with \`--appimage-extract-and-run\`. Where the system blocks user namespaces, as Ubuntu 24.04 does, the AppImage starts without Chromium's sandbox, so prefer the .deb there.
+
+          SHA-256 sums of every file are in SHA256SUMS.txt.
+          NOTES
+          gh release create "$TAG" "${files[@]}" SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Stock Dip Analyzer ${version}" \
+            --notes-file ../release-notes.md \
             --verify-tag
