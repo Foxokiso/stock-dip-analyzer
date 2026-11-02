@@ -132,6 +132,10 @@ npm run lint
 npm run build:renderer
 ```
 
+`npm run verify` runs those three and then the browser regressions described below, against a dev server and a production preview that it starts and stops itself, the way CI's Linux job does; it stops at the first failure and ends with one line per check. `npm run verify -- --quick` runs the three commands above only.
+
+Coding agents (Google Antigravity, Codex, Cursor and others) find the commands, the rules that must hold and step-by-step skills in [AGENTS.md](AGENTS.md) and `.agents/`.
+
 `npm test` runs the unit tests with Node's built-in test runner: financial parsing, current Finviz table schemas and paging, daily session comparisons, missing data, futures fractions, source provenance, cached failures, RSS integrity, settings validation and the alert rules. `main.cjs` and `preload.cjs` run there too, in a `vm` harness against a stand-in for Electron (`tests/helpers/mainProcess.js`), so the window, navigation, webview, permission, client-certificate and network policies are tested without an Electron binary. `npm run lint` gives every JavaScript file ESLint's recommended rules, `main.cjs`, `preload.cjs`, the tests and the verification scripts included, each with the globals of the place it runs, and the renderer the React rules too (`eslint.config.js`); `tests/lintConfig.test.js` checks that set-up. The C++ core's parity suites build and run with CMake and CTest; see [native/README.md](native/README.md).
 
 The browser regressions drive headless Chromium against a server you start; they do not start one themselves, and take its address from `UI_BASE_URL` (default `http://127.0.0.1:5174`). Run them against both servers: only the production build carries the Content Security Policy and the minified CSS, and any CSP violation fails the run.

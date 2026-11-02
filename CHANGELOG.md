@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `AGENTS.md` and `.agents/`, for coding agents: Google Antigravity reads both, and Codex, Cursor and others read `AGENTS.md`. `AGENTS.md` gives the commands to run from the repository root (`npm start`, not `npx start`, and that it keeps running), the repository map, the rules that must hold (data integrity, the security posture, native parity, tests, this changelog) and the environment pitfalls (Ubuntu 24.04's sandbox error, port 5174, the Electron download, Playwright's Chromium). `.agents/rules/` holds three rules that load when an agent works on their files (`native-parity.md`, `security-surface.md`, `github-workflows.md`), each with the `trigger: glob` frontmatter Antigravity requires; `.agents/skills/` holds five procedures (`run-app`, `verify-changes`, `fix-finviz-parsing`, `build-linux-package`, `cut-release`). Procedures are skills because Antigravity stopped running workflows on 2026-10-19.
+- `npm run verify` (`scripts/verify.mjs`): what CI's Linux job checks, in one command. It runs the unit tests, lint with warnings failing, the renderer build, then the browser regressions against a dev server on 127.0.0.1:5174 and against `vite preview` of the build on 127.0.0.1:4174. It starts each server itself and stops it when its step ends, also when the step fails or the run is interrupted. It stops at the first failure and ends with one line per check. `npm run verify -- --quick` skips the browser regressions; when Playwright's Chromium does not start, the run says so before anything else runs and gives the install command. `tests/verify.test.js` checks the steps and their order, the stop at the first failure, and that a step's server is stopped whatever the step's outcome.
+
 ## 2.2.0 (2026-11-02)
 
 The full review behind these changes is in `docs/upgrade-scan-2026-10-31.md`.
