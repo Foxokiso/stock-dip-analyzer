@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, session } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, shell, session } = require('electron');
 const path = require('path');
 const { STATUS_CODES } = require('http');
 const isDev = !app.isPackaged;
@@ -311,6 +311,63 @@ ipcMain.handle('fetch-yahoo-chart', (event, symbol, range = '1mo', interval = '1
 
 let mainWindow;
 
+// The application menu. The Go menu opens each desk, in the order of the navigation
+// bar in src/App.jsx, by changing the app's own hash route in the app window: the page
+// runs a constant expression, and the preload bridge stays one function. Developer
+// tools are in the menu only in development.
+const DESKS = [
+    { label: 'Overview', hash: '#/', accelerator: 'CmdOrCtrl+1' },
+    { label: 'Futures', hash: '#/futures', accelerator: 'CmdOrCtrl+2' },
+    { label: 'ETF rankings', hash: '#/etfs', accelerator: 'CmdOrCtrl+3' },
+    { label: 'Oil Watch', hash: '#/oil', accelerator: 'CmdOrCtrl+4' },
+    { label: 'Discovery', hash: '#/discovery', accelerator: 'CmdOrCtrl+5' },
+    { label: 'Settings', hash: '#/settings', accelerator: 'CmdOrCtrl+,' },
+];
+const PROJECT_URL = 'https://github.com/Foxokiso/stock-dip-analyzer';
+const inAppWindow = (code) => {
+    mainWindow?.webContents.executeJavaScript(code).catch(() => {});
+};
+
+function appMenuTemplate() {
+    const isMac = process.platform === 'darwin';
+    return [
+        ...(isMac ? [{ role: 'appMenu' }] : []),
+        { label: 'File', submenu: [isMac ? { role: 'close' } : { role: 'quit' }] },
+        { role: 'editMenu' },
+        {
+            label: 'Go',
+            submenu: [
+                ...DESKS.map(({ label, hash, accelerator }) => ({ label, accelerator, click: () => inAppWindow(`location.hash = ${JSON.stringify(hash)}`) })),
+                { type: 'separator' },
+                { label: 'Back', accelerator: isMac ? 'Cmd+[' : 'Alt+Left', click: () => inAppWindow('history.back()') },
+                { label: 'Forward', accelerator: isMac ? 'Cmd+]' : 'Alt+Right', click: () => inAppWindow('history.forward()') },
+            ],
+        },
+        {
+            label: 'View',
+            submenu: [
+                { role: 'reload' },
+                { type: 'separator' },
+                { role: 'resetZoom' },
+                { role: 'zoomIn' },
+                { role: 'zoomOut' },
+                { type: 'separator' },
+                { role: 'togglefullscreen' },
+                ...(isDev ? [{ type: 'separator' }, { role: 'forceReload' }, { role: 'toggleDevTools' }] : []),
+            ],
+        },
+        { role: 'windowMenu' },
+        {
+            label: 'Help',
+            role: 'help',
+            submenu: [
+                { label: 'Project page', click: () => { shell.openExternal(PROJECT_URL).catch(() => {}); } },
+                ...(isMac ? [] : [{ role: 'about' }]),
+            ],
+        },
+    ];
+}
+
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1400,
@@ -472,6 +529,8 @@ app.whenReady().then(() => {
         ses.setPermissionRequestHandler((contents, permission, callback, details) => callback(isAppClipboardWrite(contents, permission, details)));
         ses.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => isAppClipboardWrite(contents, permission, details));
     }
+    app.setAboutPanelOptions({ applicationName: 'DDS response', applicationVersion: app.getVersion(), website: PROJECT_URL });
+    Menu.setApplicationMenu(Menu.buildFromTemplate(appMenuTemplate()));
     createWindow();
 
     app.on('activate', () => {

@@ -1,7 +1,7 @@
 {
   "name": "stock-dip-analyzer",
   "private": true,
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Desktop market research workspace: Finviz screeners and futures, Yahoo Finance technical analysis, dip scores and alerts.",
   "homepage": "https://github.com/Foxokiso/stock-dip-analyzer",
   "author": "Foxokiso <119351547+Foxokiso@users.noreply.github.com>",
