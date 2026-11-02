@@ -29,7 +29,7 @@
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
     "linkedom": "^0.18.13",
-    "lucide-react": "^0.576.0",
+    "lucide-react": "^1.64.0",
     "playwright": "^1.64.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
