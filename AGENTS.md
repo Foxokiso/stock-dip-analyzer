@@ -2,6 +2,12 @@
 
 Instructions for coding agents (Google Antigravity, Codex, Cursor, Claude Code and others) working in this repository. Step-by-step procedures are skills in `.agents/skills/` (run the app, verify a change, repair Finviz parsing, build the Linux packages, cut a release); rules for specific areas load from `.agents/rules/` when you touch those files.
 
+Before editing one of these areas, make sure you have read its rule, and open it yourself if it was not loaded:
+
+- `native/`, or a module it mirrors (`src/utils/scoring.js`, `format.js`, `marketData.js`, `oilNews.js`, `src/services/futures.js`, `src/styles/tokens.css`): `.agents/rules/native-parity.md`
+- `main.cjs`, `preload.cjs`, `vite.config.js`, `src/utils/bridge.js`, `inertHtml.js`, `tradingView.js`: `.agents/rules/security-surface.md`
+- `.github/`: `.agents/rules/github-workflows.md`
+
 ## What this is
 
 Stock Dip Analyzer Pro, installed as **DDS response**: an Electron 45 desktop app with a React 19 + Vite 7 renderer. Finviz supplies the stock screeners and futures, Yahoo Finance's chart endpoint the price history and technical scores, Google News RSS the Oil Watch headlines. A C++20 core in `native/` mirrors several JavaScript modules and is checked against them by parity suites. People run it from an installer (`.deb`, AppImage or Windows NSIS, attached to each GitHub Release) or from source with `npm start`.
