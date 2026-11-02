@@ -1,61 +1,94 @@
 # Stock Dip Analyzer Pro
 
-A desktop market research workspace built with React, Vite, and Electron. Finviz is the primary stock screener and futures reference; Yahoo Finance supplies historical technical analysis and market context. Google News RSS supplies the Oil Watch headlines.
+**Find the dip. Understand the context.** A desktop research workspace for stock dips, futures and ETFs. It scans Finviz for the day's biggest losers, scores every one from a month of Yahoo Finance daily closes, and puts the futures board, ETF rankings, the energy complex and unusual volume one keystroke away. Every number shows where it came from and when.
 
-## Release Notes v2.2.0
+[![CI](https://github.com/Foxokiso/stock-dip-analyzer/actions/workflows/ci.yml/badge.svg)](https://github.com/Foxokiso/stock-dip-analyzer/actions/workflows/ci.yml)
+[![Linux packages](https://github.com/Foxokiso/stock-dip-analyzer/actions/workflows/linux-packages.yml/badge.svg)](https://github.com/Foxokiso/stock-dip-analyzer/actions/workflows/linux-packages.yml)
+[![Windows installer](https://github.com/Foxokiso/stock-dip-analyzer/actions/workflows/windows-installer.yml/badge.svg)](https://github.com/Foxokiso/stock-dip-analyzer/actions/workflows/windows-installer.yml)
+[![Native core](https://github.com/Foxokiso/stock-dip-analyzer/actions/workflows/native-core.yml/badge.svg)](https://github.com/Foxokiso/stock-dip-analyzer/actions/workflows/native-core.yml)
 
-A security and data-integrity pass over every desk, and installable Linux packages. The changes are listed in [CHANGELOG.md](CHANGELOG.md); the review behind them is in [docs/upgrade-scan-2026-10-31.md](docs/upgrade-scan-2026-10-31.md).
+![The Overview desk: the market pulse, then the day's biggest losers on Finviz, each scored from a month of Yahoo Finance daily closes and rated, with live data](docs/screenshots/overview.png)
 
-* **Linux packages.** Each release now carries a `.deb` for Ubuntu and Debian and an AppImage for other distributions, next to the Windows installer (see *Install*). The `.deb` adds **DDS response** to the app menu and, on Ubuntu 24.04, the AppArmor profile Chromium's sandbox needs. A new CI workflow builds both on every pull request, installs the `.deb` on Ubuntu 24.04 and opens the installed app.
-* **`npm start` stops cleanly.** Vite and Electron start and stop together: Ctrl+C, closing the terminal, an editor's Stop button or quitting the app no longer leaves Vite holding port 5174, which made the next `npm start` fail.
-* **Technical alerts fire.** They required a source that states a zero delay, and Yahoo's chart endpoint never states one. An alert now needs a positive price, at least 15 daily closes and a quote at most five minutes old (one minute ahead is tolerated as clock skew), so alerts come only during the regular session and in the five minutes after its last trade. The Overview's scans raise them: for alerts through the session, keep the Overview open and set Settings → Scanner → Refresh interval, which is Off by default. A condition alerts once when it turns true (one alert per name and refresh: the first the alert settings allow); Minimum score gates only Bullish alerts, because a breakout, a fresh one-month closing high, has no dip to score and scores 50 or less in practice, so the default minimum of 60 would hide every one; a burst shows at most three toasts plus "+N more alerts", and at most one alert sound plays every two seconds.
-* **TradingView sandboxed.** Its loader script no longer runs next to the desktop bridge: the chart is TradingView's own page in a sandboxed iframe, links inside it do nothing, and the Content Security Policy allows scripts from the app only.
-* **Research viewers locked down.** Embedded viewers start only on the stock page's five research sites (Finviz, Chartmill, StockCharts, Fidelity, Yahoo Finance), and the sites in them can move only to HTTPS pages. They share a private in-memory session, so a Fidelity sign-in lasts until the app quits; a link in one opens in the system browser only right after a click, key press or tap in it, and their media plays sound only after a click or key press, so an ad cannot start playing sound by itself. No site the app shows is given a TLS client certificate from the computer's certificate store.
-* **Settings that stick.** Data & sources holds two live preferences, Chart cache and Request timeout, which now survive restarts, imports and backups. Number fields apply when you leave them or press Enter, imports are checked against the choices the desk offers, and the desktop app's own page may now write to the clipboard (the one permission the app grants), which Backup → Copy needs there. Seizure Mode left the header's theme list: it starts from Settings → Appearance, behind a photosensitivity warning.
-* **Overview.** The RelVol column is gone (no source the Overview scan uses supplies an average volume); Excluded sectors narrow Any Sector scans only, so a picked sector is scanned in full; the RSI column reads Simple RSI, because it is not the Wilder RSI(14) Finviz shows; the table shows 100 rows at a time; a row's score breakdown shows when its Yahoo chart was retrieved, next to the quote time; ratings are coloured by verdict on every desk; and a Yahoo outage or a Finviz layout change is reported in words, with the scan run again on the next visit.
-* **Discovery applies unusual volume.** Finviz ignored it as a filter, so the desk listed volatile stocks by volume whether or not their volume was unusual; it is now sent as the signal Finviz applies.
-* **Stock page and futures.** The 52-week strip is back and names its source; Finviz and Yahoo sections load on their own; headlines name their publisher. A futures sparkline whose samples end away from the quote is hidden with a note.
-* **Quiet in the background.** Auto-refresh pauses while the window is hidden, except the Overview scan while an alert type is enabled.
-* **Keyboard, screen readers and high contrast.** A desk you switch to opens at the top of the page with focus on its heading, also when you leave a desk that failed; opening the alert history moves focus into it, and closing it returns focus to the Alert history button; Tab skips the TradingView frame until the chart has loaded; and under Windows High Contrast, selected options and rows, pressed buttons and the current desk's navigation link take the system's selection colours.
-* **Builds and CI.** Electron 45.2.1; electron-builder 26.18.1, which fixes the AppImage launcher flaw and retries the Windows folder rename behind the old 26.8.1 pin; a Linux CI workflow on every pull request, which also repeats the unit tests in New York time with a German locale and runs the browser regressions on the production build; a tag is released only after CI and the native parity suites pass on it; ESLint now checks every JavaScript file, the Electron main process and preload included; Dependabot.
+## Download
 
-Verification: `npm test` 334/334 (also with `TZ=America/New_York` and `LANG=de_DE.UTF-8` in CI), `npx eslint --max-warnings 0 .` clean, `npm run build:renderer`, `ctest` 7/7 in CI (six parity suites, with their case counts in [native/README.md](native/README.md), and the locale regression), `npm run test:ui` passing against both the dev server and the production preview on Linux, `npm run test:finviz` 9/9 live checks, and `npm run test:live` passing with live data on every desk against Electron 45.2.1 in dev mode on Linux and against the installed 2.2.0 `.deb` on Ubuntu 24.04, where the packaged build's Content Security Policy is in force. CI builds and inspects the unsigned Windows installer but does not install or launch it. Not yet tried in a running app: the app on Windows, and the research viewers' link gate and autoplay rule (the CHANGELOG's *Not in this release* says how to check them).
+Get the file for your system from the [latest release](https://github.com/Foxokiso/stock-dip-analyzer/releases/latest):
 
-## Release Notes v2.1.0 — Response
+| System | File | Install |
+|---|---|---|
+| Windows 10 or 11 (x64) | `stock-dip-analyzer-<version>-x64-setup.exe` | Run it. It is unsigned, so SmartScreen asks first: **More info → Run anyway**. |
+| Ubuntu, Debian (x64) | `stock-dip-analyzer-<version>-amd64.deb` | `sudo apt install ./stock-dip-analyzer-<version>-amd64.deb`, then open **DDS response** from the app menu. |
+| Other Linux (x64) | `stock-dip-analyzer-<version>-x86_64.AppImage` | `chmod +x` it and run it (needs FUSE 2). |
 
-Same desks, same data rules, measured to be fast.
+Each release lists the SHA-256 of every file in `SHA256SUMS.txt`. More in [Install](#install).
 
-* **Finviz screener repaired.** Finviz changed its grid again on 2026-10-21 (short header labels, sort indicators); every screener desk showed nothing. The parser now binds headers by their accessible name and a live smoke test (`npm run test:finviz`) checks all seven views plus the futures API in seconds.
-* **Overview scan streams.** Pages arrive four at a time and are shown in order as they land; scoring starts on the first rows with eight Yahoo requests in flight. At depth 100 the first rows and first score appear 0.9 s after a reload and the whole table is scored in 3.3 s. The scan keeps running when you leave the page; coming back shows it instantly (Settings → Scanner → *Reuse a scan for*, default 90 s), every row with its original retrieval time.
-* **Instant route switches.** The desks no longer suspend on first visit (React 19's fallback throttle cost exactly 300 ms per cold switch); the stock page's charting chunk is warmed during idle time. Measured cold mount: 0 ms on every route; Futures data in ~90 ms, ETF rankings ~240 ms (three pages in parallel), Oil Watch ~160 ms.
-* **Settings that now act:** *Chart cache* is honoured by scoring, the stock page and Oil Watch (reused quotes keep their retrieval time); *Request timeout* is applied by the desktop process immediately.
-* **Hardened desktop shell.** Sandboxed, context-isolated renderer with a one-function bridge; provider allowlist on every request the renderer can make; navigation lock; guest viewers without Node; all permissions denied; a Content Security Policy in production builds; Electron 45. Details under *Security* below.
-* **CI on master and tagged releases.** Both workflows run on pushes to `master`; pushing a `v*` tag builds, checks and publishes the installer as a GitHub Release.
+## What it does
 
-Verification: `npm test` 112/112, `npx eslint .` clean, `vite build`, `npm run test:finviz` 8/8 live views, `npm run test:live` 0 page errors with no provider errors at depth 100 and 500.
+- **Overview.** The market pulse (S&P 500, Nasdaq 100, Dow 30 and Russell 2000 ETFs and the VIX), then up to 500 of the day's biggest losers on Finviz. Each one gets a rule-based technical score from a month of Yahoo Finance daily closes and a rating from Strong Buy to Strong Sell, with the breakdown one click away.
+- **Futures.** Equity indices, rates, energy, metals, grains, softs and currencies from Finviz, with sparklines, search and an instrument focus panel.
+- **Stock page.** A TradingView chart, the 52-week range, key statistics, headlines with their publishers, and research viewers for Finviz, Chartmill, StockCharts, Fidelity and Yahoo Finance.
+- **ETF rankings** by one-month return, dividend yield and one-year return; **Oil Watch**, the energy complex scored and the latest oil headlines; **Discovery**, unusual volume and monthly volatility.
+- **Alerts** for breakouts, breakdowns and trend changes while the Overview scans, with a sound, a history and a minimum score.
+- **Fast to move around.** Every desk opens instantly; from the **Go** menu, Ctrl+1 to Ctrl+5 switch desks, Ctrl+, opens Settings, and Alt+← and Alt+→ go back and forward (⌘ on macOS).
+- **Honest data.** Every value shows its source, its quote time and when it was retrieved. Unknown stays "unavailable", never zero and never a made-up number.
+- **Locked down.** A sandboxed renderer with a one-function bridge, an allowlist for every request, a Content Security Policy, and no telemetry. Details in [Security](#security).
 
-## Release Notes v2.0.0 — Pierce/27
+<table>
+  <tr>
+    <td><img src="docs/screenshots/futures.png" alt="The Futures desk: index, energy and metal futures with sparklines and the futures board"></td>
+    <td><img src="docs/screenshots/stock.png" alt="The stock page for AAPL: the TradingView chart and the research viewer tabs"></td>
+  </tr>
+</table>
 
-The layout is the same; the style is new, every setting is deliberate, and the C++ core now covers far more than scoring.
+## Quick start from source
 
-* **Pierce/27 design system** (`src/styles/tokens.css`, contract in `docs/design/pierce27-brief.md`):
-  * Every hue sits on a 27° grid in OKLCH — H(k) = 27·k mod 360. Because 27·20 ≡ 180, the complement of grid hue k is grid hue k + 20, so each colour pair is two multiples of 27 placed exactly opposite: magenta ↔ green (primary), cyan ↔ red (secondary), violet ↔ yellow, amber ↔ blue. Up/down, selected/unselected and action/context are drawn with these complements rather than with shades of one colour.
-  * Tints, shades and washes are not hand-picked: lightness, chroma and alpha are multiplied by 0.73, 0.46 and 0.27. Durations follow the same scale (270 ms, 540 ms, a 2.7 s pulse on live indicators). Radii are 9 / 6 / 13 px.
-  * Black-ink ground, hairline borders, a 2 % sheen on every panel, soft 27 px glows scaled by a user-set intensity, and one long ease-out curve. No new web fonts; the app renders identically offline.
-  * The previous themes (Modern, Alien Fractal, Seizure Mode) remain selectable; all pages consume role tokens only.
-* **Settings desk** (`/settings`): one versioned document (`dipAnalyzerSettingsV2`, migrated once from the old keys) with a sticky section index and per-section reset — Appearance (theme cards with live complement swatches, density, motion, glow), Scanner (excluded sectors, refresh interval, scan depth, default rating filter, default sort), Futures (default market group, default timeframe, delay notice), Alerts (sound, volume, which alert types fire, minimum score, history limit), Data & sources (read-only facts: chart response caching disabled, 12 s request timeout, Finviz 1 min / 20 min delays, Yahoo delay as reported), Backup (export / import / reset) and About. Every control is keyboard-reachable with a visible focus ring; the Dashboard, Futures desk and alert system read their defaults from it.
-* **Futures desk** ships in this version with the data-integrity rules of v1.3 unchanged: no simulated quotes, no invented headlines, retrieval time and source quote time always shown separately, unavailable shown as unavailable.
-* **Native C++ core** (`native/`, C++20, MSVC `/W4 /WX` and GCC `-Wall -Wextra -Werror -pedantic`), each module checked against the JavaScript reference by a deterministic parity suite run under CTest on Windows and Linux:
-  * `dip_analysis` — recovery score, EMA/RSI, factors, verdicts, trend flags (528 cases)
-  * `dip_format` — compact/percent/price formatting incl. en-US `toLocaleString` semantics (3 192 cases)
-  * `dip_jsonlite` + `dip_futures` — strict RFC 8259 JSON parser and the Finviz futures payload validation, grouping and snapshot rules (577 cases)
-  * `dip_marketdata` — Yahoo chart points, previous-close selection across exchange days via `std::chrono` time zones, day change, alert eligibility (13 481 cases)
-  * `dip_oilnews` — headline/source split and high-impact classification with de-escalation suppression (3 853 cases)
-  * `dip_palette` — the Pierce/27 palette as a generated `constexpr` header (`scripts/gen-native-palette.mjs`), with a byte-for-byte drift check (1 008 cases)
-  * Still JavaScript by design: DOM/RSS parsing, networking, the Electron shell and the React UI. A native (Qt) window is **not** part of this release.
-* **Fixed:** the native parity verifier failed on Windows because the driver's text-mode stdout ends lines with CRLF; the saved Finviz screener page is now a fixture under `tests/fixtures/`; committed build and lint logs were removed.
+Node.js 22.12 or later, then from a terminal:
 
-Verification: `npm test` 67/67, `npx eslint .` clean, `vite build`, `ctest` 6/6 parity suites, `scripts/verify-ui.mjs` and `scripts/verify-alerts.mjs` pass; `scripts/screenshot-routes.mjs` captures every route.
+```bash
+git clone https://github.com/Foxokiso/stock-dip-analyzer.git
+cd stock-dip-analyzer
+npm ci
+npm run doctor
+npm start
+```
+
+`npm run doctor` checks your machine first and prints the fix for anything that would stop the app; [Run locally](#run-locally) has the details. Built with Electron 45, React 19 and Vite 7, with a C++20 core checked against the JavaScript by parity suites, and CI on Linux and Windows.
+
+## What's new in 2.3.0
+
+- **A real application menu.** File, Edit, **Go** (every desk, with keyboard shortcuts, plus Back and Forward), View (zoom, full screen), Window and Help (the project page, About). The installed app no longer offers developer tools.
+- **Up-to-date libraries.** React 19.3.1, React Router 7.18.5 and Recharts 3.10.1, among others. `npm audit` finds nothing in the libraries the app ships; its moderate advisories are all one `minimatch` denial-of-service issue inside electron-builder's and ESLint's own dependencies, build and lint tools that never run on a user's machine.
+- **Linux packages** (since 2.2.0): a `.deb` for Ubuntu and Debian and an AppImage, next to the Windows installer.
+- **Tools for people and coding agents:** `npm run doctor`, `npm run verify`, and `AGENTS.md` with rules and skills for agents such as Google Antigravity.
+
+The full list is in [CHANGELOG.md](CHANGELOG.md); earlier notes are under [Release history](#release-history).
+
+## Install
+
+Download the file for your system from the [latest release](https://github.com/Foxokiso/stock-dip-analyzer/releases/latest):
+
+- **Ubuntu and Debian (x64):** `stock-dip-analyzer-<version>-amd64.deb`. In the folder you saved it to, run `sudo apt install ./stock-dip-analyzer-<version>-amd64.deb`, then open **DDS response** from the app menu or run `stock-dip-analyzer`. Installing a newer `.deb` the same way upgrades it; `sudo apt remove stock-dip-analyzer` removes it.
+- **Other Linux (x64):** `stock-dip-analyzer-<version>-x86_64.AppImage`. Run `chmod +x` on it, then start it. It needs FUSE 2 (`sudo apt install libfuse2t64` on Ubuntu 24.04, `libfuse2` on 22.04), or start it with `--appimage-extract-and-run`. Where user namespaces are blocked, as on Ubuntu 24.04, the AppImage starts without Chromium's sandbox; use the `.deb` there.
+- **Windows (x64):** `stock-dip-analyzer-<version>-x64-setup.exe`. The installer is unsigned, so SmartScreen warns on its first run; compare its SHA-256 with `SHA256SUMS.txt` before running it.
+
+Settings are kept per install (a packaged app and `npm start` keep separate ones); Settings → Backup exports and imports them.
+
+## Run locally
+
+Requires Node.js 22.12 or later (supported by this Vite version); `.nvmrc` names 24, the version CI uses, and `package.json` declares the minimum in `engines`. `npm run doctor` checks this machine for everything below that can stop `npm start` or `npm run verify` (the Node.js version, the installed dependencies, the Electron binary and its sandbox, ports 5174 and 4174, a display, Playwright's Chromium) and prints the fix for each problem; it changes nothing.
+
+```bash
+npm ci
+npm start
+```
+
+`npm start` runs Vite, starts Electron once Vite answers on `127.0.0.1:5174`, and stops the two together. Quitting the app stops Vite. Ctrl+C, closing the terminal, or SIGTERM to `npm start` (what an editor's Stop button or `kill` sends) stops both. If either one exits on its own, the other is stopped too. Force-killing npm's own process alone (`kill -9`, or ending only that process in Task Manager) can still leave them running. Arguments after `npm start --` go to Electron. `npm ci` does not download Electron itself: the first `npm start` (or `npm run electron`, or `npm run test:live` without `ELECTRON_EXE`) downloads the Electron binary matching the installed `electron` package from Electron's GitHub releases and checks it against the SHA-256 sums that package ships; set `ELECTRON_MIRROR` to download from a mirror instead. `npm run dev` provides a browser layout preview; market data requires Electron. Both serve the renderer on `127.0.0.1:5174` with `--strictPort`: if that port is taken, Vite exits instead of moving to another port, because `npm run electron` waits on 5174 and the main process trusts only that address in development. `npm start` refuses to start at all while something already answers there, such as an earlier `npm run dev`, and says so. Existing refresh settings and alternate themes are retained.
+
+On Ubuntu 23.10 and later, AppArmor blocks the user namespaces Chromium's sandbox uses, and the Electron binary that `npm start` downloads is not set up to sandbox without them, so it stops with "The SUID sandbox helper binary was found, but is not configured correctly". `npm start` says so, with the fix, before it starts Electron. Install the `.deb` instead, or make the downloaded helper setuid root (again after every fresh `npm ci`):
+
+```bash
+sudo chown root:root node_modules/electron/dist/chrome-sandbox
+sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+```
 
 ## Futures desk and modern workspace
 
@@ -95,34 +128,6 @@ The app shows third-party web content (a TradingView chart in a sandboxed iframe
 - **Installer signing.** Releases are unsigned until a code-signing certificate is configured as the release workflow's `CSC_LINK` / `CSC_KEY_PASSWORD` secrets; Windows SmartScreen will warn on an unsigned installer, and `SHA256SUMS.txt` is attached to every release for verification. The secrets are set only in the environment of the release job's electron-builder step, which is not isolation: the job's earlier steps (npm install scripts, the tests, lint and the renderer build) run on the same runner and can reach them and the job's write token. electron-builder also loads `electron-builder.env` from the working directory by itself, so `.gitignore` keeps that file, `*.pfx` and `*.p12` out of the repository; never commit signing material.
 
 Data sources are public Finviz pages, Finviz's futures JSON endpoint, Yahoo Finance's chart endpoint and Google News RSS, used as a personal research tool with browser-like request headers. Their terms of use govern redistribution; review them before publishing the app to others.
-
-## Install
-
-Download the file for your system from the [latest release](https://github.com/Foxokiso/stock-dip-analyzer/releases/latest):
-
-- **Ubuntu and Debian (x64):** `stock-dip-analyzer-<version>-amd64.deb`. In the folder you saved it to, run `sudo apt install ./stock-dip-analyzer-<version>-amd64.deb`, then open **DDS response** from the app menu or run `stock-dip-analyzer`. Installing a newer `.deb` the same way upgrades it; `sudo apt remove stock-dip-analyzer` removes it.
-- **Other Linux (x64):** `stock-dip-analyzer-<version>-x86_64.AppImage`. Run `chmod +x` on it, then start it. It needs FUSE 2 (`sudo apt install libfuse2t64` on Ubuntu 24.04, `libfuse2` on 22.04), or start it with `--appimage-extract-and-run`. Where user namespaces are blocked, as on Ubuntu 24.04, the AppImage starts without Chromium's sandbox; use the `.deb` there.
-- **Windows (x64):** `stock-dip-analyzer-<version>-x64-setup.exe`. The installer is unsigned, so SmartScreen warns on its first run; compare its SHA-256 with `SHA256SUMS.txt` before running it.
-
-Settings are kept per install (a packaged app and `npm start` keep separate ones); Settings → Backup exports and imports them.
-
-## Run locally
-
-Requires Node.js 22.12 or later (supported by this Vite version); `.nvmrc` names 24, the version CI uses, and `package.json` declares the minimum in `engines`. `npm run doctor` checks this machine for everything below that can stop `npm start` or `npm run verify` (the Node.js version, the installed dependencies, the Electron binary and its sandbox, ports 5174 and 4174, a display, Playwright's Chromium) and prints the fix for each problem; it changes nothing.
-
-```bash
-npm ci
-npm start
-```
-
-`npm start` runs Vite, starts Electron once Vite answers on `127.0.0.1:5174`, and stops the two together. Quitting the app stops Vite. Ctrl+C, closing the terminal, or SIGTERM to `npm start` (what an editor's Stop button or `kill` sends) stops both. If either one exits on its own, the other is stopped too. Force-killing npm's own process alone (`kill -9`, or ending only that process in Task Manager) can still leave them running. Arguments after `npm start --` go to Electron. `npm ci` does not download Electron itself: the first `npm start` (or `npm run electron`, or `npm run test:live` without `ELECTRON_EXE`) downloads the Electron binary matching the installed `electron` package from Electron's GitHub releases and checks it against the SHA-256 sums that package ships; set `ELECTRON_MIRROR` to download from a mirror instead. `npm run dev` provides a browser layout preview; market data requires Electron. Both serve the renderer on `127.0.0.1:5174` with `--strictPort`: if that port is taken, Vite exits instead of moving to another port, because `npm run electron` waits on 5174 and the main process trusts only that address in development. `npm start` refuses to start at all while something already answers there, such as an earlier `npm run dev`, and says so. Existing refresh settings and alternate themes are retained.
-
-On Ubuntu 23.10 and later, AppArmor blocks the user namespaces Chromium's sandbox uses, and the Electron binary that `npm start` downloads is not set up to sandbox without them, so it stops with "The SUID sandbox helper binary was found, but is not configured correctly". `npm start` says so, with the fix, before it starts Electron. Install the `.deb` instead, or make the downloaded helper setuid root (again after every fresh `npm ci`):
-
-```bash
-sudo chown root:root node_modules/electron/dist/chrome-sandbox
-sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
-```
 
 ## Verify and build
 
@@ -174,3 +179,59 @@ Google Antigravity reads this repository's agent setup on its own: `AGENTS.md` o
 ## Source limits
 
 Public providers can be unavailable, delayed, rate limited, or change their response schemas. Network requests have bounded timeouts (Settings → Data & sources → Request timeout, 12 s by default), and failures are shown in the interface in the provider's words: its HTTP status, Yahoo's own explanation, or the network error. Live prices with exchange entitlements require an authorized feed or broker connection; Finviz's built-in futures delay cannot be removed by faster polling.
+## Release history
+
+### v2.2.0
+
+A security and data-integrity pass over every desk, and installable Linux packages. The changes are listed in [CHANGELOG.md](CHANGELOG.md); the review behind them is in [docs/upgrade-scan-2026-10-31.md](docs/upgrade-scan-2026-10-31.md).
+
+* **Linux packages.** Each release now carries a `.deb` for Ubuntu and Debian and an AppImage for other distributions, next to the Windows installer (see *Install*). The `.deb` adds **DDS response** to the app menu and, on Ubuntu 24.04, the AppArmor profile Chromium's sandbox needs. A new CI workflow builds both on every pull request, installs the `.deb` on Ubuntu 24.04 and opens the installed app.
+* **`npm start` stops cleanly.** Vite and Electron start and stop together: Ctrl+C, closing the terminal, an editor's Stop button or quitting the app no longer leaves Vite holding port 5174, which made the next `npm start` fail.
+* **Technical alerts fire.** They required a source that states a zero delay, and Yahoo's chart endpoint never states one. An alert now needs a positive price, at least 15 daily closes and a quote at most five minutes old (one minute ahead is tolerated as clock skew), so alerts come only during the regular session and in the five minutes after its last trade. The Overview's scans raise them: for alerts through the session, keep the Overview open and set Settings → Scanner → Refresh interval, which is Off by default. A condition alerts once when it turns true (one alert per name and refresh: the first the alert settings allow); Minimum score gates only Bullish alerts, because a breakout, a fresh one-month closing high, has no dip to score and scores 50 or less in practice, so the default minimum of 60 would hide every one; a burst shows at most three toasts plus "+N more alerts", and at most one alert sound plays every two seconds.
+* **TradingView sandboxed.** Its loader script no longer runs next to the desktop bridge: the chart is TradingView's own page in a sandboxed iframe, links inside it do nothing, and the Content Security Policy allows scripts from the app only.
+* **Research viewers locked down.** Embedded viewers start only on the stock page's five research sites (Finviz, Chartmill, StockCharts, Fidelity, Yahoo Finance), and the sites in them can move only to HTTPS pages. They share a private in-memory session, so a Fidelity sign-in lasts until the app quits; a link in one opens in the system browser only right after a click, key press or tap in it, and their media plays sound only after a click or key press, so an ad cannot start playing sound by itself. No site the app shows is given a TLS client certificate from the computer's certificate store.
+* **Settings that stick.** Data & sources holds two live preferences, Chart cache and Request timeout, which now survive restarts, imports and backups. Number fields apply when you leave them or press Enter, imports are checked against the choices the desk offers, and the desktop app's own page may now write to the clipboard (the one permission the app grants), which Backup → Copy needs there. Seizure Mode left the header's theme list: it starts from Settings → Appearance, behind a photosensitivity warning.
+* **Overview.** The RelVol column is gone (no source the Overview scan uses supplies an average volume); Excluded sectors narrow Any Sector scans only, so a picked sector is scanned in full; the RSI column reads Simple RSI, because it is not the Wilder RSI(14) Finviz shows; the table shows 100 rows at a time; a row's score breakdown shows when its Yahoo chart was retrieved, next to the quote time; ratings are coloured by verdict on every desk; and a Yahoo outage or a Finviz layout change is reported in words, with the scan run again on the next visit.
+* **Discovery applies unusual volume.** Finviz ignored it as a filter, so the desk listed volatile stocks by volume whether or not their volume was unusual; it is now sent as the signal Finviz applies.
+* **Stock page and futures.** The 52-week strip is back and names its source; Finviz and Yahoo sections load on their own; headlines name their publisher. A futures sparkline whose samples end away from the quote is hidden with a note.
+* **Quiet in the background.** Auto-refresh pauses while the window is hidden, except the Overview scan while an alert type is enabled.
+* **Keyboard, screen readers and high contrast.** A desk you switch to opens at the top of the page with focus on its heading, also when you leave a desk that failed; opening the alert history moves focus into it, and closing it returns focus to the Alert history button; Tab skips the TradingView frame until the chart has loaded; and under Windows High Contrast, selected options and rows, pressed buttons and the current desk's navigation link take the system's selection colours.
+* **Builds and CI.** Electron 45.2.1; electron-builder 26.18.1, which fixes the AppImage launcher flaw and retries the Windows folder rename behind the old 26.8.1 pin; a Linux CI workflow on every pull request, which also repeats the unit tests in New York time with a German locale and runs the browser regressions on the production build; a tag is released only after CI and the native parity suites pass on it; ESLint now checks every JavaScript file, the Electron main process and preload included; Dependabot.
+
+Verification: `npm test` 334/334 (also with `TZ=America/New_York` and `LANG=de_DE.UTF-8` in CI), `npx eslint --max-warnings 0 .` clean, `npm run build:renderer`, `ctest` 7/7 in CI (six parity suites, with their case counts in [native/README.md](native/README.md), and the locale regression), `npm run test:ui` passing against both the dev server and the production preview on Linux, `npm run test:finviz` 9/9 live checks, and `npm run test:live` passing with live data on every desk against Electron 45.2.1 in dev mode on Linux and against the installed 2.2.0 `.deb` on Ubuntu 24.04, where the packaged build's Content Security Policy is in force. CI builds and inspects the unsigned Windows installer but does not install or launch it. Not yet tried in a running app: the app on Windows, and the research viewers' link gate and autoplay rule (the CHANGELOG's *Not in this release* says how to check them).
+
+### v2.1.0 — Response
+
+Same desks, same data rules, measured to be fast.
+
+* **Finviz screener repaired.** Finviz changed its grid again on 2026-10-21 (short header labels, sort indicators); every screener desk showed nothing. The parser now binds headers by their accessible name and a live smoke test (`npm run test:finviz`) checks all seven views plus the futures API in seconds.
+* **Overview scan streams.** Pages arrive four at a time and are shown in order as they land; scoring starts on the first rows with eight Yahoo requests in flight. At depth 100 the first rows and first score appear 0.9 s after a reload and the whole table is scored in 3.3 s. The scan keeps running when you leave the page; coming back shows it instantly (Settings → Scanner → *Reuse a scan for*, default 90 s), every row with its original retrieval time.
+* **Instant route switches.** The desks no longer suspend on first visit (React 19's fallback throttle cost exactly 300 ms per cold switch); the stock page's charting chunk is warmed during idle time. Measured cold mount: 0 ms on every route; Futures data in ~90 ms, ETF rankings ~240 ms (three pages in parallel), Oil Watch ~160 ms.
+* **Settings that now act:** *Chart cache* is honoured by scoring, the stock page and Oil Watch (reused quotes keep their retrieval time); *Request timeout* is applied by the desktop process immediately.
+* **Hardened desktop shell.** Sandboxed, context-isolated renderer with a one-function bridge; provider allowlist on every request the renderer can make; navigation lock; guest viewers without Node; all permissions denied; a Content Security Policy in production builds; Electron 45. Details under *Security* below.
+* **CI on master and tagged releases.** Both workflows run on pushes to `master`; pushing a `v*` tag builds, checks and publishes the installer as a GitHub Release.
+
+Verification: `npm test` 112/112, `npx eslint .` clean, `vite build`, `npm run test:finviz` 8/8 live views, `npm run test:live` 0 page errors with no provider errors at depth 100 and 500.
+
+### v2.0.0 — Pierce/27
+
+The layout is the same; the style is new, every setting is deliberate, and the C++ core now covers far more than scoring.
+
+* **Pierce/27 design system** (`src/styles/tokens.css`, contract in `docs/design/pierce27-brief.md`):
+  * Every hue sits on a 27° grid in OKLCH — H(k) = 27·k mod 360. Because 27·20 ≡ 180, the complement of grid hue k is grid hue k + 20, so each colour pair is two multiples of 27 placed exactly opposite: magenta ↔ green (primary), cyan ↔ red (secondary), violet ↔ yellow, amber ↔ blue. Up/down, selected/unselected and action/context are drawn with these complements rather than with shades of one colour.
+  * Tints, shades and washes are not hand-picked: lightness, chroma and alpha are multiplied by 0.73, 0.46 and 0.27. Durations follow the same scale (270 ms, 540 ms, a 2.7 s pulse on live indicators). Radii are 9 / 6 / 13 px.
+  * Black-ink ground, hairline borders, a 2 % sheen on every panel, soft 27 px glows scaled by a user-set intensity, and one long ease-out curve. No new web fonts; the app renders identically offline.
+  * The previous themes (Modern, Alien Fractal, Seizure Mode) remain selectable; all pages consume role tokens only.
+* **Settings desk** (`/settings`): one versioned document (`dipAnalyzerSettingsV2`, migrated once from the old keys) with a sticky section index and per-section reset — Appearance (theme cards with live complement swatches, density, motion, glow), Scanner (excluded sectors, refresh interval, scan depth, default rating filter, default sort), Futures (default market group, default timeframe, delay notice), Alerts (sound, volume, which alert types fire, minimum score, history limit), Data & sources (read-only facts: chart response caching disabled, 12 s request timeout, Finviz 1 min / 20 min delays, Yahoo delay as reported), Backup (export / import / reset) and About. Every control is keyboard-reachable with a visible focus ring; the Dashboard, Futures desk and alert system read their defaults from it.
+* **Futures desk** ships in this version with the data-integrity rules of v1.3 unchanged: no simulated quotes, no invented headlines, retrieval time and source quote time always shown separately, unavailable shown as unavailable.
+* **Native C++ core** (`native/`, C++20, MSVC `/W4 /WX` and GCC `-Wall -Wextra -Werror -pedantic`), each module checked against the JavaScript reference by a deterministic parity suite run under CTest on Windows and Linux:
+  * `dip_analysis` — recovery score, EMA/RSI, factors, verdicts, trend flags (528 cases)
+  * `dip_format` — compact/percent/price formatting incl. en-US `toLocaleString` semantics (3 192 cases)
+  * `dip_jsonlite` + `dip_futures` — strict RFC 8259 JSON parser and the Finviz futures payload validation, grouping and snapshot rules (577 cases)
+  * `dip_marketdata` — Yahoo chart points, previous-close selection across exchange days via `std::chrono` time zones, day change, alert eligibility (13 481 cases)
+  * `dip_oilnews` — headline/source split and high-impact classification with de-escalation suppression (3 853 cases)
+  * `dip_palette` — the Pierce/27 palette as a generated `constexpr` header (`scripts/gen-native-palette.mjs`), with a byte-for-byte drift check (1 008 cases)
+  * Still JavaScript by design: DOM/RSS parsing, networking, the Electron shell and the React UI. A native (Qt) window is **not** part of this release.
+* **Fixed:** the native parity verifier failed on Windows because the driver's text-mode stdout ends lines with CRLF; the saved Finviz screener page is now a fixture under `tests/fixtures/`; committed build and lint logs were removed.
+
+Verification: `npm test` 67/67, `npx eslint .` clean, `vite build`, `ctest` 6/6 parity suites, `scripts/verify-ui.mjs` and `scripts/verify-alerts.mjs` pass; `scripts/screenshot-routes.mjs` captures every route.

@@ -64,6 +64,9 @@ export function fakeContents(type) {
     windowOpenHandler: null,
     getType: () => type,
     setWindowOpenHandler(handler) { this.windowOpenHandler = handler; },
+    // Code main.cjs runs in the page (the application menu's Go items).
+    executed: [],
+    executeJavaScript(code) { this.executed.push(code); return Promise.resolve(); },
     on(name, listener) {
       listeners.set(name, [...(listeners.get(name) || []), listener]);
       return this;
@@ -136,6 +139,13 @@ export function loadMain(fetch = async () => { throw new Error('Unexpected reque
       on: (name, listener) => appListeners.set(name, [...(appListeners.get(name) || []), listener]),
       whenReady: () => ({ then: callback => { readyCallbacks.push(callback); } }),
       quit() { electron.app.quitCalls = (electron.app.quitCalls || 0) + 1; },
+      getVersion: () => '9.9.9',
+      setAboutPanelOptions(options) { electron.app.aboutPanelOptions = options; },
+    },
+    // buildFromTemplate keeps the template, so tests read the menu main.cjs set.
+    Menu: {
+      buildFromTemplate: template => ({ template }),
+      setApplicationMenu(menu) { electron.Menu.applicationMenu = menu; },
     },
     ipcMain: { handle: (name, handler) => handlers.set(name, handler) },
     BrowserWindow,
