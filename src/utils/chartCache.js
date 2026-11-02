@@ -4,6 +4,7 @@
 // is ever re-stamped. With a TTL of 0 (the default) every call hits the provider.
 const MAX_ENTRIES = 1500;
 const entries = new Map(); // "symbol|range|interval" -> { json, fetchedAt, at }
+const inFlight = new Map(); // "symbol|range|interval" -> shared provider request
 
 const keyOf = (symbol, range, interval) => `${symbol}|${range}|${interval}`;
 
@@ -17,13 +18,26 @@ export async function fetchYahooChart(invoke, symbol, { range = '1mo', interval 
     if (hit && ttlSeconds > 0 && now() - hit.at <= ttlSeconds * 1000) {
         return { json: hit.json, fetchedAt: hit.fetchedAt, cached: true };
     }
-    const json = await invoke('fetch-yahoo-chart', symbol, range, interval);
-    const at = now();
-    // Always remembered, so raising the TTL later can reuse what is already here.
-    entries.delete(key);
-    entries.set(key, { json, fetchedAt: new Date(at).toISOString(), at });
-    while (entries.size > MAX_ENTRIES) entries.delete(entries.keys().next().value);
-    return { json, fetchedAt: new Date(at).toISOString(), cached: false };
+    const pending = inFlight.get(key);
+    if (pending) return pending;
+
+    let request;
+    request = Promise.resolve()
+        .then(() => invoke('fetch-yahoo-chart', symbol, range, interval))
+        .then(json => {
+            const at = now();
+            const fetchedAt = new Date(at).toISOString();
+            // Always remembered, so raising the TTL later can reuse what is already here.
+            entries.delete(key);
+            entries.set(key, { json, fetchedAt, at });
+            while (entries.size > MAX_ENTRIES) entries.delete(entries.keys().next().value);
+            return { json, fetchedAt, cached: false };
+        })
+        .finally(() => {
+            if (inFlight.get(key) === request) inFlight.delete(key);
+        });
+    inFlight.set(key, request);
+    return request;
 }
 
 export const chartCacheSize = () => entries.size;

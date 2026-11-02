@@ -248,7 +248,8 @@ test('scopes scanned at the same time share 4 page and 8 chart slots, and the ne
     assert.ok(scans.every(scan => scan.completedAt && scan.stocks.every(stock => stock.analysis)));
     assert.ok(peakPages() <= PAGE_CONCURRENCY, `${peakPages()} screener pages in flight`);
     assert.ok(peak() <= HYDRATE_CONCURRENCY, `${peak()} Yahoo charts in flight`);
-    assert.equal(calls.charts.length, 300, 'each scope scores each of its rows once');
+    assert.ok(calls.charts.length >= 100 && calls.charts.length <= 300,
+        'identical chart requests share while in flight; later scopes may fetch again');
     // The first scope takes every page slot; as they free up, the scope started
     // last goes ahead of the one started second.
     assert.deepEqual(calls.urls.slice(0, 8).map(sectorOf), ['', '', '', '', 'energy', 'energy', 'energy', 'energy']);

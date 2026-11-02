@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Identical concurrent Yahoo chart requests now share one in-flight request, including when chart caching is Off. This reduces duplicate provider work without changing cache TTL behavior, quote contents or retrieval timestamps (`src/utils/chartCache.js`, `tests/chartCache.test.js`).
+
 ## 2.3.0 (2026-11-02)
 
 ### Added
