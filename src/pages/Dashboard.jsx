@@ -4,6 +4,7 @@ import { Search, SlidersHorizontal, RefreshCw, ChevronDown } from 'lucide-react'
 import MarketPulse from '../components/MarketPulse';
 import { getVerdict } from '../utils/scoring';
 import { formatCompact, formatPct, formatPrice, formatQuoteTime } from '../utils/format';
+import { summarizeStocks } from '../utils/dashboardStats.js';
 import { useSettings } from '../state/settingsContext.js';
 import { getScan, scanAge, scanKey, startScan, useScan } from '../state/scanStore.js';
 import { getInvoke } from '../utils/bridge.js';
@@ -391,18 +392,7 @@ const Dashboard = ({ excludedSectors = [], autoRefreshInterval = 0, globalFilter
     }, [rowLimit]);
 
     // Summary tiles — live-updating as hydration progresses
-    const scanned = stocks.length;
-    const knownChanges = stocks.filter(stock => Number.isFinite(stock.changePercentage));
-    const avgDayChange = knownChanges.length > 0
-        ? knownChanges.reduce((sum, stock) => sum + stock.changePercentage, 0) / knownChanges.length
-        : null;
-    const buySignals = stocks.filter(s => (s.recoveryProbability ?? 0) >= 60).length;
-    // Strong Sell rows (score below 20), toned like their rating chips.
-    const lowScoreCount = stocks.filter(s => s.isZombie).length;
-    const scoredCount = stocks.filter(stock => stock.analysis).length;
-    // Only actual losers qualify — an all-green basket must not crown a "dip".
-    const deepestDip = stocks.reduce((worst, s) =>
-        (s.changePercentage < 0 && (worst === null || s.changePercentage < worst.changePercentage)) ? s : worst, null);
+    const { scanned, avgDayChange, buySignals, lowScoreCount, scoredCount, deepestDip } = summarizeStocks(stocks);
 
     // A scan depth imported into settings that is not one of the presets still
     // needs to be selectable, otherwise the control would show blank.
