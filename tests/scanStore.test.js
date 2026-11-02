@@ -234,7 +234,7 @@ test('a refresh that stops early shows only the rows it retrieved', async () => 
     assert.ok(scan.stocks.every(stock => !first.stocks.includes(stock) && stock.analysis));
 });
 
-test('scopes scanned at the same time share 4 page and 8 chart slots, and the newest is served first', async () => {
+test('scopes share request slots, coalesce overlapping charts, and serve the newest first', async () => {
     const sectorOf = (url) => new URL(url).searchParams.get('f')?.replace('sec_', '') ?? '';
     const names = { '': 'Technology', technology: 'Technology', energy: 'Energy' };
     const pages = (page, url) => (page < 5 ? losersPage(page, { sector: names[sectorOf(url)] }) : table([]));
@@ -248,7 +248,7 @@ test('scopes scanned at the same time share 4 page and 8 chart slots, and the ne
     assert.ok(scans.every(scan => scan.completedAt && scan.stocks.every(stock => stock.analysis)));
     assert.ok(peakPages() <= PAGE_CONCURRENCY, `${peakPages()} screener pages in flight`);
     assert.ok(peak() <= HYDRATE_CONCURRENCY, `${peak()} Yahoo charts in flight`);
-    assert.equal(calls.charts.length, 300, 'each scope scores each of its rows once');
+    assert.ok(calls.charts.length < 300, 'overlapping scopes share identical chart requests');
     // The first scope takes every page slot; as they free up, the scope started
     // last goes ahead of the one started second.
     assert.deepEqual(calls.urls.slice(0, 8).map(sectorOf), ['', '', '', '', 'energy', 'energy', 'energy', 'energy']);

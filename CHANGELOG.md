@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Identical concurrent Yahoo chart requests now share one in-flight request, including when chart caching is Off. Sequential requests with a zero TTL still fetch fresh data, failed requests can be retried, and each shared response keeps its original retrieval time (`src/utils/chartCache.js`, `tests/chartCache.test.js`). Added a ten-item performance opportunity report, low-end measurement methodology and poll in `docs/performance-improvements.md`.
+
 ## 2.3.0 (2026-11-02)
 
 ### Added

@@ -19,6 +19,42 @@ test('a zero TTL always goes to the provider', async () => {
     assert.deepEqual(calls[0], ['fetch-yahoo-chart', 'AAPL', '1mo', '1d']);
 });
 
+test('concurrent requests for the same chart share one provider request, even with zero TTL', async () => {
+    const calls = [];
+    let resolveRequest;
+    const invoke = (channel, symbol, range, interval) => {
+        calls.push([channel, symbol, range, interval]);
+        return new Promise(resolve => { resolveRequest = resolve; });
+    };
+    const first = fetchYahooChart(invoke, 'AAPL', { ttlSeconds: 0 });
+    const second = fetchYahooChart(invoke, 'AAPL', { ttlSeconds: 0 });
+    await Promise.resolve();
+    assert.equal(calls.length, 1);
+    resolveRequest({ symbol: 'AAPL' });
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    assert.strictEqual(firstResult.json, secondResult.json);
+    assert.equal(firstResult.cached, false);
+    assert.equal(secondResult.cached, false);
+});
+
+test('a failed shared request is removed so a later call can retry', async () => {
+    let calls = 0;
+    const invoke = async () => {
+        calls++;
+        if (calls === 1) throw new Error('provider unavailable');
+        return { symbol: 'AAPL' };
+    };
+    const failed = await Promise.allSettled([
+        fetchYahooChart(invoke, 'AAPL'),
+        fetchYahooChart(invoke, 'AAPL'),
+    ]);
+    assert.equal(calls, 1);
+    assert.deepEqual(failed.map(result => result.status), ['rejected', 'rejected']);
+    const recovered = await fetchYahooChart(invoke, 'AAPL');
+    assert.equal(calls, 2);
+    assert.equal(recovered.json.symbol, 'AAPL');
+});
+
 test('within the TTL the response and its original retrieval time are reused', async () => {
     const { invoke, calls } = bridge();
     let clock = Date.parse('2026-10-21T09:00:00.000Z');
