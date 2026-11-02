@@ -69,7 +69,7 @@ test('sandbox on Ubuntu 23.10+: a chrome-sandbox that is not setuid root fails, 
 test('sandbox on Ubuntu 23.10+: a setuid-root chrome-sandbox, or an AppArmor profile for the binary, passes', () => {
     const read = files({ [restriction]: '1\n' });
     assert.equal(checkSandbox({ platform: 'linux', uid: 1000, cwd, read, stat: () => ({ uid: 0, mode: 0o104755 }), listProfiles: () => [] }).status, 'ok');
-    const binary = path.join(cwd, 'node_modules', 'electron', 'dist', 'electron');
+    const binary = path.posix.join(cwd, 'node_modules', 'electron', 'dist', 'electron');
     const withProfile = files({ [restriction]: '1\n', '/etc/apparmor.d/electron-dev': `profile electron-dev ${binary} flags=(unconfined) { userns, }` });
     assert.equal(checkSandbox({ platform: 'linux', uid: 1000, cwd, read: withProfile, stat: () => ({ uid: 1000, mode: 0o100755 }), listProfiles: () => ['electron-dev', 'abstractions'] }).status, 'ok');
 });

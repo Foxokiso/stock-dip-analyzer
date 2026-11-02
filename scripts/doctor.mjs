@@ -11,7 +11,8 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SANDBOX_HELPER = path.join('node_modules', 'electron', 'dist', 'chrome-sandbox');
+// Linux-only paths, so POSIX separators whatever the host (the tests also run on Windows).
+const SANDBOX_HELPER = path.posix.join('node_modules', 'electron', 'dist', 'chrome-sandbox');
 const USERNS_RESTRICTION = '/proc/sys/kernel/apparmor_restrict_unprivileged_userns';
 // The executable inside node_modules/electron/dist/, as electron's install.js names it.
 const ELECTRON_EXECUTABLE = { win32: 'electron.exe', darwin: 'Electron.app/Contents/MacOS/Electron', mas: 'Electron.app/Contents/MacOS/Electron' };
@@ -66,7 +67,7 @@ export function checkSandbox({
             'Run npm as your normal user, not as root or with sudo');
     }
     if (readOrNull(read, USERNS_RESTRICTION)?.trim() !== '1') return ok(name, 'user namespaces are available to Electron');
-    const helper = path.join(cwd, SANDBOX_HELPER);
+    const helper = path.posix.join(cwd, SANDBOX_HELPER);
     const fix = `Run once (again after every \`npm ci\`): sudo chown root:root ${SANDBOX_HELPER} && sudo chmod 4755 ${SANDBOX_HELPER}`
         + ' (or install the .deb, which sets this up for the installed app)';
     let info;
@@ -77,8 +78,8 @@ export function checkSandbox({
     }
     if (info.uid === 0 && (info.mode & 0o4755) === 0o4755) return ok(name, 'chrome-sandbox is setuid root, which this system needs');
     // An AppArmor profile for the dev binary, as the .deb installs for /opt/DDS response, also works.
-    const binary = path.join(cwd, 'node_modules', 'electron', 'dist', 'electron');
-    const profiled = (readOrNull(listProfiles, null) ?? []).some(file => readOrNull(read, path.join('/etc/apparmor.d', file))?.includes(binary));
+    const binary = path.posix.join(cwd, 'node_modules', 'electron', 'dist', 'electron');
+    const profiled = (readOrNull(listProfiles, null) ?? []).some(file => readOrNull(read, path.posix.join('/etc/apparmor.d', file))?.includes(binary));
     if (profiled) return ok(name, 'an AppArmor profile in /etc/apparmor.d allows the Electron in node_modules');
     return fail(name, 'this system blocks unprivileged user namespaces (kernel.apparmor_restrict_unprivileged_userns=1) and '
         + `${SANDBOX_HELPER} is not setuid root, so \`npm start\` will stop with "The SUID sandbox helper binary was found, but is not configured correctly"`, fix);
