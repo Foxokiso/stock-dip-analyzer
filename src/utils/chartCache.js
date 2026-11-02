@@ -1,9 +1,11 @@
 // Yahoo chart responses reused for Settings → Data → chart cache seconds.
 // Every entry keeps the time the response was actually retrieved, so a quote
 // served from memory still shows its original retrieval time on screen; nothing
-// is ever re-stamped. With a TTL of 0 (the default) every call hits the provider.
+// is ever re-stamped. A zero TTL disables completed-response reuse but identical
+// concurrent requests still share their in-flight provider request.
 const MAX_ENTRIES = 1500;
 const entries = new Map(); // "symbol|range|interval" -> { json, fetchedAt, at }
+const inFlight = new Map(); // "symbol|range|interval" -> pending provider request
 
 const keyOf = (symbol, range, interval) => `${symbol}|${range}|${interval}`;
 
@@ -17,13 +19,26 @@ export async function fetchYahooChart(invoke, symbol, { range = '1mo', interval 
     if (hit && ttlSeconds > 0 && now() - hit.at <= ttlSeconds * 1000) {
         return { json: hit.json, fetchedAt: hit.fetchedAt, cached: true };
     }
-    const json = await invoke('fetch-yahoo-chart', symbol, range, interval);
-    const at = now();
-    // Always remembered, so raising the TTL later can reuse what is already here.
-    entries.delete(key);
-    entries.set(key, { json, fetchedAt: new Date(at).toISOString(), at });
-    while (entries.size > MAX_ENTRIES) entries.delete(entries.keys().next().value);
-    return { json, fetchedAt: new Date(at).toISOString(), cached: false };
+    const pending = inFlight.get(key);
+    if (pending) return pending;
+
+    const request = Promise.resolve()
+        .then(() => invoke('fetch-yahoo-chart', symbol, range, interval))
+        .then((json) => {
+            const at = now();
+            const fetchedAt = new Date(at).toISOString();
+            // Always remembered, so raising the TTL later can reuse what is already here.
+            entries.delete(key);
+            entries.set(key, { json, fetchedAt, at });
+            while (entries.size > MAX_ENTRIES) entries.delete(entries.keys().next().value);
+            return { json, fetchedAt, cached: false };
+        });
+    inFlight.set(key, request);
+    try {
+        return await request;
+    } finally {
+        if (inFlight.get(key) === request) inFlight.delete(key);
+    }
 }
 
 export const chartCacheSize = () => entries.size;
