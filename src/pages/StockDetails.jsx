@@ -264,7 +264,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
             }
 
             try {
-                const { json: yahooData } = await fetchYahooChart((channel, ...args) => electron.ipcRenderer.invoke(channel, ...args), symbol, { range, interval: '1d', ttlSeconds: chartCacheSeconds });
+                const { json: yahooData } = await fetchYahooChart((channel, ...args) => electron.ipcRenderer.invoke(channel, ...args), symbol, { range, interval: '1d', ttlSeconds: chartCacheSeconds, coalesceInFlight: true });
                 const result = yahooData?.chart?.result?.[0];
                 if (cancelled) return;
                 if (result) {
@@ -300,7 +300,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
                 return;
             }
             try {
-                const { json, fetchedAt } = await fetchYahooChart((channel, ...args) => electron.ipcRenderer.invoke(channel, ...args), symbol, { range: '1mo', interval: '1d', ttlSeconds: chartCacheSeconds });
+                const { json, fetchedAt } = await fetchYahooChart((channel, ...args) => electron.ipcRenderer.invoke(channel, ...args), symbol, { range: '1mo', interval: '1d', ttlSeconds: chartCacheSeconds, coalesceInFlight: true });
                 const result = json?.chart?.result?.[0];
                 const quote = getYahooQuote(result, { range: '1mo', fetchedAt });
                 if (quote.price === null || quote.closes.length < 15) throw new Error('Quote or sufficient daily history is unavailable from Yahoo Finance.');

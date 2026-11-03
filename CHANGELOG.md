@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Improved
+- The Stock page's price chart and technical analysis share one in-flight Yahoo fetch when they request the same chart (`src/pages/StockDetails.jsx`, `src/utils/chartCache.js`). This avoids duplicate network work on the default one-month view without changing the displayed history, quote time, or cache setting; independent scans keep their existing request behavior. `tests/chartCache.test.js` covers concurrent callers and retry after a shared failure.
+
 ## 2.3.0 (2026-11-02)
 
 ### Added
