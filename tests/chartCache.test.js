@@ -48,3 +48,44 @@ test('symbol, range and interval are distinct keys and a later TTL can reuse an 
     assert.equal(reused.cached, true);
     assert.equal(calls.length, 3);
 });
+
+test('concurrent requests for the same chart share one provider fetch', async () => {
+    let resolveRequest;
+    const calls = [];
+    const invoke = (...args) => {
+        calls.push(args);
+        return new Promise(resolve => { resolveRequest = resolve; });
+    };
+    const now = () => Date.parse('2026-10-21T09:00:00.000Z');
+    const first = fetchYahooChart(invoke, 'AAPL', { now, coalesceInFlight: true });
+    const second = fetchYahooChart(invoke, 'AAPL', { now, coalesceInFlight: true });
+
+    assert.equal(calls.length, 1);
+    resolveRequest({ symbol: 'AAPL' });
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    assert.deepEqual(firstResult, {
+        json: { symbol: 'AAPL' },
+        fetchedAt: '2026-10-21T09:00:00.000Z',
+        cached: false,
+    });
+    assert.deepEqual(secondResult, firstResult);
+});
+
+test('a failed shared request is removed so a later call can retry', async () => {
+    let calls = 0;
+    const invoke = async () => {
+        calls++;
+        if (calls === 1) throw new Error('temporary provider failure');
+        return { symbol: 'AAPL' };
+    };
+
+    const first = fetchYahooChart(invoke, 'AAPL', { coalesceInFlight: true });
+    const second = fetchYahooChart(invoke, 'AAPL', { coalesceInFlight: true });
+    await assert.rejects(Promise.all([first, second]), /temporary provider failure/);
+    const retry = await fetchYahooChart(invoke, 'AAPL');
+
+    assert.equal(calls, 2);
+    assert.equal(retry.json.symbol, 'AAPL');
+    assert.equal(retry.cached, false);
+});
