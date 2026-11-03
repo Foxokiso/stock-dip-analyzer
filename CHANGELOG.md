@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `docs/performance-review.md`: a ranked, code-informed list of ten performance follow-ups, with a low-end-device profiling method for agents, fidelity/accessibility guardrails, and a poll to prioritize the next investigation. This is advisory only; no runtime behavior changes are included.
+
 ## 2.3.0 (2026-11-02)
 
 ### Added
