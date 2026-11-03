@@ -19,6 +19,68 @@ test('a zero TTL always goes to the provider', async () => {
     assert.deepEqual(calls[0], ['fetch-yahoo-chart', 'AAPL', '1mo', '1d']);
 });
 
+test('coalesces concurrent identical requests within a request scope', async () => {
+    const calls = [];
+    let resolveResponse;
+    const invoke = async (...args) => {
+        calls.push(args);
+        return new Promise(resolve => { resolveResponse = resolve; });
+    };
+    const requestScope = {};
+    const now = () => Date.parse('2026-10-21T09:00:00.000Z');
+    const first = fetchYahooChart(invoke, 'AAPL', { ttlSeconds: 0, requestScope, now });
+    const second = fetchYahooChart(invoke, 'AAPL', { ttlSeconds: 0, requestScope, now });
+    await Promise.resolve();
+
+    assert.equal(calls.length, 1);
+    resolveResponse({ symbol: 'AAPL' });
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    assert.deepEqual(firstResult, {
+        json: { symbol: 'AAPL' },
+        fetchedAt: '2026-10-21T09:00:00.000Z',
+        cached: false,
+    });
+    assert.deepEqual(secondResult, firstResult);
+});
+
+test('keeps in-flight requests from independent scopes separate', async () => {
+    const { invoke, calls } = bridge();
+    const first = fetchYahooChart(invoke, 'AAPL', { ttlSeconds: 0, requestScope: {} });
+    const second = fetchYahooChart(invoke, 'AAPL', { ttlSeconds: 0, requestScope: {} });
+    await Promise.all([first, second]);
+    assert.equal(calls.length, 2);
+});
+
+test('clearing the cache prevents an older in-flight response from repopulating it', async () => {
+    let resolveResponse;
+    const invoke = async () => new Promise(resolve => { resolveResponse = resolve; });
+    const pending = fetchYahooChart(invoke, 'AAPL', { requestScope: {} });
+    await Promise.resolve();
+    clearChartCache();
+    resolveResponse({ symbol: 'AAPL' });
+    await pending;
+    assert.equal(chartCacheSize(), 0);
+});
+
+test('retries a failed coalesced request on the next call', async () => {
+    let calls = 0;
+    const failure = new Error('Yahoo is unavailable.');
+    const invoke = async () => {
+        calls++;
+        if (calls === 1) throw failure;
+        return { symbol: 'AAPL' };
+    };
+    const requestScope = {};
+    const first = fetchYahooChart(invoke, 'AAPL', { requestScope });
+    const second = fetchYahooChart(invoke, 'AAPL', { requestScope });
+    const results = await Promise.allSettled([first, second]);
+    assert.deepEqual(results.map(result => result.status), ['rejected', 'rejected']);
+    assert.equal(results[0].reason, failure);
+    const retry = await fetchYahooChart(invoke, 'AAPL', { requestScope });
+    assert.equal(retry.json.symbol, 'AAPL');
+    assert.equal(calls, 2);
+});
+
 test('within the TTL the response and its original retrieval time are reused', async () => {
     const { invoke, calls } = bridge();
     let clock = Date.parse('2026-10-21T09:00:00.000Z');

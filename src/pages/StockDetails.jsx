@@ -204,6 +204,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
     const [chartLoading, setChartLoading] = useState(true);
     const [chartError, setChartError] = useState(false);
     const [chartRetry, setChartRetry] = useState(0);
+    const chartRequestScope = useMemo(() => ({ symbol, chartRetry }), [symbol, chartRetry]);
     const [dataScope, setDataScope] = useState({ symbol, range });
 
     // Fetched data belongs to the symbol (and the chart to the range) it was
@@ -264,7 +265,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
             }
 
             try {
-                const { json: yahooData } = await fetchYahooChart((channel, ...args) => electron.ipcRenderer.invoke(channel, ...args), symbol, { range, interval: '1d', ttlSeconds: chartCacheSeconds });
+                const { json: yahooData } = await fetchYahooChart((channel, ...args) => electron.ipcRenderer.invoke(channel, ...args), symbol, { range, interval: '1d', ttlSeconds: chartCacheSeconds, requestScope: chartRequestScope });
                 const result = yahooData?.chart?.result?.[0];
                 if (cancelled) return;
                 if (result) {
@@ -286,7 +287,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
 
         loadChart();
         return () => { cancelled = true; };
-    }, [symbol, range, chartRetry, chartCacheSeconds]);
+    }, [symbol, range, chartRetry, chartCacheSeconds, chartRequestScope]);
 
     // The score uses a fixed month regardless of the chart's selected display range.
     useEffect(() => {
@@ -300,7 +301,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
                 return;
             }
             try {
-                const { json, fetchedAt } = await fetchYahooChart((channel, ...args) => electron.ipcRenderer.invoke(channel, ...args), symbol, { range: '1mo', interval: '1d', ttlSeconds: chartCacheSeconds });
+                const { json, fetchedAt } = await fetchYahooChart((channel, ...args) => electron.ipcRenderer.invoke(channel, ...args), symbol, { range: '1mo', interval: '1d', ttlSeconds: chartCacheSeconds, requestScope: chartRequestScope });
                 const result = json?.chart?.result?.[0];
                 const quote = getYahooQuote(result, { range: '1mo', fetchedAt });
                 if (quote.price === null || quote.closes.length < 15) throw new Error('Quote or sufficient daily history is unavailable from Yahoo Finance.');
@@ -325,7 +326,7 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
         };
         loadTechnical();
         return () => { cancelled = true; };
-    }, [symbol, chartRetry, chartCacheSeconds]);
+    }, [symbol, chartRetry, chartCacheSeconds, chartRequestScope]);
 
     useVisibleInterval(refresh, autoRefreshInterval, { resetKey: symbol });
 

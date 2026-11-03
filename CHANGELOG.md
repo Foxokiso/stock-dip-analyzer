@@ -4,6 +4,7 @@
 
 ### Changed
 - The Overview computes its live summary tiles in one pass as scan results arrive instead of repeatedly traversing the stock list (`src/utils/dashboardStats.js`, `src/pages/Dashboard.jsx`; `tests/dashboardStats.test.js`).
+- The Stock page shares a concurrent identical Yahoo chart request between its chart and technical summary, scoped to the current symbol and retry (`src/utils/chartCache.js`, `src/pages/StockDetails.jsx`; `tests/chartCache.test.js`).
 - Added a ranked performance review, low-end-device measurement protocol, and poll for choosing the next optimization (`docs/performance-review-2026-11-02.md`).
 
 ## 2.3.0 (2026-11-02)
