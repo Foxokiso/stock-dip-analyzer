@@ -4,6 +4,7 @@
 
 ### Changed
 - The Overview computes its live summary tiles in one pass as scan results arrive instead of repeatedly traversing the stock list (`src/utils/dashboardStats.js`, `src/pages/Dashboard.jsx`; `tests/dashboardStats.test.js`).
+- Overlapping Yahoo chart requests for the same symbol, range, and interval now share one in-flight request, including with a zero cache TTL; later sequential requests remain fresh and failures can be retried (`src/utils/chartCache.js`; `tests/chartCache.test.js`).
 - Added a ranked performance review, low-end-device measurement protocol, and poll for choosing the next optimization (`docs/performance-review-2026-11-02.md`).
 
 ## 2.3.0 (2026-11-02)
