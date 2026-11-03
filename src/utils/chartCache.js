@@ -4,6 +4,7 @@
 // is ever re-stamped. With a TTL of 0 (the default) every call hits the provider.
 const MAX_ENTRIES = 1500;
 const entries = new Map(); // "symbol|range|interval" -> { json, fetchedAt, at }
+const inFlight = new WeakMap(); // invoke function -> key -> pending request
 
 const keyOf = (symbol, range, interval) => `${symbol}|${range}|${interval}`;
 
@@ -17,13 +18,29 @@ export async function fetchYahooChart(invoke, symbol, { range = '1mo', interval 
     if (hit && ttlSeconds > 0 && now() - hit.at <= ttlSeconds * 1000) {
         return { json: hit.json, fetchedAt: hit.fetchedAt, cached: true };
     }
-    const json = await invoke('fetch-yahoo-chart', symbol, range, interval);
-    const at = now();
-    // Always remembered, so raising the TTL later can reuse what is already here.
-    entries.delete(key);
-    entries.set(key, { json, fetchedAt: new Date(at).toISOString(), at });
-    while (entries.size > MAX_ENTRIES) entries.delete(entries.keys().next().value);
-    return { json, fetchedAt: new Date(at).toISOString(), cached: false };
+    const requests = inFlight.get(invoke);
+    const pending = requests?.get(key);
+    if (pending) return pending;
+
+    const pendingRequests = requests ?? new Map();
+    const request = Promise.resolve()
+        .then(() => invoke('fetch-yahoo-chart', symbol, range, interval))
+        .then((json) => {
+            const at = now();
+            const fetchedAt = new Date(at).toISOString();
+            // Always remembered, so raising the TTL later can reuse what is already here.
+            entries.delete(key);
+            entries.set(key, { json, fetchedAt, at });
+            while (entries.size > MAX_ENTRIES) entries.delete(entries.keys().next().value);
+            return { json, fetchedAt, cached: false };
+        })
+        .finally(() => {
+            if (pendingRequests.get(key) === request) pendingRequests.delete(key);
+            if (pendingRequests.size === 0) inFlight.delete(invoke);
+        });
+    if (!requests) inFlight.set(invoke, pendingRequests);
+    pendingRequests.set(key, request);
+    return request;
 }
 
 export const chartCacheSize = () => entries.size;
