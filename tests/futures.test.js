@@ -114,6 +114,72 @@ test('does not mistake data attributes on unrelated or executable scripts for in
     ]) assert.throws(() => parseFinvizFutures(value), /Finviz|JSON|quote/i);
 });
 
+// The page's script elements were once matched by one expression; a single pass over the
+// text replaced it and must pick the same payload, or refuse the same pages.
+test('the page walk picks the payload the script expression it replaced picked', () => {
+    const typed = (data, { open = '<script type="application/json" id="futures-init-data">', close = '</script>' } = {}) => `${open}${JSON.stringify(data)}${close}`;
+    const other = { ...actual, ES: { ...actual.ES, last: 1 } };
+    const pages = [
+        `<html><script>var a = 1;</script><script src="x.js"></script>${typed(actual)}</html>`,
+        `<html>${typed(actual, { open: '<SCRIPT ID=\'futures-init-data\' TYPE="application/json">', close: '</SCRIPT >' })}</html>`,
+        `<html>${typed(actual, { close: '</script\n\t>' })}${typed(other)}</html>`,
+        `<html>${typed(actual, { close: '</script >' })}</html>`,
+        `<html>${typed(actual)}${typed(other)}</html>`,
+        // Not script elements: the word goes on.
+        `<html><scripts id="futures-init-data" type="application/json">{}</scripts>${typed(actual)}</html>`,
+        `<html><script_ id="futures-init-data" type="application/json">{}</script_>${typed(actual)}</html>`,
+        // An opening tag written inside another script's text belongs to that script.
+        `<html><script>var s = "<script id='futures-init-data' type='application/json'>";</script>${typed(actual)}</html>`,
+        `<html><script>var s = "${typed(other).replaceAll('"', "'")}";${typed(actual)}</html>`,
+        // The first complete closing tag ends the body, whatever came before it.
+        `<html>${typed(actual, { close: '</script x></script>' })}</html>`,
+        `<html>${typed(actual, { close: '</script </script>' })}</html>`,
+        `<html><script data-x="a>b" id="futures-init-data" type="application/json">${JSON.stringify(actual)}</script></html>`,
+        // Nothing completes these.
+        `<html>${typed(actual, { close: '' })}</html>`,
+        `<html>${typed(actual, { close: '</script' })}</html>`,
+        '<html><script id="futures-init-data" type="application/json"',
+        `<html><script>${typed(actual, { close: '' })}</html>`,
+        // A complete payload ahead of a script nothing closes is still read.
+        `<html>${typed(actual)}<script>unclosed</html>`,
+        `<html>${typed(actual)}<script unterminated</html>`,
+        '<html><script></script></html>',
+        '<html></html>',
+    ];
+    const options = { fetchedAt, timeframe: 'i5', sourceUrl: 'https://finviz.com/futures' };
+    const outcome = (read) => {
+        try { return { quotes: read().quotes }; } catch (error) { return { error: error.constructor.name, json: /JSON/.test(error.message) }; }
+    };
+    const expression = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
+    const reference = (page) => {
+        for (const [, attributes, body] of page.matchAll(expression)) {
+            if (/(?:^|\s)id\s*=\s*(["'])futures-init-data\1/i.test(attributes)
+                && /(?:^|\s)type\s*=\s*(["'])application\/json\1/i.test(attributes)) return parseFinvizFutures(JSON.parse(body), options);
+        }
+        throw new Error('Finviz response does not contain futures quote JSON.');
+    };
+    let read = 0;
+    for (const page of pages) {
+        const expected = outcome(() => reference(page));
+        assert.deepEqual(outcome(() => parseFinvizFutures(page, options)), expected, page.slice(0, 120));
+        if (expected.quotes) read++;
+    }
+    assert.equal(read, 11, 'the pages above cover both outcomes');
+});
+
+// Each opening tag that nothing closes used to be scanned to the end of the page: 80,000
+// of them (0.6 MB) held the interface thread for 11 s, and fetch-url hands over up to 15 MB.
+// The expression would need about 17 s for the first page here; the walk takes milliseconds.
+test('a page of script tags that nothing closes is refused in time linear in its length', () => {
+    for (const tag of ['<script>', '<script x', '<script></script', '</script ']) {
+        const page = `<html>${tag.repeat(100_000)}`;
+        const started = performance.now();
+        assert.throws(() => parseFinvizFutures(page), /does not contain futures quote JSON/);
+        const elapsed = performance.now() - started;
+        assert.ok(elapsed < 2000, `${JSON.stringify(tag)} × 100,000 took ${Math.round(elapsed)} ms`);
+    }
+});
+
 test('rejects empty arrays, missing payloads and records with no usable quotes', () => {
     for (const value of [null, undefined, [], {}, '[]', '{}', { success: true }]) {
         assert.throws(() => parseFinvizFutures(value), /Finviz|quote/i);

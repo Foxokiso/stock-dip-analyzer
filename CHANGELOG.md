@@ -5,6 +5,10 @@
 ### Changed
 - The Overview computes its live summary tiles in one pass as scan results arrive instead of repeatedly traversing the stock list (`src/utils/dashboardStats.js`, `src/pages/Dashboard.jsx`; `tests/dashboardStats.test.js`).
 - Added a ranked performance review, low-end-device measurement protocol, and poll for choosing the next optimization (`docs/performance-review-2026-11-02.md`).
+- The performance review records what a 6× CPU-throttled Chromium measured for its rank 6 (Finviz parsing): a 220 KB screener page takes 64 ms, 56 ms of it inside Chromium's own `DOMParser`, so the app's row and cell queries are not worth restructuring; and that the main process already shares identical in-flight Yahoo requests (`docs/performance-review-2026-11-02.md`).
+
+### Fixed
+- A Finviz futures page made of `<script>` tags that nothing closes no longer freezes the app. The page fallback of the Futures desk matched script elements with one expression that rescanned to the end of the page from every unclosed opening tag, so its cost grew with the square of the page: 0.6 MB of such tags held the interface thread for 11 s, 0.7 MB of unterminated ones for 24 s, and `fetch-url` hands the renderer up to 15 MB. The page is now walked once, as `native/modules/futures` already did, and such a page is refused in milliseconds; the payload read from every other page is unchanged (`src/services/futures.js`; `tests/futures.test.js` compares the walk with the expression on 20 page shapes and bounds the time for 100,000 unclosed tags).
 
 ## 2.3.0 (2026-11-02)
 
