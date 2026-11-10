@@ -66,5 +66,5 @@ Run every command from the repository root, the folder that holds `package.json`
 
 - Branch from `master` and open a pull request; pull requests are squash-merged. CI must be green: the Linux checks, the Windows installer, the Linux packages, and the native parity suites when native or mirrored code changes.
 - Workflow actions are pinned to full commit SHAs with a version comment; keep it that way (`.agents/rules/github-workflows.md`).
-- A release is a version bump plus a pushed `v*` tag; the release workflow builds and publishes everything (the `cut-release` skill). Never create a release in GitHub's web interface: the workflow's publish step would then fail.
+- A release is a version bump plus a pushed `v*` tag, or **Actions → Release → Run workflow** on `master` with that version (the workflow then creates the tag); the release workflow builds and publishes everything (the `cut-release` skill). Never create a release in GitHub's web interface: the workflow's publish step would then fail.
 - Dependabot opens weekly update pull requests. Run `npm run verify` and start the app before merging a major-version bump.

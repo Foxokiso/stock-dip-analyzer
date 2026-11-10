@@ -64,3 +64,18 @@ test('the pull-request workflow installs with the one exe and opens the installe
     assert.match(step, /if \(-not \$opened\) \{ throw/);
     assert.doesNotMatch(step, /continue-on-error/);
 });
+
+test('a release can be started from the Actions tab, for master only, without pushing a tag', () => {
+    const release = read('.github/workflows/release.yml');
+    assert.match(release, /\n {2}workflow_dispatch:\n {4}inputs:\n {6}version:\n/);
+    assert.match(release, /\n {2}push:\n {4}tags: \['v\*'\]\n/, 'a pushed tag still releases');
+    // One tag name for both ways in, checked against package.json before anything is built.
+    assert.match(release, /RELEASE_TAG: \$\{\{ github\.event_name == 'workflow_dispatch' && format\('v\{0\}', inputs\.version\) \|\| github\.ref_name \}\}/);
+    assert.equal(release.match(/TAG: \$\{\{ env\.RELEASE_TAG \}\}/g).length, 2, 'the version check and publish use the same tag');
+    assert.doesNotMatch(release, /TAG: \$\{\{ github\.ref_name \}\}/);
+    assert.match(release, /-ne 'refs\/heads\/master'\) \{ throw/);
+    assert.match(release, /-notmatch '\^v\\d\+\\\.\\d\+\\\.\\d\+\$'\) \{ throw/);
+    // From Run workflow the tag is created on the commit that was built; a pushed tag must already exist.
+    assert.match(release, /tag_option=\(--target "\$COMMIT_SHA"\)/);
+    assert.match(release, /tag_option=\(--verify-tag\)/);
+});
