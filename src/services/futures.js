@@ -46,15 +46,38 @@ const readPayload = (input) => {
 
     // Never evaluate page JavaScript. Only the explicitly typed JSON payload
     // is accepted, with attributes permitted in either order and quote style.
-    for (const match of text.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
-        const attributes = match[1];
+    for (const { attributes, bodyStart, bodyEnd } of scriptElements(text)) {
         if (/(?:^|\s)id\s*=\s*(["'])futures-init-data\1/i.test(attributes)
             && /(?:^|\s)type\s*=\s*(["'])application\/json\1/i.test(attributes)) {
-            return { data: JSON.parse(match[2]), fromPage: true };
+            return { data: JSON.parse(text.slice(bodyStart, bodyEnd)), fromPage: true };
         }
     }
     throw new Error('Finviz response does not contain futures quote JSON.');
 };
+
+// The matches of /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi, in order, found in one pass
+// over the text. That expression rescans to the end of the page from every opening tag
+// nothing closes, so a page of unclosed <script> tags cost time quadratic in its length
+// (24 s for 700 KB, on the interface thread). Here every search starts where the last one
+// ended, and the walk stops at the first tag that cannot be completed: an opening tag
+// without a '>', or without a closing tag, has none after it either. This is the walk
+// native/modules/futures makes.
+function* scriptElements(text) {
+    const opening = /<script\b/gi;
+    const closing = /<\/script\s*>/gi;
+    for (let position = 0; ;) {
+        opening.lastIndex = position;
+        if (!opening.exec(text)) return;
+        const attributesStart = opening.lastIndex;
+        const tagEnd = text.indexOf('>', attributesStart);
+        if (tagEnd < 0) return;
+        closing.lastIndex = tagEnd + 1;
+        const close = closing.exec(text);
+        if (!close) return;
+        yield { attributes: text.slice(attributesStart, tagEnd), bodyStart: tagEnd + 1, bodyEnd: close.index };
+        position = closing.lastIndex;
+    }
+}
 
 // For a thinly traded root, Finviz's 5-minute "sparkline" can be a months-old history that ends
 // far from the quote (TIO's ended at 211.8 while TIO was quoted at 90.71). A series is drawn as

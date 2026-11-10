@@ -42,6 +42,25 @@ Choose the next primary experiment; vote for one option before implementation:
 - [ ] Cross-desk request scheduling and prioritization on slow connections.
 - [ ] Profile-first only: collect low-end traces before making another optimization.
 
-## Implementation in this pull request
+## Measurements and decisions since
+
+Recorded 2026-11-09 on commit `b4633a8`, headless Chromium (Playwright's build 1243) on Linux, the Vite dev server, the recorded fixtures in `tests/fixtures/`, median of 15 runs, with `Emulation.setCPUThrottlingRate` at 6 and at 1. A throttled desktop CPU is a stand-in for budget hardware, not a trace from one.
+
+| What ran | 6× throttle | Unthrottled |
+|---|---|---|
+| `parseFinvizScreenerPage`, legacy 220 KB page (20 rows) | 63.8 ms | 8.7 ms |
+| `new DOMParser().parseFromString` alone, same page | 56.3 ms | 10.5 ms |
+| `stripInlineHandlers` alone, same page | 6.3 ms | 0.8 ms |
+| `parseFinvizScreenerPage`, current 19 KB grid page | 3.4 ms | 0.5 ms |
+| `parseFinvizQuotePage`, 58 KB quote page | 16.5 ms | 2.0 ms |
+| `parseFinvizFutures`, API JSON | 0.1 ms | 0.1 ms |
+| `getYahooQuote`, one month of daily bars | 0.1 ms | under 0.05 ms |
+
+- **Rank 6 (repeated DOM queries in Finviz parsing): rejected.** Chromium's own HTML parse is 56 of the 64 ms on the legacy page; everything the app's parser does on top of it fits in the remainder, and on the grid layout Finviz serves now a page costs 3.4 ms. Restructuring the row and cell queries could not save a perceptible amount.
+- **Rank 4 (in-flight Yahoo coalescing): smaller than ranked.** `main.cjs` already shares identical requests that are in flight (`shareRequest`), so no duplicate reaches Yahoo. A renderer-side share saves one IPC round trip and one copy of a few kilobytes of JSON per duplicate. A share across callers must not hand one caller another's failure: the Overview's requests are rejected when their scan is superseded and wait for its slots, which a stock page must inherit neither of.
+- **Fixed, found while reading the parsers:** the Futures desk's page fallback matched script elements in time quadratic in the page (24 s of interface thread for 0.7 MB of unterminated `<script` tags). It is one pass now; see `CHANGELOG.md`. Ordinary pages cost the same as before.
+- **Still open:** ranks 1 and 3 are render-side and need the trace the protocol above asks for.
+
+## Implementation in the pull request that added this review
 
 `summarizeStocks` replaces repeated dashboard-summary traversals with a single pass. It preserves the previous finite-change average, score/zombie counts, deepest-losers selection, and empty-data behavior. The focused tests cover mixed valid/missing values and a scan with no losers.

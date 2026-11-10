@@ -67,15 +67,16 @@ jobs:
 
       - name: Build Windows x64 NSIS installer without publishing
         # Keep packaging output separate from the renderer's dist directory.
+        # package.json names the installer (build.nsis.artifactName): one file, the same
+        # name in every version, so the README can link straight to the latest one.
         run: >-
           npm exec -- electron-builder --win nsis --x64 --publish never
           '-c.directories.output=release'
-          '-c.nsis.artifactName=stock-dip-analyzer-${version}-${arch}-setup.${ext}'
 
       - name: Verify installer and packaged application
         run: |
           $package = Get-Content package.json -Raw | ConvertFrom-Json
-          $installer = "release/stock-dip-analyzer-$($package.version)-x64-setup.exe"
+          $installer = 'release/stock-dip-analyzer-x64-setup.exe'
           foreach ($path in @($installer, "release/win-unpacked/$($package.build.productName).exe")) {
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
               throw "Expected Windows executable missing: $path"
@@ -94,14 +95,50 @@ jobs:
           }
           $hash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
           "Installer: $installer`nSHA256: $hash" | Tee-Object -FilePath release/installer-validation.txt
-          "Unsigned installer produced and checked: $installer. Install, upgrade, uninstall and application launch were not exercised." >> $env:GITHUB_STEP_SUMMARY
+          "Unsigned installer produced and checked: $installer. Upgrade and uninstall were not exercised." >> $env:GITHUB_STEP_SUMMARY
+
+      # The path a user takes: run the one file. /S is the installer's silent mode. It
+      # installs what a double-click installs, for the current user and without asking
+      # anything, but does not start the app afterwards as a double-click does; so the
+      # installed app is started here, and must open its window.
+      - name: Install with the one exe and open the installed app
+        run: |
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $product = $package.build.productName
+          $installer = (Resolve-Path -LiteralPath 'release/stock-dip-analyzer-x64-setup.exe').Path
+          $setup = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "The installer exited with code $($setup.ExitCode)" }
+          $programs = Join-Path $env:LOCALAPPDATA 'Programs'
+          $app = Get-ChildItem -LiteralPath $programs -Recurse -Filter "$product.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $app) { throw "The installer did not put $product.exe under $programs" }
+          $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$product.lnk"
+          if (-not (Test-Path -LiteralPath $shortcut -PathType Leaf)) { throw "The installer did not add a Start menu shortcut: $shortcut" }
+          $desktop = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) "$product.lnk"
+          if (-not (Test-Path -LiteralPath $desktop -PathType Leaf)) { throw "The installer did not add a desktop shortcut: $desktop" }
+          $running = Start-Process -FilePath $app.FullName -ArgumentList '--remote-debugging-port=9222' -PassThru
+          try {
+            # index.html is titled "Dip Analyzer PRO" before React runs; only the mounted app
+            # names the desk, so "Overview — Dip Analyzer PRO" means the UI is up.
+            $opened = $false
+            foreach ($second in 1..60) {
+              try {
+                $pages = Invoke-RestMethod -Uri 'http://127.0.0.1:9222/json/list' -TimeoutSec 2
+                if ($pages | Where-Object { $_.title -match '^Overview .*Dip Analyzer PRO$' }) { $opened = $true; break }
+              } catch { Write-Verbose "Not answering yet: $_" }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $opened) { throw "The installed app did not open its window within 60 s (process exited: $($running.HasExited))." }
+            "The one exe installed $($app.FullName) with its Start menu and desktop shortcuts, and the installed app opened its window." | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          } finally {
+            Get-Process -Name $product -ErrorAction SilentlyContinue | Stop-Process -Force
+          }
 
       - name: Retain validation evidence
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-x64-installer-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            release/stock-dip-analyzer-*-x64-setup.exe
+            release/stock-dip-analyzer-x64-setup.exe
             release/installer-validation.txt
           if-no-files-found: error
           retention-days: 7
