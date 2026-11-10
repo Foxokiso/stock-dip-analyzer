@@ -7,7 +7,8 @@ import { readFileSync } from 'node:fs';
 // for an exact name), the README links to that name, both workflows build and publish it,
 // and the installer stays a one-click, per-user one. These are plain text files that drift
 // apart silently, so they are read here.
-const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
+// A Windows checkout has CRLF line endings; the checks below are written for LF.
+const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 const { build } = JSON.parse(read('package.json'));
 const INSTALLER = 'stock-dip-analyzer-x64-setup.exe';
 const DOWNLOAD = `https://github.com/Foxokiso/stock-dip-analyzer/releases/latest/download/${INSTALLER}`;
