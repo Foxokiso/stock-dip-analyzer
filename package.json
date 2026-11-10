@@ -68,6 +68,10 @@
       "forceCodeSigning": false
     },
     "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "artifactName": "stock-dip-analyzer-${arch}-setup.${ext}",
       "include": "assets/installer.nsh"
     },
     "linux": {
