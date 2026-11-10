@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Changed
+- CI's apt downloads give up on a stalled Ubuntu mirror after 30 seconds and retry, up to five times, and the browser runtime install stops after 8 minutes. A mirror that stopped answering held the first two 2.3.1 release runs on that step until they were cancelled or would have hit the job's 20-minute limit (`.github/workflows/ci.yml`, `.github/workflows/linux-packages.yml`; `tests/packaging.test.js`).
 - A release can now be started from the repository's Actions tab without pushing a tag: **Release → Run workflow** on `master`, with the version from `package.json` (for example `2.3.1`). The workflow refuses any other branch and any version that does not match `package.json`, runs the same checks and builds as a pushed tag, and its publish job creates the `v<version>` tag on the commit it built. Pushing a `v*` tag still works as before. This lets a release go out from a machine without git, or from a session that cannot push tags (`.github/workflows/release.yml`, `.agents/skills/cut-release/SKILL.md`, `.agents/rules/github-workflows.md`, `AGENTS.md`; `tests/packaging.test.js`).
 
 ## 2.3.1 (2026-11-10)
