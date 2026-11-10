@@ -29,6 +29,8 @@ git tag -a v2.3.0 -m "Stock Dip Analyzer 2.3.0" origin/master
 git push origin v2.3.0
 ```
 
+   Without git, or where tags cannot be pushed: **Actions → Release → Run workflow**, branch `master`, version `2.3.0`. The workflow checks the version against `package.json` and its publish job creates the `v2.3.0` tag on the commit it built.
+
 6. **Watch the "Release" workflow** in the repository's Actions tab. It checks that the tag matches `package.json`, runs CI and the native parity suites on the tagged commit, builds the Windows installer and the Linux packages, then publishes. The release must carry four files:
    - `stock-dip-analyzer-x64-setup.exe` (no version in its name: the README links to `releases/latest/download/stock-dip-analyzer-x64-setup.exe`)
    - `stock-dip-analyzer-2.3.0-amd64.deb`

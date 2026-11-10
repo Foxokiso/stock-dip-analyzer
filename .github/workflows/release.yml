@@ -10,15 +10,29 @@ name: Release
 # Code signing happens automatically once the CSC_LINK / CSC_KEY_PASSWORD
 # secrets exist; until then the installer is unsigned and the release notes
 # say so.
+#
+# The same release can be started without pushing a tag: Actions → Release →
+# Run workflow, on master, with the version from package.json (2.3.1, no "v").
+# The publish job then creates the v<version> tag on that exact commit.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, exactly as in package.json (for example 2.3.1)
+        required: true
+        type: string
 
 permissions:
   contents: read
 
+env:
+  # v2.3.1 from a pushed tag, or from the version typed into Run workflow.
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
+
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -38,8 +52,13 @@ jobs:
       - name: Tag must match package.json
         shell: pwsh
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ env.RELEASE_TAG }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
         run: |
+          if ($env:TAG -notmatch '^v\d+\.\d+\.\d+$') { throw "Not a release version: $env:TAG" }
+          # Run workflow releases master only, never another branch.
+          if ($env:EVENT -eq 'workflow_dispatch' -and $env:REF -ne 'refs/heads/master') { throw "Run workflow on master, not $env:REF" }
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           if ("v$version" -ne $env:TAG) { throw "Tag $env:TAG does not match package.json version $version" }
 
@@ -151,7 +170,8 @@ jobs:
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ env.RELEASE_TAG }}
+          EVENT: ${{ github.event_name }}
           COMMIT_SHA: ${{ github.sha }}
           SIGNATURE_STATUS: ${{ needs.windows.outputs.signature-status }}
         run: |
@@ -181,8 +201,14 @@ jobs:
 
           SHA-256 sums of every file are in SHA256SUMS.txt.
           NOTES
+          # A pushed tag must already exist; from Run workflow, gh creates the tag on the built commit.
+          if [ "$EVENT" = workflow_dispatch ]; then
+            tag_option=(--target "$COMMIT_SHA")
+          else
+            tag_option=(--verify-tag)
+          fi
           gh release create "$TAG" "${files[@]}" SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --title "Stock Dip Analyzer ${version}" \
             --notes-file ../release-notes.md \
-            --verify-tag
+            "${tag_option[@]}"
