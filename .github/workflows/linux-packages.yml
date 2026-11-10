@@ -79,6 +79,11 @@ jobs:
             sha256sum "$deb" "$appimage"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # The Ubuntu mirror the runners use sometimes stops answering mid-download, and apt
+      # then waits until the job's time limit. Give each request 30 s and retry it instead.
+      - name: Make apt retry a stalled mirror instead of waiting
+        run: printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' | sudo tee /etc/apt/apt.conf.d/80-retry-stalled-mirror
+
       # The path a user takes: apt installs the .deb (its post-install script installs
       # the AppArmor profile), then the installed app is started with Chromium's sandbox
       # on and must open its window. Market data is not checked here.

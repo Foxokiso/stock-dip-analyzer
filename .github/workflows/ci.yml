@@ -57,7 +57,13 @@ jobs:
       - name: Build production renderer
         run: npm run build:renderer
 
+      # The Ubuntu mirror the runners use sometimes stops answering mid-download, and apt
+      # then waits until the job's time limit. Give each request 30 s and retry it instead.
+      - name: Make apt retry a stalled mirror instead of waiting
+        run: printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' | sudo tee /etc/apt/apt.conf.d/80-retry-stalled-mirror
+
       - name: Install browser test runtime
+        timeout-minutes: 8
         run: npx playwright install --with-deps chromium
 
       - name: Run browser regressions

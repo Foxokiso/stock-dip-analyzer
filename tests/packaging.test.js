@@ -79,3 +79,18 @@ test('a release can be started from the Actions tab, for master only, without pu
     assert.match(release, /tag_option=\(--target "\$COMMIT_SHA"\)/);
     assert.match(release, /tag_option=\(--verify-tag\)/);
 });
+
+test('apt retries a stalled Ubuntu mirror instead of waiting out the job', () => {
+    // A mirror that stopped answering held release 2.3.1's Linux checks until they were cancelled.
+    const setting = /printf 'Acquire::Retries "5";\\nAcquire::http::Timeout "30";\\nAcquire::https::Timeout "30";\\n' \| sudo tee \/etc\/apt\/apt\.conf\.d\/80-retry-stalled-mirror/;
+    for (const [workflow, firstApt] of [
+        ['.github/workflows/ci.yml', 'npx playwright install --with-deps'],
+        ['.github/workflows/linux-packages.yml', 'sudo apt-get update'],
+    ]) {
+        const text = read(workflow);
+        const configured = text.search(setting);
+        assert.ok(configured >= 0, `${workflow} sets apt's timeouts`);
+        assert.ok(configured < text.indexOf(firstApt), `${workflow} sets them before apt runs`);
+    }
+    assert.match(read('.github/workflows/ci.yml'), /- name: Install browser test runtime\n {8}timeout-minutes: 8\n/);
+});
