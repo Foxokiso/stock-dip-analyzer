@@ -1,8 +1,11 @@
 # Changelog
 
-## Unreleased
+## 2.3.1 (2026-11-10)
+
+The first version published as a GitHub Release.
 
 ### Changed
+- Electron 45.2.1 → 45.2.3, which moves the app to Chromium 156.0.8078.80 and Node.js 24.22.2 and adds upstream fixes for ANGLE, Chromium, Dawn, FFmpeg, PDFium, Skia and V8. The app shows third-party pages (the research viewers, the TradingView chart), so it ships with the newest 45.x (`package.json`, `package-lock.json`; the *Security* section of `README.md`).
 - Installing on Windows is one step: download `stock-dip-analyzer-x64-setup.exe` and run it. The installer has that one name in every version, so the README now links straight to `releases/latest/download/stock-dip-analyzer-x64-setup.exe`; before, it sent people to the release page to pick `stock-dip-analyzer-<version>-x64-setup.exe` out of five files. Running it asks nothing and needs no administrator password: it installs for the current Windows account, adds the Start menu and desktop shortcuts and opens the app. That was electron-builder's default behaviour already and is now stated (`build.nsis` in `package.json`: `oneClick`, `perMachine: false`, `runAfterFinish`, and `artifactName`, which the two workflows no longer pass on the command line, so `build_exe.bat` builds the same file). A release no longer carries the installer's `.blockmap`, which only an in-app updater reads and this app has none (`.github/workflows/release.yml`, `.agents/skills/cut-release/SKILL.md`). `README.md` puts Windows first under *Download* and *Install*; `tests/packaging.test.js` keeps the name, the link, the workflows and the release's file list in step.
 - `windows-installer.yml` now runs the installer it built, silently as a user's double-click would install it, checks that the app and both shortcuts are there, starts the installed app and waits for its window, as `linux-packages.yml` does for the `.deb`. Before, it only checked that the installer file existed.
 - The Overview computes its live summary tiles in one pass as scan results arrive instead of repeatedly traversing the stock list (`src/utils/dashboardStats.js`, `src/pages/Dashboard.jsx`; `tests/dashboardStats.test.js`).
