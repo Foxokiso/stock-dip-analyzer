@@ -321,6 +321,7 @@ const DESKS = [
     { label: 'ETF rankings', hash: '#/etfs', accelerator: 'CmdOrCtrl+3' },
     { label: 'Oil Watch', hash: '#/oil', accelerator: 'CmdOrCtrl+4' },
     { label: 'Discovery', hash: '#/discovery', accelerator: 'CmdOrCtrl+5' },
+    { label: 'Options', hash: '#/options', accelerator: 'CmdOrCtrl+6' },
     { label: 'Settings', hash: '#/settings', accelerator: 'CmdOrCtrl+,' },
 ];
 const PROJECT_URL = 'https://github.com/Foxokiso/stock-dip-analyzer';
@@ -514,7 +515,7 @@ app.on('select-client-certificate', (event, webContents, url, list, callback) =>
 });
 
 // The one permission granted anywhere: the app's own page may write sanitized
-// text to the clipboard (Settings → Backup → Copy). Its subframes (the
+// text to the clipboard (Settings → Backup → Copy, Options → Copy Order Ticket). Its subframes (the
 // TradingView chart) and every guest stay denied.
 const isAppClipboardWrite = (contents, permission, details) => permission === 'clipboard-sanitized-write'
     && mainWindow != null && contents === mainWindow.webContents

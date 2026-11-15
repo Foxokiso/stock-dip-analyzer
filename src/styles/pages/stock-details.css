@@ -638,3 +638,4 @@
   .stock-details .sd-refresh { align-self: flex-end; }
   .stock-details .sd-embed { height: 360px; }
 }
+.stock-details .sd-options { margin-left: var(--gap-sm); }

@@ -24,6 +24,7 @@ const ROUTES = [
   { name: 'etfs', path: '/#/etfs', ready: 'text="Rankings unavailable."' },
   { name: 'oil', path: '/#/oil', ready: 'text="Oil Watch quotes require the desktop app connection."' },
   { name: 'discovery', path: '/#/discovery', ready: 'text="Scanner unavailable."' },
+  { name: 'options-AAPL', path: '/#/options/AAPL', ready: 'text="Options chain unavailable"' },
   { name: 'stock-AAPL', path: '/#/stock/AAPL', ready: 'text="52-week position unavailable"' },
   { name: 'settings', path: '/#/settings', ready: 'text="Not reported by Yahoo’s chart endpoint"' },
 ];
