@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, Suspense } from 'react'
 import { HashRouter as Router, Routes, Route, NavLink, useLocation, matchPath } from 'react-router-dom'
-import { Activity, LayoutDashboard, Settings, Palette, Trophy, Compass, Droplet, ChartNoAxesCombined, ArrowUpRight, VolumeX } from 'lucide-react'
+import { Activity, LayoutDashboard, Settings, Palette, Trophy, Compass, Droplet, Layers, ChartNoAxesCombined, ArrowUpRight, VolumeX } from 'lucide-react'
 import './App.css'
 import { getLocalNewsHeadlines } from './utils/telemetry'
 import { preloadable } from './utils/preloadable.js'
@@ -18,6 +18,7 @@ import Futures from './pages/Futures'
 import ETFAwards from './pages/ETFAwards'
 import Discovery from './pages/Discovery'
 import OilWatch from './pages/OilWatch'
+import OptionsStrategy from './pages/OptionsStrategy'
 import SettingsPage from './pages/Settings'
 import NotFound from './pages/NotFound'
 
@@ -33,10 +34,12 @@ const droneGain = (volume) => DRONE_GAIN * Math.min(1, volume / DEFAULT_SETTINGS
 
 // Window title per desk: "Overview — Dip Analyzer PRO", "AAPL — Stock — Dip Analyzer PRO".
 const APP_TITLE = 'Dip Analyzer PRO';
-const DESK_TITLES = [['/', 'Overview'], ['/futures', 'Futures'], ['/etfs', 'ETF rankings'], ['/oil', 'Oil Watch'], ['/discovery', 'Discovery'], ['/settings', 'Settings']];
+const DESK_TITLES = [['/', 'Overview'], ['/futures', 'Futures'], ['/etfs', 'ETF rankings'], ['/oil', 'Oil Watch'], ['/discovery', 'Discovery'], ['/options', 'Options'], ['/settings', 'Settings']];
 const deskTitle = (pathname) => {
   const stock = matchPath('/stock/:symbol', pathname);
   if (stock) return `${stock.params.symbol} — Stock`;
+  const options = matchPath('/options/:symbol', pathname);
+  if (options) return `${options.params.symbol.toUpperCase()} — Options`;
   return DESK_TITLES.find(([path]) => matchPath(path, pathname))?.[1] ?? 'Page not found';
 };
 
@@ -108,6 +111,7 @@ function Desk({ excludedSectors, autoRefreshInterval, globalFilter }) {
             <Route path="/etfs" element={<ETFAwards excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
             <Route path="/oil" element={<OilWatch autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
             <Route path="/discovery" element={<Discovery excludedSectors={excludedSectors} autoRefreshInterval={autoRefreshInterval} globalFilter={globalFilter} />} />
+            <Route path="/options/:symbol?" element={<OptionsStrategy autoRefreshInterval={autoRefreshInterval} />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
@@ -353,6 +357,7 @@ function Workspace() {
             <NavLink to="/etfs" className="nav-link"><Trophy size={16} aria-hidden="true" />ETF rankings</NavLink>
             <NavLink to="/oil" className="nav-link"><Droplet size={16} aria-hidden="true" />Oil Watch</NavLink>
             <NavLink to="/discovery" className="nav-link"><Compass size={16} aria-hidden="true" />Discovery</NavLink>
+            <NavLink to="/options" className="nav-link"><Layers size={16} aria-hidden="true" />Options<span className="nav-new">NEW</span></NavLink>
             <NavLink to="/settings" className="nav-link nav-settings"><Settings size={16} aria-hidden="true" />Settings</NavLink>
           </nav>
         </header>

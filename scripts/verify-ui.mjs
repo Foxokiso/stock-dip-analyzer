@@ -39,6 +39,8 @@ const ROUTES=[
  {path:'/#/oil',title:'Oil Watch',root:'.oil-watch-page',heading:/Oil Watch/,notices:['Oil Watch quotes require the desktop app connection.','News feed requires the desktop app connection.','Market quotes require the desktop app connection.']},
  {path:'/#/discovery',title:'Discovery',root:'.discovery-page',heading:/Discovery/,notices:['Discovery quotes require the desktop app connection.','Scanner unavailable.']},
  {path:'/#/stock/AAPL',title:'AAPL — Stock',root:'.stock-details',heading:/AAPL/,notices:['Market data requires the desktop app connection. No sample quotes are shown.','Finviz statistics and news require the desktop app connection.','Failed to load 1-month chart data for AAPL.','52-week position unavailable']},
+ {path:'/#/options',title:'Options',root:'.options-page',heading:/Options strategy/,notices:['Choose a ticker']},
+ {path:'/#/options/AAPL',title:'AAPL — Options',root:'.options-page',heading:/Options strategy/,notices:['Options chain unavailable','The options chain requires the desktop app connection. No sample quotes are shown.','No legs yet. Choose a contract in the chain above.']},
  {path:'/#/settings',title:'Settings',root:'.settings-page',heading:/^Settings$/,notices:['Minimum score applies to Bullish alerts only; breakout, breakdown and bearish alerts are raised regardless of score.','Not reported by Yahoo’s chart endpoint','Technical alerts use only quotes whose own timestamp is at most 5 minutes old.']},
  {path:'/#/stock/',title:'Page not found',root:null,heading:/Page not found/,notices:[]},
 ];
@@ -360,9 +362,10 @@ await overview.setViewportSize({width:1280,height:1050});
 const metaLines=await overview.locator('.dash-meta').evaluateAll(lines=>lines.map(line=>({text:line.textContent,clipped:line.scrollWidth>line.clientWidth})));
 assert.equal(metaLines.filter(line=>line.text.startsWith('Retrieved: ')).length,20);
 assert.deepEqual(metaLines.filter(line=>line.clipped).map(line=>line.text),[],'source lines are clipped at 1280 px');
-const symbolLink=overview.locator('.dash-row').first().getByRole('link');
+const symbolLink=overview.locator('.dash-row').first().locator('.dash-symbol-link');
 const symbol=await symbolLink.textContent();
 assert.equal(await symbolLink.getAttribute('href'),`#/stock/${symbol}`);
+assert.equal(await overview.locator('.dash-row').first().getByRole('link',{name:`Options strategy for ${symbol}`}).getAttribute('href'),`#/options/${symbol}`);
 await symbolLink.focus();
 assert.ok(await symbolLink.evaluate(link=>link===document.activeElement),'the symbol link takes focus');
 const historyBefore=await overview.evaluate(()=>history.length);
@@ -376,7 +379,7 @@ await overview.close();
 const scrolled=await watch(await browser.newPage({viewport:{width:1280,height:800}}));
 await stubBridge(scrolled,{urls:{'https://finviz.com/screener/stocks?v=111&o=change&r=1':await fixture('ui/finviz-losers-r1-2026-10-31.html')}});
 await scrolled.goto(baseUrl+'/#/');
-const lowerLink=scrolled.locator('.dash-row').nth(15).getByRole('link');
+const lowerLink=scrolled.locator('.dash-row').nth(15).locator('.dash-symbol-link');
 await lowerLink.scrollIntoViewIfNeeded();
 assert.ok(await scrolled.evaluate(()=>window.scrollY)>1000,'the Overview is scrolled to a lower row');
 await scrolled.evaluate(()=>{
@@ -606,6 +609,91 @@ for (const route of ROUTES.filter(route=>route.root)) {
  assert.equal(await noStorage.getByRole('heading',{name:/hit an error$/}).count(),0,`${route.path} failed without storage`);
 }
 await noStorage.close();
+// Options desk, on the recorded AAPL Dec 18 2026 chain: the acceptance order (two
+// 350/360 call spreads at a 1.25 net debit) built from the chain, analysed and copied
+// as one ticket for each broker; the single-leg order; the limit kept through a refresh.
+{
+ const context=await browser.newContext({viewport:{width:1440,height:1050}});
+ await context.grantPermissions(['clipboard-read','clipboard-write'],{origin:new URL(baseUrl).origin});
+ const options=await watch(await context.newPage());
+ const chainPage=await fixture('finviz-options-AAPL-2026-12-18.html');
+ await stubBridge(options,{urls:{'https://finviz.com/stock?t=AAPL&ty=oc':chainPage,'https://finviz.com/stock?t=AAPL&ty=oc&e=2026-12-18':chainPage}});
+ await options.goto(baseUrl+'/#/options/AAPL');
+ const desk=options.locator('.options-page');
+ await desk.getByRole('button',{name:'Buy AAPL Dec 18 2026 350 call, ask 14.60'}).click();
+ await desk.getByRole('button',{name:'Sell AAPL Dec 18 2026 360 call, bid 8.30'}).click();
+ const copy=desk.getByRole('button',{name:'Copy Order Ticket'});
+ assert.equal(await copy.isDisabled(),true,'no ticket without a limit');
+ assert.match(await desk.locator('.opt-copy-status').innerText(),/Enter a limit price above 0/);
+ assert.match(await desk.locator('.opt-market').innerText(),/mid 5\.85 debit · natural 6\.30 debit/);
+ await desk.getByLabel('Strategy quantity',{exact:true}).fill('2');
+ await desk.getByLabel('Limit price',{exact:true}).fill('1.25');
+ const figures=async()=>Object.fromEntries(await desk.locator('.opt-figure').evaluateAll(nodes=>nodes.map(node=>[node.querySelector('dt').textContent,node.querySelector('dd').textContent])));
+ assert.deepEqual(await figures(),{'Total debit before fees':'$250.00','Maximum loss':'$250.00','Maximum gain':'$1,750.00','Breakeven at expiration':'351.25','Strike width':'10.00'});
+ assert.equal(await desk.locator('.opt-strategy').innerText(),'Vertical call spread');
+ assert.deepEqual(await desk.locator('.opt-legs tbody tr td:nth-child(5)').allInnerTexts(),['2','2'],'two contracts on each leg');
+ await desk.locator('.opt-chart svg').waitFor();
+ const preview=()=>desk.locator('.opt-preview').inputValue();
+ for (const [broker,ticketName,code,tif] of [['robinhood','Robinhood Legend options ticket','AAPL261218C00350000','Good for day'],['fidelity','Fidelity Trader+ Web options ticket','-AAPL261218C350','Day']]) {
+  await desk.locator('.opt-copy select').selectOption(broker);
+  await copy.click();
+  await desk.getByText(`Copied. Switch to a blank ${ticketName} and paste once.`).waitFor();
+  const pasted=await options.evaluate(()=>navigator.clipboard.readText());
+  assert.equal(pasted,await preview(),'the clipboard holds exactly the previewed ticket');
+  const lines=pasted.split('\n');
+  assert.equal(lines[0],`ORDER TICKET · ${ticketName} · review before placing`);
+  assert.match(lines[3],new RegExp(`^Leg 1: Buy to open 2 AAPL Dec 18 2026 350 Call \\[${code}\\]$`,'i'));
+  assert.match(lines[4],/^Leg 2: Sell to open 2 AAPL Dec 18 2026 360 Call \[/i);
+  assert.deepEqual(lines.slice(5,9),['Order type: Net debit limit','Limit price: 1.25',`Time in force: ${tif}`,'Total debit before fees: $250.00']);
+  const machine=JSON.parse(lines.at(-1).replace('DDS-TICKET/1 ',''));
+  assert.deepEqual([machine.broker,machine.quantity,machine.limit,machine.priceSide,machine.legs.map(leg=>`${leg.action} ${leg.contracts} ${leg.strike}`)],[broker,2,1.25,'debit',['buy 2 350','sell 2 360']]);
+ }
+ await options.screenshot({path:artifactDir+'/options-spread.png',fullPage:true});
+ assert.equal(await overflowAt(options),null,'the options desk overflows at 1440 px');
+ // A refresh brings quotes, never a new limit.
+ const fetches=()=>options.evaluate(()=>window.__calls.filter(([channel])=>channel==='fetch-url').length);
+ const before=await fetches();
+ await desk.getByRole('button',{name:'Refresh quotes'}).click();
+ await options.waitForFunction(count=>window.__calls.filter(([channel])=>channel==='fetch-url').length>count,before);
+ await desk.getByRole('button',{name:'Refresh quotes'}).waitFor();
+ assert.equal(await desk.getByLabel('Limit price',{exact:true}).inputValue(),'1.25');
+ assert.equal((await figures())['Total debit before fees'],'$250.00');
+ // Changing a strike moves the analysis and the ticket together, and un-copies it.
+ await desk.getByLabel('Leg 2 strike',{exact:true}).selectOption({label:'365'});
+ assert.deepEqual([(await figures())['Maximum gain'],(await figures())['Strike width']],['$2,750.00','15.00']);
+ assert.match(await preview(),/Leg 2: Sell to Open 2 AAPL Dec 18 2026 365 Call \[-AAPL261218C365\]/);
+ assert.equal(await desk.getByText(/^Copied\./).count(),0);
+ // The transfer check names each mismatch.
+ await desk.getByText(/^Check the pasted ticket/).click();
+ await desk.getByLabel('Limit price: result').selectOption('differs');
+ await desk.getByLabel('Limit price: what the broker showed').fill('1.30');
+ await desk.getByLabel('Leg 2 contracts: result').selectOption('missing');
+ assert.deepEqual(await desk.locator('.opt-mismatches li').allInnerTexts(),['Leg 2 contracts: expected 2; the ticket left it empty.','Limit price: expected 1.25; the ticket showed 1.30.']);
+ // Single leg: a plain limit order with its own contract count.
+ await desk.getByRole('button',{name:'Remove AAPL Dec 18 2026 365 call'}).click();
+ await desk.getByLabel('Contracts',{exact:true}).fill('3');
+ await desk.getByLabel('Limit price',{exact:true}).fill('14.25');
+ assert.deepEqual(await figures(),{'Total debit before fees':'$4,275.00','Maximum loss':'$4,275.00','Maximum gain':'Unlimited','Breakeven at expiration':'364.25'});
+ assert.match(await preview(),/Strategy: Long call · single leg\nLeg 1: Buy to Open 3 AAPL Dec 18 2026 350 Call \[-AAPL261218C350\]\nOrder type: Limit\nLimit price: 14\.25\nTime in force: Day\nTotal debit before fees: \$4,275\.00\n/);
+ // A failed refresh keeps the chain, and says so.
+ await options.evaluate(()=>{ window.__failWith='Finviz returned HTTP 503 Service Unavailable'; });
+ await desk.getByRole('button',{name:'Refresh quotes'}).click();
+ await desk.getByText('Refresh failed · earlier quotes kept').waitFor();
+ assert.equal(await desk.locator('.opt-chain-table tbody tr').count(),9);
+ await options.setViewportSize({width:390,height:844});
+ assert.equal(await overflowAt(options),null,'the options desk overflows at 390 px');
+ // From the scanner or the stock page: the score arrives with the link (router state),
+ // and a visit without one says so instead of scoring anything itself.
+ assert.equal(await desk.locator('.opt-score').innerText(),'Technical score not carried over · open from the Overview to bring it');
+ await options.evaluate(()=>{
+  history.pushState({usr:{symbol:'MSFT',score:72,isZombie:false},key:'carried'},'','#/options/MSFT');
+  window.dispatchEvent(new PopStateEvent('popstate',{state:history.state}));
+ });
+ await desk.getByText('Technical score 72 · Buy',{exact:true}).waitFor();
+ assert.equal(await options.title(),'MSFT — Options — Dip Analyzer PRO');
+ assert.equal(await desk.locator('.opt-preview').inputValue(),'The ticket appears here once the order is complete.','a new ticker starts a new draft');
+ await context.close();
+}
 assert.deepEqual(errors,[]);
 assert.deepEqual(cspViolations,[],'Content Security Policy violations');
 console.log(JSON.stringify({routes:ROUTES.length,widths:[1440,390],instruments:59,rates:8,cached:59,legacyBridge:true,failedImportRefetched,dataSettings:{chartCacheSeconds:300,requestTimeoutSeconds:45},plugTicks:axis.ticks,plugFill:Number(axis.fill.toFixed(2)),pageErrors:errors,cspViolations,screenshots:artifactDir},null,2));

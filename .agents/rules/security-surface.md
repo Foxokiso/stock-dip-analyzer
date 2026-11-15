@@ -11,7 +11,7 @@ The app shows third-party content (TradingView's chart in a sandboxed iframe; Fi
 - **Renderer.** `sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`. The page sees only `window.dipAnalyzer.invoke`, limited to the channels in `CHANNELS` in `preload.cjs`; any other channel is rejected.
 - **Network.** `fetch-url` accepts only HTTPS URLs on the hosts in `FETCH_HOSTS` (`main.cjs`), and redirects are checked against the same rule; `fetch-yahoo-chart` builds its own Yahoo URL from a validated symbol, range and interval. Everything else is refused in the main process before a request exists.
 - **Navigation and viewers.** The app window cannot navigate away from the app. Research `<webview>`s attach only to HTTPS pages on `RESEARCH_HOSTS`, without Node or a preload, in the in-memory `research` session; a popup opens in the system browser only right after a user gesture.
-- **Permissions.** Every permission request is denied, except a clipboard write from the app's own page (Backup → Copy).
+- **Permissions.** Every permission request is denied, except a clipboard write from the app's own page (Backup → Copy, Options → Copy Order Ticket).
 - **Content Security Policy.** Production builds get the policy that `vite.config.js` injects: scripts from the app only, frames only from TradingView's host, `object-src 'none'`, `base-uri 'none'`, `form-action 'none'`.
 - **Provider HTML.** It is made inert (`src/utils/inertHtml.js` strips inline event handlers) before it is parsed.
 

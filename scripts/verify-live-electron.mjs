@@ -61,6 +61,7 @@ const ROUTES = [
   { name: 'etfs', hash: '/etfs', root: '.etf-awards-page', data: { sel: '.etf-leader-row' } },
   { name: 'oil', hash: '/oil', root: '.oil-watch-page', data: { sel: '.oil-row', text: '\\$\\d' } },
   { name: 'discovery', hash: '/discovery', root: '.discovery-page', data: { sel: '.discovery-stock-row', text: '\\$\\d' }, extra: { tradingView: { sel: `#tv_discovery_chart ${TRADINGVIEW_SHOWN}` } } },
+  { name: 'options-AAPL', hash: '/options/AAPL', root: '.options-page', data: { sel: '.opt-chain-table tbody tr td.numeric', text: '\\d' } },
   { name: 'settings', hash: '/settings', root: '.settings-page', data: { sel: '.settings-section' } },
 ];
 const OVERVIEW = { name: 'overview', hash: '/', root: '.dashboard', data: { sel: '.dash-row .dash-symbol' }, extra: { score: { sel: '.dash-verdict', text: '\\(\\d+\\)' } } };
