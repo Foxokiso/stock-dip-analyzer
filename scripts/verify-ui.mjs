@@ -638,7 +638,8 @@ await noStorage.close();
   await desk.locator('.opt-copy select').selectOption(broker);
   await copy.click();
   await desk.getByText(`Copied. Switch to a blank ${ticketName} and paste once.`).waitFor();
-  const pasted=await options.evaluate(()=>navigator.clipboard.readText());
+  // Windows hands clipboard text back with CRLF line ends; the ticket is compared line by line.
+  const pasted=(await options.evaluate(()=>navigator.clipboard.readText())).replaceAll('\r\n','\n');
   assert.equal(pasted,await preview(),'the clipboard holds exactly the previewed ticket');
   const lines=pasted.split('\n');
   assert.equal(lines[0],`ORDER TICKET · ${ticketName} · review before placing`);
