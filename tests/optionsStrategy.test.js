@@ -131,6 +131,11 @@ test('option symbols and strategy names', () => {
     assert.equal(occSymbol('aapl', contract('put', 345)), 'AAPL261218P00345000');
     assert.equal(occSymbol('F', { expiry: '2027-01-15', type: 'call', strike: 12.5 }), 'F270115C00012500');
     assert.equal(fidelitySymbol('F', { expiry: '2027-01-15', type: 'call', strike: 12.5 }), '-F270115C12.5');
+    // A share class keeps no punctuation in the option root (BRK-B trades options as BRKB).
+    for (const spelled of ['BRK-B', 'brk.b']) {
+        assert.equal(occSymbol(spelled, { expiry: '2026-12-18', type: 'call', strike: 500 }), 'BRKB261218C00500000');
+        assert.equal(fidelitySymbol(spelled, { expiry: '2026-12-18', type: 'call', strike: 500 }), '-BRKB261218C500');
+    }
     assert.equal(strategyName([leg('sell', 'put', 350)]), 'Short put');
     assert.equal(strategyName([leg('sell', 'put', 350), leg('buy', 'put', 340)]), 'Vertical put spread');
     assert.equal(strategyName([leg('sell', 'call', 365), leg('sell', 'put', 345)]), 'Short strangle');

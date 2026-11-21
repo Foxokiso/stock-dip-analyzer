@@ -12,6 +12,7 @@ const chain = (options, changes = {}) => wrap({ ticker: 'XYZ', expiries: ['2027-
 test('the chain URL is the stock page on finviz.com, an allowed host, with the expiration when one is chosen', () => {
     assert.equal(finvizOptionsUrl('aapl'), 'https://finviz.com/stock?t=AAPL&ty=oc');
     assert.equal(finvizOptionsUrl('BRK-B', '2026-12-18'), 'https://finviz.com/stock?t=BRK-B&ty=oc&e=2026-12-18');
+    assert.equal(finvizOptionsUrl('brk.b'), 'https://finviz.com/stock?t=BRK-B&ty=oc', 'Finviz answers BRK-B and returns 404 for BRK.B');
     assert.equal(finvizOptionsUrl('AAPL', '12/18/2026'), 'https://finviz.com/stock?t=AAPL&ty=oc', 'a malformed expiration is not sent');
     for (const bad of ['', 'AAPL&e=x', '../x', 'A'.repeat(11), null]) {
         assert.equal(isOptionSymbol(bad), false);

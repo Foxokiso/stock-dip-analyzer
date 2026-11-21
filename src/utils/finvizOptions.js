@@ -12,7 +12,8 @@ export const isOptionSymbol = (symbol) => typeof symbol === 'string' && SYMBOL.t
 /** The stock page's options tab; with an expiration, that expiration's chain. */
 export function finvizOptionsUrl(symbol, expiry) {
     if (!isOptionSymbol(symbol)) throw new Error('Enter a ticker symbol such as AAPL.');
-    const base = `https://finviz.com/stock?t=${encodeURIComponent(symbol.toUpperCase())}&ty=oc`;
+    // Finviz spells a share class with a hyphen (BRK-B); its page for BRK.B is a 404.
+    const base = `https://finviz.com/stock?t=${encodeURIComponent(symbol.toUpperCase().replaceAll('.', '-'))}&ty=oc`;
     return expiry && EXPIRY.test(expiry) ? `${base}&e=${expiry}` : base;
 }
 

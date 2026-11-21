@@ -29,11 +29,13 @@ export const expiryLabel = (expiry) => {
     return `${MONTHS[month - 1]} ${day} ${year}`;
 };
 /** The OCC option symbol without root padding: AAPL261218C00350000. */
+// The OCC root has no punctuation: the Berkshire B contract is BRKB, not BRK-B or BRK.B.
+const root = (symbol) => symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
 export const occSymbol = (symbol, { expiry, type, strike }) =>
-    `${symbol.toUpperCase()}${expiry.slice(2).replaceAll('-', '')}${type === 'call' ? 'C' : 'P'}${String(Math.round(strike * 1000)).padStart(8, '0')}`;
+    `${root(symbol)}${expiry.slice(2).replaceAll('-', '')}${type === 'call' ? 'C' : 'P'}${String(Math.round(strike * 1000)).padStart(8, '0')}`;
 /** Fidelity's spelling of the same contract: -AAPL261218C350. */
 export const fidelitySymbol = (symbol, { expiry, type, strike }) =>
-    `-${symbol.toUpperCase()}${expiry.slice(2).replaceAll('-', '')}${type === 'call' ? 'C' : 'P'}${trimmed(strike)}`;
+    `-${root(symbol)}${expiry.slice(2).replaceAll('-', '')}${type === 'call' ? 'C' : 'P'}${trimmed(strike)}`;
 
 export const legContracts = (leg, quantity) => leg.ratio * quantity;
 
