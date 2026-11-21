@@ -1,0 +1,124 @@
+/* Options Strategy desk — Pierce/27 skin. Imported by src/pages/OptionsStrategy.jsx.
+ * Role tokens only; every rule is scoped to .options-page. The chain is one scrolling
+ * table with sticky headers; the draft ticket and the risk panel sit side by side and
+ * stack below 1100px. No animation beyond the shared button transitions.
+ */
+.options-page { --opt-line: color-mix(in oklch, var(--primary) 27%, var(--line)); }
+.options-page :is(button, a, select, input, textarea, summary):focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.options-page .desk-heading h1 { font-family: var(--font-heading); color: var(--text-main); }
+.options-page .desk-heading h1 .text-muted { color: var(--text-muted); font-weight: 400; }
+
+.options-page :is(select, input:not([type='checkbox']), textarea) {
+  background: var(--bg-raised);
+  color: var(--text-main);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.options-page :is(select, input):disabled { opacity: 0.5; }
+.options-page label { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-muted); }
+
+.options-page .opt-lookup { display: flex; gap: var(--gap-sm); align-items: center; flex-shrink: 0; }
+.options-page .opt-lookup input { border: 0; background: transparent; padding: 0; width: 150px; text-transform: uppercase; }
+.options-page .opt-lookup .btn, .options-page .opt-refresh, .options-page .opt-verify .btn { padding: 8px 14px; font-size: 12px; font-weight: 500; }
+
+.options-page .opt-context {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px;
+  margin: var(--gap) 0; font-size: 12px; color: var(--text-muted); font-family: var(--font-mono);
+}
+.options-page .opt-context .ticker-tag { text-decoration: none; }
+.options-page .opt-score { color: var(--text-main); padding: 3px 10px; border: 1px solid var(--opt-line); border-radius: var(--radius-sm); background: var(--wash-p-07); }
+.options-page .opt-score.is-empty { color: var(--text-muted); border-color: var(--line); background: transparent; }
+.options-page .opt-refresh { margin-left: auto; }
+
+.options-page .glass-panel { padding: 16px 18px; }
+.options-page .opt-panel-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin-bottom: 12px; }
+.options-page .opt-panel-head h2 { font-family: var(--font-heading); font-size: 15px; font-weight: 500; color: var(--text-main); margin: 0; }
+.options-page .opt-hint { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+.options-page .opt-strategy { font-family: var(--font-mono); font-size: 12px; color: var(--primary); }
+.options-page .opt-empty { color: var(--text-muted); font-size: 12px; margin: 8px 0 14px; }
+
+/* ── Chain ── */
+.options-page .opt-chain-scroll { overflow: auto; max-height: 372px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.options-page .opt-chain-table { width: 100%; min-width: 900px; }
+.options-page .opt-chain-table thead th { position: sticky; top: 0; background: var(--bg-card); padding: 7px 8px; z-index: 1; }
+.options-page .opt-chain-table thead tr:nth-child(2) th { top: 27px; }
+.options-page .opt-chain-table td, .options-page .opt-chain-table tbody th { padding: 3px 8px; border-top: 1px solid var(--line); }
+.options-page .opt-side { text-align: center; }
+.options-page .opt-strike { text-align: center; font-family: var(--font-mono); font-size: 12px; color: var(--text-main); background: var(--bg-raised); }
+.options-page .opt-below td { background: var(--wash-p-07); }
+.options-page .opt-none { text-align: center; color: var(--text-faint); }
+.options-page .opt-in-order { color: var(--primary); font-weight: 600; }
+.options-page .opt-quote {
+  min-width: 56px; padding: 3px 6px; text-align: right; cursor: pointer;
+  font: inherit; color: var(--text-main); background: transparent;
+  border: 1px solid transparent; border-radius: var(--radius-sm);
+}
+.options-page .opt-quote:hover:not(:disabled) { border-color: var(--opt-line); background: var(--wash-p-14); }
+.options-page .opt-quote--buy:hover:not(:disabled) { color: var(--success); }
+.options-page .opt-quote--sell:hover:not(:disabled) { color: var(--danger); }
+.options-page .opt-quote:disabled { cursor: not-allowed; color: var(--text-muted); }
+
+/* ── Ticket beside risk ── */
+.options-page .opt-workspace { display: grid; grid-template-columns: minmax(0, 3fr) minmax(300px, 2fr); gap: var(--gap); margin-top: var(--gap); align-items: start; }
+@media (max-width: 1100px) { .options-page .opt-workspace { grid-template-columns: minmax(0, 1fr); } }
+/* position: the table holds a visually-hidden (absolutely positioned) label, which must stay inside this scroll box. */
+.options-page .opt-legs-scroll { overflow-x: auto; position: relative; }
+.options-page .opt-legs { width: 100%; min-width: 860px; }
+.options-page .opt-legs th { padding: 6px 8px; }
+.options-page .opt-legs td { padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: middle; }
+.options-page .opt-legs td.numeric { white-space: nowrap; }
+.options-page .opt-legs input { width: 54px; }
+.options-page .opt-leg-name { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+.options-page .opt-leg-stale { font-size: 10px; color: var(--warning); max-width: 170px; white-space: normal; }
+.options-page .opt-strong { color: var(--text-main); font-weight: 600; }
+.options-page .opt-remove { background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text-muted); padding: 5px; cursor: pointer; }
+.options-page .opt-remove:hover { color: var(--danger); border-color: var(--line); }
+
+.options-page .opt-terms { display: flex; flex-wrap: wrap; gap: 12px 18px; margin: 16px 0 8px; }
+.options-page .opt-terms label { flex-direction: column; align-items: flex-start; gap: 5px; }
+.options-page .opt-terms input { width: 96px; }
+.options-page .opt-market { font-size: 11px; color: var(--text-muted); margin: 0 0 14px; }
+.options-page .opt-link { margin-left: 8px; background: none; border: 0; padding: 0; color: var(--primary); font: inherit; text-decoration: underline; cursor: pointer; }
+
+.options-page .opt-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 14px 0; border-top: 1px solid var(--line); }
+.options-page .opt-copy-button { font-size: 14px; padding: 11px 22px; }
+.options-page .opt-copy-button:disabled { opacity: 0.45; cursor: not-allowed; }
+.options-page .opt-copy-status { font-size: 12px; color: var(--text-muted); flex: 1 1 220px; }
+.options-page .opt-preview-label { display: block; margin-bottom: 6px; }
+.options-page .opt-preview { width: 100%; resize: vertical; line-height: 1.5; white-space: pre; overflow-x: auto; }
+
+.options-page .opt-verify { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; font-size: 12px; color: var(--text-muted); }
+.options-page .opt-verify summary { cursor: pointer; color: var(--text-main); font-family: var(--font-heading); border-radius: var(--radius-sm); }
+.options-page .opt-verify-table { width: 100%; min-width: 560px; margin: 8px 0 12px; }
+.options-page .opt-verify-table :is(th, td) { padding: 5px 8px; border-top: 1px solid var(--line); text-align: left; }
+.options-page .opt-verify-table tbody th { text-transform: none; font-size: 11px; letter-spacing: 0; }
+.options-page .opt-verify-table input { width: 100%; }
+.options-page .opt-verify-table tr.is-match td:nth-child(2) { color: var(--success); }
+.options-page .opt-verify-table tr:is(.is-differs, .is-missing) td:nth-child(2) { color: var(--danger); }
+.options-page .opt-mismatches { margin: 0 0 12px; padding-left: 18px; color: var(--danger); }
+.options-page .opt-mismatches strong { font-weight: 600; }
+
+/* ── Risk ── */
+.options-page .opt-figures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0 0 14px; }
+.options-page .opt-figure { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; }
+.options-page .opt-figure--total { grid-column: 1 / -1; border-color: var(--opt-line); background: var(--wash-p-07); }
+.options-page .opt-figure dt { font-size: 10px; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-muted); font-family: var(--font-heading); }
+.options-page .opt-figure dd { margin: 4px 0 0; font-family: var(--font-mono); font-size: 16px; color: var(--text-main); }
+.options-page .opt-figure--total dd { font-size: 24px; }
+.options-page .opt-figure dd small { font-size: 11px; color: var(--warning); }
+.options-page .opt-figure dd.is-up { color: var(--success); }
+.options-page .opt-figure dd.is-down { color: var(--danger); }
+
+.options-page .opt-chart { margin: 0; }
+.options-page .opt-chart svg { display: block; width: 100%; height: 200px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg-raised); }
+.options-page .opt-chart-zero { stroke: var(--line-strong); stroke-width: 1; }
+.options-page .opt-chart-spot { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 4 5; }
+.options-page .opt-chart-line { stroke: var(--primary); stroke-width: 2; stroke-linejoin: round; }
+.options-page .opt-chart-even { fill: var(--bg-raised); stroke: var(--warning); stroke-width: 2; }
+.options-page .opt-chart figcaption { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); }
+.options-page .opt-chart-empty { display: grid; place-items: center; min-height: 200px; padding: 0 20px; text-align: center; border: 1px dashed var(--line); border-radius: var(--radius-sm); color: var(--text-muted); font-size: 12px; }
+.options-page .opt-notes { margin: 12px 0 0; padding-left: 18px; font-size: 11px; color: var(--warning); line-height: 1.5; }
+.options-page .opt-fineprint { margin: 12px 0 0; font-size: 10px; color: var(--text-faint); line-height: 1.5; }

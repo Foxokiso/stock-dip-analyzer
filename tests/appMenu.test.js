@@ -27,7 +27,7 @@ test('the menu is set before the window opens and has File, Edit, Go, View, Wind
     assert.deepEqual(plain(mac[1].submenu.map(item => item.role)), ['close']);
 });
 
-test('Go opens each desk in navigation-bar order, with Ctrl/Cmd+1-5 and Ctrl/Cmd+, for Settings', () => {
+test('Go opens each desk in navigation-bar order, with Ctrl/Cmd+1-6 and Ctrl/Cmd+, for Settings', () => {
     const { find } = start();
     const desks = find('Go').submenu.filter(item => item.click && item.accelerator?.startsWith('CmdOrCtrl'));
     assert.deepEqual(plain(desks.map(item => [item.label, item.accelerator])), [
@@ -36,6 +36,7 @@ test('Go opens each desk in navigation-bar order, with Ctrl/Cmd+1-5 and Ctrl/Cmd
         ['ETF rankings', 'CmdOrCtrl+3'],
         ['Oil Watch', 'CmdOrCtrl+4'],
         ['Discovery', 'CmdOrCtrl+5'],
+        ['Options', 'CmdOrCtrl+6'],
         ['Settings', 'CmdOrCtrl+,'],
     ]);
 });

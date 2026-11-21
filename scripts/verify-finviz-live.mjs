@@ -9,6 +9,7 @@
 import { DOMParser } from 'linkedom';
 import { parseFinvizScreenerPage } from '../src/utils/finviz.js';
 import { finvizQuoteUrl, parseFinvizQuotePage } from '../src/utils/finvizQuote.js';
+import { finvizOptionsUrl, parseFinvizOptionsPage } from '../src/utils/finvizOptions.js';
 import { parseFinvizFutures } from '../src/services/futures.js';
 
 const HEADERS = {
@@ -88,6 +89,31 @@ const STOCK_PAGE_STATS = ['Market Cap', 'P/E', 'Forward P/E', 'EPS (ttm)', ['Div
     }
   } catch (error) {
     line('quote page', false, `${String(error.message || error).slice(0, 120)} after ${Math.round(performance.now() - started)} ms`);
+  }
+}
+
+// The options chain the Options desk reads from the stock page, at its own URL and
+// through its own parser: expirations, an underlying price, strikes on both sides of
+// it, and two-sided quotes with implied volatility and delta on most contracts.
+{
+  const started = performance.now();
+  try {
+    const response = await fetch(finvizOptionsUrl('AAPL'), { headers: HEADERS, redirect: 'follow', signal: AbortSignal.timeout(15000) });
+    const html = await response.text();
+    const elapsed = Math.round(performance.now() - started);
+    if (!response.ok) {
+      line('options chain', false, `HTTP ${response.status} in ${elapsed} ms`);
+    } else {
+      const chain = parseFinvizOptionsPage(html);
+      const contracts = chain.strikes.flatMap(row => [row.call, row.put]).filter(Boolean);
+      const quoted = contracts.filter(item => item.mid !== null).length;
+      const modelled = contracts.filter(item => item.iv !== null && item.delta !== null).length;
+      const straddles = chain.underlying > chain.strikes[0].strike && chain.underlying < chain.strikes.at(-1).strike;
+      const ok = chain.expiries.length >= 4 && chain.expiries.includes(chain.expiry) && straddles && contracts.length >= 20 && quoted >= contracts.length * 0.5 && modelled >= contracts.length * 0.8 && !response.redirected;
+      line('options chain', ok, `${chain.expiries.length} expirations, ${chain.expiry}: ${chain.strikes.length} strikes around ${chain.underlying ?? '—'}, ${contracts.length} contracts, ${quoted} two-sided, ${modelled} with IV and delta, ${elapsed} ms${response.redirected ? `, redirected to ${response.url}` : ''}`);
+    }
+  } catch (error) {
+    line('options chain', false, `${String(error.message || error).slice(0, 120)} after ${Math.round(performance.now() - started)} ms`);
   }
 }
 

@@ -190,7 +190,11 @@ const StockRow = memo(({ stock, expanded, onToggle }) => {
                 className={`dash-row${expanded ? ' is-expanded' : ''}`}
                 onClick={(e) => { if (!e.target.closest('a, button')) window.location.hash = stockPath; }}
             >
-                <td className="dash-symbol"><Link to={stockPath} className="dash-symbol-link">{stock.symbol}</Link></td>
+                <td className="dash-symbol">
+                    <Link to={stockPath} className="dash-symbol-link">{stock.symbol}</Link>
+                    {/* Carries the row's score to the Options desk, which scores nothing itself. */}
+                    <Link to={`/options/${stock.symbol}`} state={{ symbol: stock.symbol, score, isZombie: stock.isZombie }} className="dash-options-link" aria-label={`Options strategy for ${stock.symbol}`}>Options</Link>
+                </td>
                 <td className="dash-company">
                     <div className="dash-company-name" title={stock.name}>{stock.name}</div>
                     <div className="dash-meta">{stock.source} · {stock.delayMinutes === null ? 'delay unknown' : `${stock.delayMinutes} min delay`}</div>

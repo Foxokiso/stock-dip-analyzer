@@ -52,6 +52,16 @@ export const subscribeScans = (listener) => { listeners.add(listener); return ()
 export const watchScan = (key, listener) => { focusScan(key); return subscribeScans(listener); };
 export const useScan = (key) => useSyncExternalStore(useCallback((listener) => watchScan(key, listener), [key]), () => getScan(key));
 export const scanAge = (scan, now = Date.now()) => (scan.completedAt ? now - Date.parse(scan.completedAt) : Infinity);
+/** The most recently scored row for a ticker in any scan still in memory, or null. */
+export const findScannedStock = (symbol) => {
+    let found = null;
+    for (const scan of scans.values()) {
+        for (const stock of scan.stocks) {
+            if (stock.symbol === symbol && typeof stock.recoveryProbability === 'number' && (!found || String(stock.fetchedAt) > String(found.fetchedAt))) found = stock;
+        }
+    }
+    return found;
+};
 export const resetScans = () => { scans.clear(); runs.clear(); priorities.clear(); alertStates.clear(); };
 
 const emit = () => { for (const listener of listeners) listener(); };

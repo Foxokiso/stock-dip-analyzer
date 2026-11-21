@@ -450,6 +450,9 @@ const StockDetails = ({ autoRefreshInterval = 0 }) => {
             <Link to="/" className="btn btn-outline sd-back">
                 <ArrowLeft size={16} /> Back to Dashboard
             </Link>
+            <Link to={`/options/${symbol}`} state={{ symbol, score, isZombie: analysis?.isZombie }} className="btn btn-outline sd-back sd-options">
+                Build an options trade
+            </Link>
 
             <div className="sd-header">
                 <div>

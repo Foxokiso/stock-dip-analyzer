@@ -476,3 +476,16 @@
 @media (max-width: 600px) {
   .dashboard { --dash-gutter: 15px; }
 }
+
+/* The row's way to the Options desk, under the symbol. */
+.dashboard .dash-options-link {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-heading);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.dashboard .dash-options-link:hover { color: var(--primary); text-decoration: underline; }
+.dashboard .dash-options-link:focus-visible { outline: none; box-shadow: var(--focus-ring); }
