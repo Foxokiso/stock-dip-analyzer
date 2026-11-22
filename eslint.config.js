@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist', 'release', 'artifacts']),
+  globalIgnores(['dist', 'release', 'artifacts', 'sync-worker/dist', 'sync-worker/.cloudflare', 'sync-worker/.wrangler']),
   // Every script gets the recommended rules: the renderer, the Electron main
   // process and preload, the tests and the verification scripts.
   {

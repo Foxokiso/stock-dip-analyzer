@@ -1,0 +1,20 @@
+{
+	"name": "stock-dip-analyzer-sync",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "cf dev",
+		"build": "cf build",
+		"deploy": "cf deploy",
+		"typecheck": "cf workers types && tsc",
+		"test": "node --test test/*.test.ts",
+		"db:migrate:local": "cf d1 migrations apply d97e3900-6791-4c39-97ef-64db5abd059f --dir migrations --local",
+		"db:migrate:remote": "cf d1 migrations apply d97e3900-6791-4c39-97ef-64db5abd059f --dir migrations"
+	},
+	"devDependencies": {
+		"@cloudflare/vite-plugin": "beta",
+		"cf": "^1.0.0-beta.31",
+		"typescript": "^7.0.2",
+		"vite": "^8.3.0"
+	}
+}
