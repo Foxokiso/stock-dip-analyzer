@@ -1,0 +1,4 @@
+# Local development only (never commit real secrets).
+# Copy to .dev.vars and fill with a GitHub OAuth App's credentials.
+GITHUB_CLIENT_ID=replace-with-github-oauth-client-id
+GITHUB_CLIENT_SECRET=replace-with-github-oauth-client-secret

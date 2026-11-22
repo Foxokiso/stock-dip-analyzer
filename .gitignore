@@ -34,5 +34,15 @@ electron-builder.env
 # Browser verification output
 artifacts/
 
+# Cloudflare Worker build/local artifacts (sync-worker/ has its own .gitignore too)
+sync-worker/node_modules/
+sync-worker/dist/
+sync-worker/.cloudflare/
+sync-worker/.wrangler/
+sync-worker/.dev.vars*
+!sync-worker/.dev.vars.example
+sync-worker/.env*
+!sync-worker/.env.example
+
 # The alert sound's source WAV, written by src/scripts/generate_audio.py; only the MP3 ships
 src/assets/*.wav
