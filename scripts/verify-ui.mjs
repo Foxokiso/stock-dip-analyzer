@@ -695,6 +695,46 @@ await noStorage.close();
  assert.equal(await desk.locator('.opt-preview').inputValue(),'The ticket appears here once the order is complete.','a new ticker starts a new draft');
  await context.close();
 }
+// Unusual volume: the recorded chain has no contract above its open interest, so the
+// list says so; with the 365 put's volume raised above its open interest (532), it lists
+// that contract with its ratio and midpoint premium, flags it in the chain, and its Buy
+// button adds the leg to the draft.
+{
+ const context=await browser.newContext({viewport:{width:1440,height:1050}});
+ const recorded=await fixture('finviz-options-AAPL-2026-12-18.html');
+ const marker='"strike":365,"openInterest":532,';
+ const at=recorded.indexOf(marker);
+ const volumeAt=recorded.indexOf('"lastVolume":155,',at);
+ assert.ok(at>0&&volumeAt>at&&volumeAt-at<400,'the recorded 365 put is where the test expects it');
+ const busy=recorded.slice(0,volumeAt)+'"lastVolume":800,'+recorded.slice(volumeAt+'"lastVolume":155,'.length);
+ for (const [page_,name] of [[recorded,'quiet'],[busy,'busy']]) {
+  const page=await watch(await context.newPage());
+  await stubBridge(page,{urls:{'https://finviz.com/stock?t=AAPL&ty=oc':page_,'https://finviz.com/stock?t=AAPL&ty=oc&e=2026-12-18':page_}});
+  await page.goto(baseUrl+'/#/options/AAPL');
+  const desk=page.locator('.options-page');
+  const panel=desk.locator('.opt-unusual');
+  await panel.waitFor();
+  if (name==='quiet') {
+   assert.match(await panel.innerText(),/None: no contract traded more than its open interest \(minimum 100 contracts\)\./);
+   assert.equal(await desk.locator('.opt-uv').count(),0);
+  } else {
+   const rows=await panel.locator('.opt-unusual-list li').allInnerTexts();
+   assert.equal(rows.length,1);
+   assert.match(rows[0].replace(/\s+/g,' '),/AAPL Dec 18 2026 365 put Volume 800 OI 532 1\.5× OI est\. premium \$1,078,000\.00/);
+   assert.equal(await desk.locator('.opt-uv').count(),1);
+   assert.match(await desk.locator('.opt-uv').getAttribute('title'),/1\.5× OI · est\. premium \$1,078,000\.00/);
+   assert.equal(await desk.locator('.opt-legs tbody tr').count(),0);
+   await panel.getByRole('button',{name:'Buy AAPL Dec 18 2026 365 put, unusual volume'}).click();
+   assert.equal(await desk.locator('.opt-legs tbody tr').count(),1);
+   assert.equal(await desk.getByLabel('Leg 1 action',{exact:true}).inputValue(),'buy');
+  }
+  assert.equal(await overflowAt(page),null,`the options desk (${name}) overflows at 1440 px`);
+  await page.setViewportSize({width:390,height:844});
+  assert.equal(await overflowAt(page),null,`the options desk (${name}) overflows at 390 px`);
+  await page.close();
+ }
+ await context.close();
+}
 assert.deepEqual(errors,[]);
 assert.deepEqual(cspViolations,[],'Content Security Policy violations');
 console.log(JSON.stringify({routes:ROUTES.length,widths:[1440,390],instruments:59,rates:8,cached:59,legacyBridge:true,failedImportRefetched,dataSettings:{chartCacheSeconds:300,requestTimeoutSeconds:45},plugTicks:axis.ticks,plugFill:Number(axis.fill.toFixed(2)),pageErrors:errors,cspViolations,screenshots:artifactDir},null,2));
