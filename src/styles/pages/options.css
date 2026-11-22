@@ -122,3 +122,13 @@
 .options-page .opt-chart-empty { display: grid; place-items: center; min-height: 200px; padding: 0 20px; text-align: center; border: 1px dashed var(--line); border-radius: var(--radius-sm); color: var(--text-muted); font-size: 12px; }
 .options-page .opt-notes { margin: 12px 0 0; padding-left: 18px; font-size: 11px; color: var(--warning); line-height: 1.5; }
 .options-page .opt-fineprint { margin: 12px 0 0; font-size: 10px; color: var(--text-faint); line-height: 1.5; }
+
+/* ── Unusual volume: contracts trading above their open interest ── */
+.options-page .opt-uv { margin-left: 6px; padding: 0 4px; font-size: 9px; font-weight: 600; letter-spacing: 0.04em; color: var(--warning); border: 1px solid var(--warning); border-radius: var(--radius-sm); vertical-align: middle; }
+.options-page .opt-unusual { margin-bottom: 14px; }
+.options-page .opt-unusual h3 { margin: 0 0 8px; font-family: var(--font-heading); font-size: 13px; font-weight: 500; color: var(--text-main); }
+.options-page .opt-unusual-list { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+.options-page .opt-unusual-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+.options-page .opt-unusual-name { color: var(--text-main); font-weight: 600; }
+.options-page .opt-unusual-actions { margin-left: auto; display: inline-flex; gap: 6px; }
+.options-page .opt-unusual-actions .btn { padding: 3px 12px; font-size: 11px; }

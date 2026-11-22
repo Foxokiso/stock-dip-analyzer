@@ -4,6 +4,7 @@ import { ClipboardCopy, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { getInvoke } from '../utils/bridge.js';
 import { fetchOptionsChain, finvizOptionsUrl, isOptionSymbol } from '../utils/finvizOptions.js';
 import { BROKERS, MAX_LEGS, analyzeOrder, expiryLabel, legContracts, money, orderProblems, price, suggestedSide, ticketFields, ticketText } from '../utils/optionsStrategy.js';
+import { contractActivity, unusualContracts, UNUSUAL_MIN_VOLUME } from '../utils/optionsActivity.js';
 import { getVerdict } from '../utils/scoring.js';
 import { formatQuoteTime } from '../utils/format.js';
 import { findScannedStock } from '../state/scanStore.js';
@@ -23,15 +24,18 @@ const whole = (value) => (value === null || value === undefined ? dash : value.t
 const pct = (value) => (value === null || value === undefined ? dash : `${(value * 100).toFixed(1)}%`);
 const contractName = (symbol, { expiry, strike, type }) => `${symbol} ${expiryLabel(expiry)} ${strike} ${type}`;
 
+const ratioText = (ratio) => (ratio === Infinity ? 'new' : `${ratio.toFixed(1)}× OI`);
+
 function ChainSide({ symbol, item, inOrder, onPick, disabled }) {
     if (!item) return <td colSpan={7} className="opt-none">{dash}</td>;
     const name = contractName(symbol, item);
+    const activity = contractActivity(item);
     return (
         <>
             <td className="numeric"><button type="button" className="opt-quote opt-quote--sell" disabled={disabled} onClick={() => onPick(item, 'sell')} aria-label={`Sell ${name}, bid ${num(item.bid)}`} title="Add a sell leg">{num(item.bid)}</button></td>
             <td className="numeric"><button type="button" className="opt-quote opt-quote--buy" disabled={disabled} onClick={() => onPick(item, 'buy')} aria-label={`Buy ${name}, ask ${num(item.ask)}`} title="Add a buy leg">{num(item.ask)}</button></td>
             <td className="numeric">{num(item.width)}</td>
-            <td className="numeric">{whole(item.volume)}</td>
+            <td className="numeric">{whole(item.volume)}{activity.unusual && <span className="opt-uv" aria-label="unusual volume" title={`Volume above open interest: ${ratioText(activity.ratio)}${activity.premium === null ? '' : ` · est. premium ${money(activity.premium)}`}`}>UV</span>}</td>
             <td className="numeric">{whole(item.openInterest)}</td>
             <td className="numeric">{pct(item.iv)}</td>
             <td className={`numeric${inOrder ? ' opt-in-order' : ''}`}>{num(item.delta, 3)}</td>
@@ -176,6 +180,7 @@ function OptionsDesk({ symbol, autoRefreshInterval = 0 }) {
         return strikes.filter((row, index) => (index >= centre - STRIKES_EACH_SIDE && index < centre + STRIKES_EACH_SIDE) || chosen.has(row.strike));
     }, [chain, allStrikes, legs]);
     const inOrder = new Set(legs.map(leg => leg.contract.id));
+    const unusual = useMemo(() => unusualContracts(chain), [chain]);
 
     const copyTicket = async () => {
         try {
@@ -249,6 +254,29 @@ function OptionsDesk({ symbol, autoRefreshInterval = 0 }) {
                             <label className="opt-check"><input type="checkbox" checked={allStrikes} onChange={(event) => setAllStrikes(event.target.checked)} /> All strikes</label>
                             <span className="opt-hint">Click a bid to sell, an ask to buy. Finviz quotes, delayed; times are each contract’s last trade.</span>
                         </div>
+                        {chain && (
+                            <div className="opt-unusual" role="region" aria-labelledby="opt-unusual-title">
+                                <h3 id="opt-unusual-title">Unusual volume (this expiration)</h3>
+                                {unusual.length === 0 ? <p className="opt-empty">None: no contract traded more than its open interest (minimum {UNUSUAL_MIN_VOLUME} contracts).</p> : (
+                                    <ul className="opt-unusual-list">
+                                        {unusual.map(({ contract, volume, openInterest, ratio, premium, premiumBasis }) => (
+                                            <li key={contract.id}>
+                                                <span className="opt-unusual-name">{contractName(symbol, contract)}</span>
+                                                <span>Volume {whole(volume)}</span>
+                                                <span>OI {whole(openInterest)}</span>
+                                                <span>{ratioText(ratio)}</span>
+                                                <span>{premium === null ? 'premium unavailable' : `est. premium ${money(premium)}${premiumBasis === 'last' ? ' (at last trade)' : ''}`}</span>
+                                                <span className="opt-unusual-actions">
+                                                    <button type="button" className="btn btn-outline" disabled={legs.length >= MAX_LEGS && !inOrder.has(contract.id)} onClick={() => pick(contract, 'buy')} aria-label={`Buy ${contractName(symbol, contract)}, unusual volume`}>Buy</button>
+                                                    <button type="button" className="btn btn-outline" disabled={legs.length >= MAX_LEGS && !inOrder.has(contract.id)} onClick={() => pick(contract, 'sell')} aria-label={`Sell ${contractName(symbol, contract)}, unusual volume`}>Sell</button>
+                                                </span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                                <p className="opt-fineprint">Today’s volume against open interest, from Finviz (delayed). It shows where activity is heavy, not whether trades were buys, sells or sweeps.</p>
+                            </div>
+                        )}
                         {chain ? (
                             <div className="opt-chain-scroll">
                                 <table className="opt-chain-table">
