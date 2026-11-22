@@ -17,10 +17,11 @@ interface SettingsRow {
 	updated_at: string;
 }
 
-interface WatchlistRow {
-	symbol: string;
-	notes: string | null;
-	added_at: string;
+interface WatchlistDocRow {
+	payload: string;
+	item_count: number;
+	revision: number;
+	updated_at: string;
 }
 
 interface TicketRow {
@@ -29,19 +30,36 @@ interface TicketRow {
 	label: string;
 	broker: string;
 	payload: string;
+	revision: number;
 	created_at: string;
 	updated_at: string;
+}
+
+interface WatchlistItem {
+	symbol: string;
+	notes: string;
+	addedAt: string;
+}
+
+function readExpectedRevision(body: Record<string, unknown>): number {
+	const value = body.expectedRevision;
+	if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+		throw new HttpError(400, "expectedRevision must be a non-negative integer (use 0 for the initial write).");
+	}
+	return value;
 }
 
 async function getUsage(db: D1Database, userId: string) {
 	const [settingsRow, watchlistRow, ticketsRow] = await Promise.all([
 		db.prepare("SELECT payload FROM user_settings WHERE user_id = ?").bind(userId).first<{ payload: string }>(),
-		db.prepare("SELECT COUNT(*) AS count FROM watchlists WHERE user_id = ?").bind(userId).first<{ count: number }>(),
-		db.prepare("SELECT COUNT(*) AS count FROM saved_tickets WHERE user_id = ?").bind(userId).first<{ count: number }>(),
+		db.prepare("SELECT item_count FROM user_watchlists WHERE user_id = ?").bind(userId).first<{ item_count: number }>(),
+		db.prepare("SELECT COUNT(*) AS count FROM saved_tickets WHERE user_id = ? AND deleted_at IS NULL")
+			.bind(userId)
+			.first<{ count: number }>(),
 	]);
 	return {
 		settingsBytes: settingsRow ? utf8ByteLength(settingsRow.payload) : 0,
-		watchlistCount: watchlistRow?.count ?? 0,
+		watchlistCount: watchlistRow?.item_count ?? 0,
 		savedTicketsCount: ticketsRow?.count ?? 0,
 	};
 }
@@ -52,32 +70,31 @@ export async function handleGetMe(auth: AuthContext, env: Env): Promise<Response
 }
 
 export async function handleGetSync(auth: AuthContext, env: Env): Promise<Response> {
-	const [settingsRow, watchlistResult, ticketResult] = await Promise.all([
+	const [settingsRow, watchlistRow, ticketResult] = await Promise.all([
 		env.DB.prepare("SELECT payload, revision, updated_at FROM user_settings WHERE user_id = ?")
 			.bind(auth.user.id)
 			.first<SettingsRow>(),
-		env.DB.prepare("SELECT symbol, notes, added_at FROM watchlists WHERE user_id = ? ORDER BY added_at ASC, symbol ASC")
+		env.DB.prepare("SELECT payload, item_count, revision, updated_at FROM user_watchlists WHERE user_id = ?")
 			.bind(auth.user.id)
-			.all<WatchlistRow>(),
+			.first<WatchlistDocRow>(),
 		env.DB.prepare(
-			"SELECT id, symbol, label, broker, payload, created_at, updated_at FROM saved_tickets WHERE user_id = ? ORDER BY updated_at DESC",
+			`SELECT id, symbol, label, broker, payload, revision, created_at, updated_at
+			 FROM saved_tickets
+			 WHERE user_id = ? AND deleted_at IS NULL
+			 ORDER BY updated_at DESC`,
 		)
 			.bind(auth.user.id)
 			.all<TicketRow>(),
 	]);
 
-	const watchlist = (watchlistResult.results ?? []).map((row) => ({
-		symbol: row.symbol,
-		notes: row.notes ?? "",
-		addedAt: row.added_at,
-	}));
-
+	const watchlistItems = watchlistRow ? (JSON.parse(watchlistRow.payload) as WatchlistItem[]) : [];
 	const savedTickets = (ticketResult.results ?? []).map((row) => ({
 		id: row.id,
 		symbol: row.symbol,
 		label: row.label,
 		broker: row.broker,
 		order: JSON.parse(row.payload) as unknown,
+		revision: row.revision,
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
 	}));
@@ -91,12 +108,18 @@ export async function handleGetSync(auth: AuthContext, env: Env): Promise<Respon
 				updatedAt: settingsRow.updated_at,
 			}
 			: null,
-		watchlist,
+		watchlist: watchlistRow
+			? {
+				items: watchlistItems,
+				revision: watchlistRow.revision,
+				updatedAt: watchlistRow.updated_at,
+			}
+			: null,
 		savedTickets,
 		limits: MEMORY_LIMITS,
 		usage: {
 			settingsBytes: settingsRow ? utf8ByteLength(settingsRow.payload) : 0,
-			watchlistCount: watchlist.length,
+			watchlistCount: watchlistItems.length,
 			savedTicketsCount: savedTickets.length,
 		},
 	});
@@ -107,9 +130,7 @@ export async function handlePutSettings(request: Request, auth: AuthContext, env
 	if (!isRecord(body) || !isRecord(body.settings)) {
 		throw new HttpError(400, "Body must contain a settings JSON object.");
 	}
-	if (body.expectedRevision !== undefined && (!Number.isInteger(body.expectedRevision) || Number(body.expectedRevision) < 0)) {
-		throw new HttpError(400, "expectedRevision must be a non-negative integer.");
-	}
+	const expectedRevision = readExpectedRevision(body);
 
 	const payload = JSON.stringify(body.settings);
 	const bytes = utf8ByteLength(payload);
@@ -118,34 +139,28 @@ export async function handlePutSettings(request: Request, auth: AuthContext, env
 	}
 
 	const now = new Date().toISOString();
-	const current = await env.DB.prepare("SELECT revision FROM user_settings WHERE user_id = ?")
-		.bind(auth.user.id)
-		.first<{ revision: number }>();
-
-	const currentRevision = current?.revision ?? 0;
-	if (body.expectedRevision !== undefined && body.expectedRevision !== currentRevision) {
-		throw new HttpError(409, `Settings changed elsewhere (expected revision ${body.expectedRevision}, current is ${currentRevision}).`);
-	}
-
-	const nextRevision = currentRevision + 1;
-	if (!current) {
-		await env.DB.prepare(
-			"INSERT INTO user_settings (user_id, payload, revision, updated_at) VALUES (?, ?, ?, ?)",
+	if (expectedRevision === 0) {
+		const inserted = await env.DB.prepare(
+			"INSERT INTO user_settings (user_id, payload, revision, updated_at) VALUES (?, ?, 1, ?) ON CONFLICT(user_id) DO NOTHING",
 		)
-			.bind(auth.user.id, payload, nextRevision, now)
+			.bind(auth.user.id, payload, now)
 			.run();
-	} else {
-		const updated = await env.DB.prepare(
-			"UPDATE user_settings SET payload = ?, revision = ?, updated_at = ? WHERE user_id = ? AND revision = ?",
-		)
-			.bind(payload, nextRevision, now, auth.user.id, currentRevision)
-			.run();
-		if ((updated.meta?.changes ?? 0) === 0) {
-			throw new HttpError(409, "Settings were updated concurrently; retry with the latest revision.");
+		if ((inserted.meta?.changes ?? 0) === 0) {
+			throw new HttpError(409, "Settings already exist; retry with the current revision.");
 		}
+		return jsonOk({ revision: 1, updatedAt: now, bytes });
 	}
 
-	return jsonOk({ revision: nextRevision, updatedAt: now, bytes });
+	const updated = await env.DB.prepare(
+		"UPDATE user_settings SET payload = ?, revision = revision + 1, updated_at = ? WHERE user_id = ? AND revision = ?",
+	)
+		.bind(payload, now, auth.user.id, expectedRevision)
+		.run();
+	if ((updated.meta?.changes ?? 0) === 0) {
+		throw new HttpError(409, `Settings changed elsewhere (expected revision ${expectedRevision}).`);
+	}
+
+	return jsonOk({ revision: expectedRevision + 1, updatedAt: now, bytes });
 }
 
 export async function handlePutWatchlist(request: Request, auth: AuthContext, env: Env): Promise<Response> {
@@ -153,13 +168,14 @@ export async function handlePutWatchlist(request: Request, auth: AuthContext, en
 	if (!isRecord(body) || !Array.isArray(body.items)) {
 		throw new HttpError(400, "Body must contain an items array.");
 	}
+	const expectedRevision = readExpectedRevision(body);
 	if (body.items.length > MEMORY_LIMITS.maxWatchlistItems) {
 		throw new HttpError(413, `Watchlist exceeds the ${MEMORY_LIMITS.maxWatchlistItems}-symbol memory cap.`);
 	}
 
 	const now = new Date().toISOString();
 	const seen = new Set<string>();
-	const normalized: Array<{ symbol: string; notes: string; addedAt: string }> = [];
+	const normalized: WatchlistItem[] = [];
 
 	for (const entry of body.items) {
 		if (!isRecord(entry) || !isValidSymbol(entry.symbol)) {
@@ -179,24 +195,37 @@ export async function handlePutWatchlist(request: Request, auth: AuthContext, en
 			}
 			notes = entry.notes;
 		}
-		const addedAt = typeof entry.addedAt === "string" && !Number.isNaN(Date.parse(entry.addedAt)) ? entry.addedAt : now;
+		const parsedDate = typeof entry.addedAt === "string" ? Date.parse(entry.addedAt) : Number.NaN;
+		// Normalize every timestamp to canonical UTC ISO-8601 so chronological ordering is exact.
+		const addedAt = Number.isNaN(parsedDate) ? now : new Date(parsedDate).toISOString();
 		normalized.push({ symbol, notes, addedAt });
 	}
 
-	const statements = [
-		env.DB.prepare("DELETE FROM watchlists WHERE user_id = ?").bind(auth.user.id),
-		...normalized.map((item) =>
-			env.DB.prepare("INSERT INTO watchlists (user_id, symbol, notes, added_at) VALUES (?, ?, ?, ?)").bind(
-				auth.user.id,
-				item.symbol,
-				item.notes,
-				item.addedAt,
-			),
-		),
-	];
-	await env.DB.batch(statements);
+	normalized.sort((a, b) => (a.addedAt === b.addedAt ? a.symbol.localeCompare(b.symbol) : a.addedAt.localeCompare(b.addedAt)));
+	const payload = JSON.stringify(normalized);
 
-	return jsonOk({ items: normalized, count: normalized.length });
+	if (expectedRevision === 0) {
+		const inserted = await env.DB.prepare(
+			"INSERT INTO user_watchlists (user_id, payload, item_count, revision, updated_at) VALUES (?, ?, ?, 1, ?) ON CONFLICT(user_id) DO NOTHING",
+		)
+			.bind(auth.user.id, payload, normalized.length, now)
+			.run();
+		if ((inserted.meta?.changes ?? 0) === 0) {
+			throw new HttpError(409, "Watchlist already exists; retry with the current revision.");
+		}
+		return jsonOk({ items: normalized, count: normalized.length, revision: 1, updatedAt: now });
+	}
+
+	const updated = await env.DB.prepare(
+		"UPDATE user_watchlists SET payload = ?, item_count = ?, revision = revision + 1, updated_at = ? WHERE user_id = ? AND revision = ?",
+	)
+		.bind(payload, normalized.length, now, auth.user.id, expectedRevision)
+		.run();
+	if ((updated.meta?.changes ?? 0) === 0) {
+		throw new HttpError(409, `Watchlist changed elsewhere (expected revision ${expectedRevision}).`);
+	}
+
+	return jsonOk({ items: normalized, count: normalized.length, revision: expectedRevision + 1, updatedAt: now });
 }
 
 export async function handleUpsertTicket(ticketId: string, request: Request, auth: AuthContext, env: Env): Promise<Response> {
@@ -207,6 +236,7 @@ export async function handleUpsertTicket(ticketId: string, request: Request, aut
 	if (!isRecord(body) || !isValidSymbol(body.symbol) || !isValidBroker(body.broker) || !isRecord(body.order)) {
 		throw new HttpError(400, "Ticket requires valid symbol, broker ('robinhood' | 'fidelity'), label, and order object.");
 	}
+	const expectedRevision = readExpectedRevision(body);
 
 	const label = typeof body.label === "string" ? body.label.trim() : "";
 	if (!label || label.length > MEMORY_LIMITS.maxTicketLabelChars) {
@@ -219,62 +249,138 @@ export async function handleUpsertTicket(ticketId: string, request: Request, aut
 		throw new HttpError(413, `Ticket order exceeds the ${MEMORY_LIMITS.maxTicketPayloadBytes}-byte cap.`);
 	}
 
-	const existing = await env.DB.prepare("SELECT id, created_at FROM saved_tickets WHERE id = ? AND user_id = ?")
-		.bind(ticketId, auth.user.id)
-		.first<{ id: string; created_at: string }>();
-
-	if (!existing) {
-		const countRow = await env.DB.prepare("SELECT COUNT(*) AS count FROM saved_tickets WHERE user_id = ?")
-			.bind(auth.user.id)
-			.first<{ count: number }>();
-		if ((countRow?.count ?? 0) >= MEMORY_LIMITS.maxSavedTickets) {
-			throw new HttpError(413, `Saved tickets exceed the ${MEMORY_LIMITS.maxSavedTickets}-ticket memory cap.`);
-		}
-	}
-
 	const symbol = body.symbol.toUpperCase();
 	const now = new Date().toISOString();
-	const createdAt = existing?.created_at ?? now;
 
-	await env.DB.prepare(
-		`INSERT INTO saved_tickets (id, user_id, symbol, label, broker, payload, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(user_id, id) DO UPDATE SET
-		   symbol = excluded.symbol,
-		   label = excluded.label,
-		   broker = excluded.broker,
-		   payload = excluded.payload,
-		   updated_at = excluded.updated_at`,
-	)
-		.bind(ticketId, auth.user.id, symbol, label, body.broker, payload, createdAt, now)
-		.run();
-
-	return jsonOk(
-		{
-			ticket: {
-				id: ticketId,
+	if (expectedRevision === 0) {
+		// Enforce the per-user active ticket cap atomically in the insert.
+		const inserted = await env.DB.prepare(
+			`INSERT INTO saved_tickets (id, user_id, symbol, label, broker, payload, revision, deleted_at, created_at, updated_at)
+			 SELECT ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?
+			 WHERE (SELECT COUNT(*) FROM saved_tickets WHERE user_id = ? AND deleted_at IS NULL) < ?
+			 ON CONFLICT(user_id, id) DO NOTHING`,
+		)
+			.bind(
+				ticketId,
+				auth.user.id,
 				symbol,
 				label,
-				broker: body.broker,
-				order: body.order,
-				createdAt,
-				updatedAt: now,
+				body.broker,
+				payload,
+				now,
+				now,
+				auth.user.id,
+				MEMORY_LIMITS.maxSavedTickets,
+			)
+			.run();
+
+		if ((inserted.meta?.changes ?? 0) === 0) {
+			const existing = await env.DB.prepare(
+				"SELECT revision, deleted_at FROM saved_tickets WHERE user_id = ? AND id = ?",
+			)
+				.bind(auth.user.id, ticketId)
+				.first<{ revision: number; deleted_at: string | null }>();
+			if (existing) {
+				throw new HttpError(
+					409,
+					existing.deleted_at
+						? "This ticket id was deleted; save under a new id."
+						: `Ticket already exists at revision ${existing.revision}.`,
+				);
+			}
+			throw new HttpError(413, `Saved tickets exceed the ${MEMORY_LIMITS.maxSavedTickets}-ticket memory cap.`);
+		}
+
+		return jsonOk(
+			{
+				ticket: {
+					id: ticketId,
+					symbol,
+					label,
+					broker: body.broker,
+					order: body.order,
+					revision: 1,
+					createdAt: now,
+					updatedAt: now,
+				},
+				bytes,
 			},
-			bytes,
+			201,
+		);
+	}
+
+	const updated = await env.DB.prepare(
+		`UPDATE saved_tickets
+		 SET symbol = ?, label = ?, broker = ?, payload = ?, revision = revision + 1, updated_at = ?
+		 WHERE user_id = ? AND id = ? AND deleted_at IS NULL AND revision = ?
+		 RETURNING created_at`,
+	)
+		.bind(symbol, label, body.broker, payload, now, auth.user.id, ticketId, expectedRevision)
+		.first<{ created_at: string }>();
+
+	if (!updated) {
+		const existing = await env.DB.prepare(
+			"SELECT revision, deleted_at FROM saved_tickets WHERE user_id = ? AND id = ?",
+		)
+			.bind(auth.user.id, ticketId)
+			.first<{ revision: number; deleted_at: string | null }>();
+		if (!existing) throw new HttpError(404, "Saved ticket not found.");
+		throw new HttpError(
+			409,
+			existing.deleted_at
+				? "Saved ticket was already deleted."
+				: `Ticket changed elsewhere (expected revision ${expectedRevision}, current is ${existing.revision}).`,
+		);
+	}
+
+	return jsonOk({
+		ticket: {
+			id: ticketId,
+			symbol,
+			label,
+			broker: body.broker,
+			order: body.order,
+			revision: expectedRevision + 1,
+			createdAt: updated.created_at,
+			updatedAt: now,
 		},
-		existing ? 200 : 201,
-	);
+		bytes,
+	});
 }
 
-export async function handleDeleteTicket(ticketId: string, auth: AuthContext, env: Env): Promise<Response> {
+export async function handleDeleteTicket(ticketId: string, request: Request, auth: AuthContext, env: Env): Promise<Response> {
 	if (!isValidTicketId(ticketId)) {
 		throw new HttpError(400, "Invalid ticket id.");
 	}
-	const result = await env.DB.prepare("DELETE FROM saved_tickets WHERE id = ? AND user_id = ?")
-		.bind(ticketId, auth.user.id)
-		.run();
+	const rawExpected = new URL(request.url).searchParams.get("expectedRevision");
+	let expectedRevision: number | null = null;
+	if (rawExpected !== null) {
+		const parsed = Number(rawExpected);
+		if (!Number.isInteger(parsed) || parsed < 1) {
+			throw new HttpError(400, "expectedRevision must be a positive integer.");
+		}
+		expectedRevision = parsed;
+	}
+
+	const now = new Date().toISOString();
+	const result = expectedRevision === null
+		? await env.DB.prepare(
+			"UPDATE saved_tickets SET deleted_at = ?, revision = revision + 1, updated_at = ?, payload = '{}' WHERE user_id = ? AND id = ? AND deleted_at IS NULL",
+		)
+			.bind(now, now, auth.user.id, ticketId)
+			.run()
+		: await env.DB.prepare(
+			"UPDATE saved_tickets SET deleted_at = ?, revision = revision + 1, updated_at = ?, payload = '{}' WHERE user_id = ? AND id = ? AND deleted_at IS NULL AND revision = ?",
+		)
+			.bind(now, now, auth.user.id, ticketId, expectedRevision)
+			.run();
+
 	if ((result.meta?.changes ?? 0) === 0) {
-		throw new HttpError(404, "Saved ticket not found.");
+		const existing = await env.DB.prepare("SELECT deleted_at FROM saved_tickets WHERE user_id = ? AND id = ?")
+			.bind(auth.user.id, ticketId)
+			.first<{ deleted_at: string | null }>();
+		if (!existing || existing.deleted_at) throw new HttpError(404, "Saved ticket not found.");
+		throw new HttpError(409, "Saved ticket changed elsewhere; refresh before deleting.");
 	}
 	return jsonOk({ deleted: true, id: ticketId });
 }

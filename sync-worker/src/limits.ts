@@ -56,8 +56,8 @@ export function jsonError(status: number, error: string): Response {
 	return Response.json({ error }, { status, headers: SECURITY_HEADERS });
 }
 
-/** Reads a JSON request body up to `maxBytes` without buffering unbounded payloads. */
-export async function readBoundedJson(request: Request, maxBytes = MEMORY_LIMITS.maxRequestBytes): Promise<unknown> {
+/** Reads a UTF-8 request body up to `maxBytes` without buffering unbounded payloads. */
+export async function readBoundedText(request: Request, maxBytes: number = MEMORY_LIMITS.maxRequestBytes): Promise<string> {
 	const declared = request.headers.get("Content-Length");
 	if (declared !== null && Number(declared) > maxBytes) {
 		void request.body?.cancel().catch(() => {});
@@ -88,8 +88,14 @@ export async function readBoundedJson(request: Request, maxBytes = MEMORY_LIMITS
 		offset += chunk.byteLength;
 	}
 
+	return new TextDecoder().decode(merged);
+}
+
+/** Reads a JSON request body up to `maxBytes` without buffering unbounded payloads. */
+export async function readBoundedJson(request: Request, maxBytes: number = MEMORY_LIMITS.maxRequestBytes): Promise<unknown> {
+	const text = await readBoundedText(request, maxBytes);
 	try {
-		return JSON.parse(new TextDecoder().decode(merged));
+		return JSON.parse(text);
 	} catch {
 		throw new HttpError(400, "Request body must be valid JSON.");
 	}

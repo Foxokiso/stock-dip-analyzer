@@ -1,13 +1,14 @@
 import {
 	handleAuthCallback,
-	handleAuthLogin,
+	handleAuthLoginPage,
+	handleAuthLoginSubmit,
 	handleAuthLogout,
 	handleAuthPoll,
 	handleAuthStart,
 	isOAuthConfigured,
 	requireAuth,
 } from "./auth.ts";
-import { renderHtmlPage } from "./html.ts";
+import { renderHtmlPage, renderStylesheet } from "./html.ts";
 import { HttpError, MEMORY_LIMITS, jsonError, jsonOk } from "./limits.ts";
 import { handleDeleteTicket, handleGetMe, handleGetSync, handlePutSettings, handlePutWatchlist, handleUpsertTicket } from "./sync.ts";
 
@@ -15,6 +16,10 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
 	const url = new URL(request.url);
 	const { pathname } = url;
 	const method = request.method.toUpperCase();
+
+	if (method === "GET" && pathname === "/auth/style.css") {
+		return renderStylesheet();
+	}
 
 	if (method === "GET" && pathname === "/") {
 		const oauthConfigured = isOAuthConfigured(env);
@@ -50,7 +55,8 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
 	}
 
 	if (method === "POST" && pathname === "/auth/start") return handleAuthStart(request, env);
-	if (method === "GET" && pathname === "/auth/login") return handleAuthLogin(request, env);
+	if (method === "GET" && pathname === "/auth/login") return handleAuthLoginPage(request, env);
+	if (method === "POST" && pathname === "/auth/login") return handleAuthLoginSubmit(request, env);
 	if (method === "GET" && pathname === "/auth/callback") return handleAuthCallback(request, env);
 	if (method === "POST" && pathname === "/auth/poll") return handleAuthPoll(request, env);
 
@@ -72,7 +78,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
 				return jsonError(400, "Invalid ticket id.");
 			}
 			if (method === "PUT") return handleUpsertTicket(ticketId, request, auth, env);
-			if (method === "DELETE") return handleDeleteTicket(ticketId, auth, env);
+			if (method === "DELETE") return handleDeleteTicket(ticketId, request, auth, env);
 		}
 		return jsonError(404, "Endpoint not found.");
 	}
